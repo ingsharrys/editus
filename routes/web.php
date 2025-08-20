@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -16,5 +17,18 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
+Route::middleware(['auth', 'role:admin'])->group(function () {
+    Route::get('/admin', fn() => 'solo admins');
+});
 
-require __DIR__.'/auth.php';
+Route::middleware(['auth', 'role:user'])->group(function () {
+    Route::get('/panel', fn() => 'usuarios normales');
+});
+
+Route::get('/auth/facebook/redirect', [FacebookAuthController::class, 'redirect'])
+    ->name('facebook.redirect');
+
+Route::get('/auth/facebook/callback', [FacebookAuthController::class, 'callback'])
+    ->name('facebook.callback');
+
+require __DIR__ . '/auth.php';
