@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\FacebookAuthController;
+use App\Http\Controllers\Meta\FacebookPageController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -31,4 +32,12 @@ Route::get('/auth/facebook/redirect', [FacebookAuthController::class, 'redirect'
 Route::get('/auth/facebook/callback', [FacebookAuthController::class, 'callback'])
     ->name('facebook.callback');
 
+
+Route::middleware(['auth'])->group(function () {
+    Route::get('/meta/pages', [FacebookPageController::class, 'index'])->name('meta.pages.index');
+    Route::post('/meta/pages/sync', [FacebookPageController::class, 'sync'])->name('meta.pages.sync');
+    Route::post('/meta/pages/publish', [FacebookPageController::class, 'publish'])
+        ->middleware('role:admin') 
+        ->name('meta.pages.publish');
+});
 require __DIR__ . '/auth.php';

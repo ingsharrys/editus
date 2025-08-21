@@ -8,11 +8,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use App\Models\User;
+use App\Models\SocialAccount;
 use App\Models\Role;
 
 class FacebookAuthController extends Controller
 {
-     public function redirect()
+    public function redirect()
     {
         $scopes = config('services.facebook.scopes', []);
         return Socialite::driver('facebook')
@@ -24,20 +25,36 @@ class FacebookAuthController extends Controller
     {
         $fbUser = Socialite::driver('facebook')->stateless()->user();
 
-        // Busca por email o crea uno “dummy” si no viene
         $user = User::firstOrCreate(
-            ['email' => $fbUser->getEmail() ?: (Str::uuid().'@no-email.local')],
+            ['email' => $fbUser->getEmail() ?: (Str::uuid() . '@no-email.local')],
             [
                 'name'     => $fbUser->getName() ?: $fbUser->getNickname() ?: 'FB User',
                 'password' => bcrypt(Str::random(32)),
-                // si quieres forzar rol user por defecto:
-                'role_id'  => optional(\App\Models\Role::where('slug','user')->first())->id,
+                'role_id'  => optional(\App\Models\Role::where('slug', 'user')->first())->id,
+            ]
+        );
+
+        // upsert social account
+        $expiresAt = null;
+        if (property_exists($fbUser, 'expiresIn') && $fbUser->expiresIn) {
+            $expiresAt = now()->addSeconds((int)$fbUser->expiresIn);
+        }
+
+        SocialAccount::updateOrCreate(
+            [
+                'provider'         => 'facebook',
+                'provider_user_id' => $fbUser->getId(),
+            ],
+            [
+                'user_id'      => $user->id,
+                'access_token' => $fbUser->token,
+                'refresh_token' => $fbUser->refreshToken ?? null,
+                'expires_at'   => $expiresAt,
+                'raw'          => method_exists($fbUser, 'user') ? $fbUser->user : null,
             ]
         );
 
         Auth::login($user);
-
-        return redirect('/dashboard'); // cambia a donde quieras
+        return redirect('/dashboard');
     }
-
 }

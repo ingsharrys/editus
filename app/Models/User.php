@@ -59,4 +59,14 @@ class User extends Authenticatable
     {
         return $this->hasRole('admin');
     }
+    public function socialAccounts()
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
+    public function metaPages()
+    {
+        return $this->belongsToMany(MetaPage::class, 'meta_page_user')
+            ->withPivot(['page_access_token', 'social_account_id', 'expires_at', 'is_active'])
+            ->withTimestamps();
+    }
 }
