@@ -34,13 +34,19 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-   'facebook' => [
-    'client_id'     => env('FACEBOOK_CLIENT_ID'),
-    'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
-    'redirect'      => env('FACEBOOK_REDIRECT_URI'),
-    'scopes'        => explode(',', env('FACEBOOK_SCOPES', '')),
-],
-
+    'facebook' => [
+        'client_id'     => env('FACEBOOK_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect'      => env('FACEBOOK_LOGIN_REDIRECT_URI'), // login
+        'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),  // linking
+        'scopes'        => [
+            'pages_show_list',
+            'pages_manage_posts',
+            'pages_read_engagement',
+            'public_profile',
+            'email',
+        ],
+    ],
 
 
 ];

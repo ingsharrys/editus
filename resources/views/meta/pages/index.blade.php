@@ -3,12 +3,26 @@
         <h2 class="font-semibold text-xl">Páginas de Meta</h2>
     </x-slot>
 
+    @if ($errors->any())
+        <div class="bg-red-100 text-red-800 p-3 mb-3 rounded">
+            <ul class="list-disc ml-5">
+                @foreach ($errors->all() as $e)
+                    <li>{{ $e }}</li>
+                @endforeach
+            </ul>
+        </div>
+    @endif
+
     @if (session('error'))
-        <div class="bg-red-100 p-3">{{ session('error') }}</div>
+        <div class="bg-red-100 p-3 mb-3 rounded">{{ session('error') }}</div>
     @endif
     @if (session('success'))
-        <div class="bg-green-100 p-3">{{ session('success') }}</div>
+        <div class="bg-green-100 p-3 mb-3 rounded">{{ session('success') }}</div>
     @endif
+
+    <p class="text-sm text-gray-500 mb-2">
+        Total páginas cargadas: {{ $pages->count() }}
+    </p>
 
     @php
         $hasFb = \App\Models\SocialAccount::where('user_id', auth()->id())
@@ -46,14 +60,25 @@
                 @foreach ($pages as $p)
                     <label class="flex items-center gap-2 border p-2 rounded">
                         <input type="checkbox" name="page_ids[]" value="{{ $p->id }}">
-                        @if ($p->picture_url)
-                            <img src="{{ $p->picture_url }}" class="w-8 h-8 rounded-full" alt="">
-                        @endif
+                        @php
+                            $img = "https://graph.facebook.com/v20.0/{$p->page_id}/picture?type=square&width=64&height=64";
+                        @endphp
+                        <img src="{{ $img }}" class="w-8 h-8 rounded-full" alt="">
+
                         <span>{{ $p->name }} <small class="text-gray-500">({{ $p->page_id }})</small></span>
                     </label>
                 @endforeach
             </div>
         </div>
+        @if ($errors->any())
+            <div class="bg-red-100 text-red-800 p-3 mb-3 rounded">
+                <ul class="list-disc ml-5">
+                    @foreach ($errors->all() as $e)
+                        <li>{{ $e }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
 
         @auth
             @if (auth()->user()->isAdmin())

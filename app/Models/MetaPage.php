@@ -7,16 +7,49 @@ use Illuminate\Database\Eloquent\Model;
 class MetaPage extends Model
 {
     protected $fillable = [
-        'page_id','name','category','instagram_business_account_id','picture_url','tasks'
+        'page_id',
+        'name',
+        'category',
+        'instagram_business_account_id',
+        'picture_url',
+        'tasks'
     ];
 
     protected $casts = [
         'tasks' => 'array',
     ];
 
-    public function users() {
+    public function users()
+    {
         return $this->belongsToMany(User::class, 'meta_page_user')
-            ->withPivot(['page_access_token','social_account_id','expires_at','is_active'])
+            ->withPivot(['page_access_token', 'social_account_id', 'expires_at', 'is_active'])
             ->withTimestamps();
+    }
+    public function pictureUrl(string $type = 'normal', ?int $width = null, ?int $height = null): string
+    {
+        // Si prefieres forzar siempre Graph:
+        $base = "https://graph.facebook.com/v20.0/{$this->page_id}/picture";
+        $qs = ['type' => $type];
+        if ($width)  $qs['width']  = $width;
+        if ($height) $qs['height'] = $height;
+        return $base . '?' . http_build_query($qs);
+    }
+
+    public function getPictureSmallUrlAttribute(): string
+    {
+        return $this->pictureUrl('small');
+    }
+
+    public function getPictureLargeUrlAttribute(): string
+    {
+        return $this->pictureUrl('large');
+    }
+
+    // Scope por usuario activo (útil si quieres filtrar)
+    public function scopeForUser($query, int $userId)
+    {
+        return $query->whereHas('users', function ($q) use ($userId) {
+            $q->where('users.id', $userId)->wherePivot('is_active', true);
+        });
     }
 }

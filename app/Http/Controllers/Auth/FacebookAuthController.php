@@ -13,7 +13,7 @@ use App\Models\Role;
 
 class FacebookAuthController extends Controller
 {
-    public function redirect()
+  public function redirect()
     {
         $scopes = config('services.facebook.scopes', []);
         return Socialite::driver('facebook')
@@ -34,7 +34,6 @@ class FacebookAuthController extends Controller
             ]
         );
 
-        // upsert social account
         $expiresAt = null;
         if (property_exists($fbUser, 'expiresIn') && $fbUser->expiresIn) {
             $expiresAt = now()->addSeconds((int)$fbUser->expiresIn);
@@ -55,6 +54,7 @@ class FacebookAuthController extends Controller
         );
 
         Auth::login($user);
+
         return redirect('/dashboard');
     }
 }
