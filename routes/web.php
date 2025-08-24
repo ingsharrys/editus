@@ -49,12 +49,18 @@ Route::middleware(['auth'])->group(function () {
     // Compatibilidad si Facebook vuelve a este path
     Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])
         ->name('facebook.legacy.callback');
+
+    Route::delete('/auth/facebook/unlink', [FacebookPageController::class, 'unlinkAccount'])
+        ->name('facebook.unlink');
+
+    // Desvincular una página específica (pivot del usuario actual)
+    Route::delete('/meta/pages/{metaPage}/unlink', [FacebookPageController::class, 'unlinkPage'])
+        ->name('meta.pages.unlink');
+
+    Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])
+        ->name('meta.pages.link');
 });
 
-// Route::get('/auth/facebook/redirect', [FacebookAuthController::class, 'redirect'])
-//     ->name('facebook.login.redirect');
 
-// Route::get('/auth/facebook/callback', [FacebookAuthController::class, 'callback'])
-//     ->name('facebook.login.callback');
 
 require __DIR__ . '/auth.php';

@@ -16,20 +16,47 @@ use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Auth\Access\AuthorizationException;
+use App\Support\FacebookGraph;
+
 
 class FacebookPageController extends Controller
 {
+    protected FacebookGraph $fb;
+
+    public function __construct(FacebookGraph $fb)
+    {
+        $this->fb = $fb;
+    }
     public function index(Request $request)
     {
         $user = Auth::user();
+        $ownerId = $request->query('owner_id');
 
         if ($user->isAdmin()) {
-            $pages = MetaPage::with(['users'])->latest()->paginate(20);
+            $owners = User::whereHas('metaPages')
+                ->orderBy('name')
+                ->get(['id', 'name']);
+
+            $query = \App\Models\MetaPage::with('users');
+
+            if ($ownerId) {
+                $query->whereHas('users', function ($q) use ($ownerId) {
+                    $q->where('users.id', $ownerId);
+                });
+            }
+
+            $pages = $query->latest()
+                ->paginate(18)
+                ->appends($request->query()); // <-- conserva ?owner_id en la paginación
         } else {
-            $pages = $user->metaPages()->with('users')->paginate(20);
+            $owners = collect(); // vacío para no romper la vista
+            $pages = $user->metaPages()
+                ->with('users')
+                ->paginate(18);
         }
 
-        return view('meta.pages.index', compact('pages'));
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
     }
 
 
@@ -224,5 +251,171 @@ class FacebookPageController extends Controller
         });
 
         return count($pages);
+    }
+    public function unlinkAccount()
+    {
+        $user = Auth::user();
+
+        DB::transaction(function () use ($user) {
+            // Limpia tokens del pivot de ese usuario con todas sus páginas
+            $user->metaPages()->updateExistingPivot(
+                $user->metaPages()->pluck('meta_pages.id')->all(),
+                ['is_active' => false, 'page_access_token' => null, 'expires_at' => null]
+            );
+
+            // Elimina (o deja nulo) su SocialAccount de facebook
+            SocialAccount::where('user_id', $user->id)
+                ->where('provider', 'facebook')
+                ->delete();
+        });
+
+        return back()->with('success', 'Facebook desvinculado de tu cuenta y tokens limpiados.');
+    }
+
+    public function unlinkPage(Request $request, MetaPage $metaPage)
+    {
+        $user    = auth()->user();
+        $ownerId = $request->input('owner_id'); // opcional
+
+        if ($user->isAdmin()) {
+            if ($ownerId) {
+                // Desvincula solo para ese propietario
+                $exists = $metaPage->users()->where('users.id', $ownerId)->exists();
+                if (!$exists) {
+                    return back()->with('error', 'Ese propietario no está asociado a esta página.');
+                }
+
+                $metaPage->users()->updateExistingPivot($ownerId, [
+                    'is_active'         => false,
+                    'page_access_token' => '',   // o null si tu columna lo permite
+                    'expires_at'        => null,
+                ]);
+
+                return back()->with('success', "Página «{$metaPage->name}» desvinculada para el usuario seleccionado.");
+            }
+
+            // Desvincula para todos los usuarios que tengan esta página
+            $userIds = $metaPage->users()->pluck('users.id')->all();
+            if (empty($userIds)) {
+                return back()->with('success', "Página «{$metaPage->name}» no tenía vínculos activos.");
+            }
+
+            foreach ($userIds as $uid) {
+                $metaPage->users()->updateExistingPivot($uid, [
+                    'is_active'         => false,
+                    'page_access_token' => '',   // o null si tu columna lo permite
+                    'expires_at'        => null,
+                ]);
+            }
+
+            return back()->with('success', "Página «{$metaPage->name}» desvinculada para todos los usuarios.");
+        }
+
+        // Usuario normal: solo su propio pivot
+        $exists = $user->metaPages()->where('meta_page_id', $metaPage->id)->exists();
+        abort_unless($exists, 403);
+
+        $user->metaPages()->updateExistingPivot($metaPage->id, [
+            'is_active'         => false,
+            'page_access_token' => '',   // o null si tu columna lo permite
+            'expires_at'        => null,
+        ]);
+
+        return back()->with('success', "Página «{$metaPage->name}» desvinculada.");
+    }
+
+    public function linkSinglePage(Request $request, MetaPage $metaPage)
+    {
+        $user    = auth()->user();
+        $ownerId = $request->input('owner_id'); // opcional: admin puede forzar propietario
+
+        // === Usuario normal: solo su propia página ===
+        if (!$user->isAdmin()) {
+            $pivot = $user->metaPages()->where('meta_page_id', $metaPage->id)->first();
+            abort_unless($pivot, 403);
+
+            $social = SocialAccount::where('user_id', $user->id)
+                ->where('provider', 'facebook')
+                ->first();
+
+            if (!$social) {
+                return redirect()->route('facebook.redirect')
+                    ->with('info', 'Conecta tu Facebook y vuelve a intentar.');
+            }
+
+            $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string)$metaPage->page_id);
+            if (!$found || empty($found['access_token'])) {
+                return back()->with('error', 'No se encontró token para esta página. Verifica tu rol y permisos (pages_manage_posts).');
+            }
+
+            // Actualiza metadatos (opcional)
+            $metaPage->update([
+                'name'        => $found['name'] ?? $metaPage->name,
+                'category'    => $found['category'] ?? $metaPage->category,
+                'picture_url' => "https://graph.facebook.com/v20.0/{$metaPage->page_id}/picture?type=normal",
+                'tasks'       => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
+                'instagram_business_account_id' => data_get($found, 'connected_instagram_business_account.id', $metaPage->instagram_business_account_id),
+            ]);
+
+            // Reactiva SOLO el pivot del usuario actual
+            $user->metaPages()->syncWithoutDetaching([
+                $metaPage->id => [
+                    'page_access_token' => $found['access_token'],
+                    'social_account_id' => $social->id,
+                    'expires_at'        => null,
+                    'is_active'         => true,
+                ]
+            ]);
+
+            return back()->with('success', "Página «{$metaPage->name}» vinculada correctamente.");
+        }
+
+        // === ADMIN ===
+        // Si vino owner_id, úsalo; si no, detecta un propietario con social_account_id en el pivot
+        if ($ownerId) {
+            $owner = User::find($ownerId);
+            if (!$owner) return back()->with('error', 'El propietario especificado no existe.');
+            if (!$metaPage->users()->where('users.id', $owner->id)->exists()) {
+                return back()->with('error', 'Ese propietario no tiene esta página asociada.');
+            }
+            $social = SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
+            if (!$social) return back()->with('error', "«{$owner->name}» no tiene Facebook conectado.");
+        } else {
+            $owner = $metaPage->users()
+                ->wherePivotNotNull('social_account_id')
+                ->withPivot(['social_account_id'])
+                ->first();
+
+            if (!$owner) return back()->with('error', 'No hay un usuario propietario con Facebook conectado para esta página.');
+
+            $social = SocialAccount::find($owner->pivot->social_account_id)
+                ?: SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
+
+            if (!$social) return back()->with('error', 'No se encontró el token del propietario.');
+        }
+
+        $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string)$metaPage->page_id);
+        if (!$found || empty($found['access_token'])) {
+            return back()->with('error', 'El propietario no tiene permisos actuales sobre esta página o no hay token.');
+        }
+
+        // Actualiza metadatos (opcional)
+        $metaPage->update([
+            'name'        => $found['name'] ?? $metaPage->name,
+            'category'    => $found['category'] ?? $metaPage->category,
+            'picture_url' => "https://graph.facebook.com/v20.0/{$metaPage->page_id}/picture?type=normal",
+            'tasks'       => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
+            'instagram_business_account_id' => data_get($found, 'connected_instagram_business_account.id', $metaPage->instagram_business_account_id),
+        ]);
+
+        // Reactiva el pivot del DUEÑO (no el del admin)
+        $metaPage->users()->updateExistingPivot($owner->id, [
+            'page_access_token' => $found['access_token'],
+            'social_account_id' => $social->id,
+            'expires_at'        => null,
+            'is_active'         => true,
+        ]);
+
+        return back()->with('success', "Página «{$metaPage->name}» vinculada usando la cuenta de «{$owner->name}».");
     }
 }
