@@ -27,6 +27,7 @@ Route::middleware(['auth', 'role:user'])->group(function () {
 });
 
 
+
 // ===== Conectar y gestionar páginas (requiere sesión en tu app) =====
 Route::middleware(['auth'])->group(function () {
     Route::get('/meta/pages', [FacebookPageController::class, 'index'])
@@ -39,12 +40,18 @@ Route::middleware(['auth'])->group(function () {
         ->middleware('role:admin')
         ->name('meta.pages.publish');
 
-    // Mantén estos nombres porque tu sync() los usa cuando no hay SocialAccount
     Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])
-        ->name('facebook.redirect'); // <-- este nombre es el que espera sync()
+        ->name('facebook.redirect');
 
     Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])
         ->name('facebook.callback');
+
+    Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])
+        ->name('facebook.link.redirect');
+
+    Route::get('/auth/facebook/link/callback', [FacebookPageController::class, 'linkCallback'])
+        ->name('facebook.link.callback');
+
 
     // Compatibilidad si Facebook vuelve a este path
     Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])
@@ -60,6 +67,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])
         ->name('meta.pages.link');
 });
+
 
 
 

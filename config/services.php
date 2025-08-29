@@ -39,7 +39,7 @@ return [
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
         'redirect'      => env('FACEBOOK_LOGIN_REDIRECT_URI'),
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
-        'scopes'        => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts,pages_read_engagement,public_profile')))
+        'scopes'        => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
     ],
 
 
