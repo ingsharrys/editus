@@ -207,178 +207,182 @@
 
 
         {{-- Publicar --}}
-        <form method="POST" action="{{ route('meta.pages.publish') }}" class="space-y-4" id="publishForm">
-            @csrf
-            <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                {{-- Mensaje --}}
-                <div>
-                    <div class="flex items-center justify-between mb-1">
-                        <label for="messageInput" class="block text-sm font-medium">Mensaje</label>
-                        <span class="text-[11px] text-gray-500">
-                            <span id="msgCount">0</span> / 63206
-                        </span>
+        @auth
+            @if (auth()->user()->role_id === 1)
+                <form method="POST" action="{{ route('meta.pages.publish') }}" class="space-y-4" id="publishForm">
+                    @csrf
+                    <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                        {{-- Mensaje --}}
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label for="messageInput" class="block text-sm font-medium">Mensaje</label>
+                                <span class="text-[11px] text-gray-500">
+                                    <span id="msgCount">0</span> / 63206
+                                </span>
+                            </div>
+
+                            <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…" required
+                                class="w-full min-h-[96px] rounded-xl border border-gray-200 px-3 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"></textarea>
+
+                            <p class="mt-1 text-[11px] text-gray-500">
+                                Consejo: puedes pegar emojis y enlaces; nosotros nos encargamos del formato.
+                            </p>
+                        </div>
+
+                        {{-- Enlace (opcional) --}}
+                        <div class="mt-4">
+                            <label for="linkInput" class="block text-sm font-medium mb-1">Enlace (opcional)</label>
+
+                            <div class="relative">
+                                <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                    {{-- icono link --}}
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"
+                                        fill="currentColor">
+                                        <path
+                                            d="M10.59 13.41a1 1 0 0 0 1.41 1.41l4.24-4.24a3 3 0 1 0-4.24-4.24L9.17 8.17a1 1 0 1 0 1.41 1.41l2.12-2.12a1 1 0 1 1 1.41 1.41l-4.24 4.24ZM13.41 10.59a1 1 0 0 0-1.41-1.41L7.76 13.41a3 3 0 1 0 4.24 4.24l2.83-2.83a1 1 0 0 0-1.41-1.41l-2.83 2.83a1 1 0 0 1-1.41-1.41l4.24-4.24Z" />
+                                    </svg>
+                                </span>
+
+                                <input id="linkInput" type="url" name="link" placeholder="https://tusitio.com/…"
+                                    class="w-full rounded-xl border border-gray-200 pl-9 pr-20 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500" />
+
+                                <button type="button" id="clearLink"
+                                    class="absolute right-2 top-1/2 -translate-y-1/2 hidden rounded-md px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
+                                    title="Limpiar enlace">
+                                    Limpiar
+                                </button>
+                            </div>
+
+                            <p class="mt-1 text-[11px] text-gray-500">
+                                Usa <code>http://</code> o <code>https://</code>. Si dejas vacío, se publicará solo el texto.
+                            </p>
+                        </div>
                     </div>
+            @endif
+        @endauth
 
-                    <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…" required
-                        class="w-full min-h-[96px] rounded-xl border border-gray-200 px-3 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"></textarea>
 
-                    <p class="mt-1 text-[11px] text-gray-500">
-                        Consejo: puedes pegar emojis y enlaces; nosotros nos encargamos del formato.
-                    </p>
-                </div>
 
-                {{-- Enlace (opcional) --}}
-                <div class="mt-4">
-                    <label for="linkInput" class="block text-sm font-medium mb-1">Enlace (opcional)</label>
+        <div class="rounded-xl border border-gray-200 bg-white p-4">
+            <div class="flex items-center justify-between mb-3">
+                <p class="font-semibold">Selecciona páginas para publicar</p>
+                <span class="text-xs text-gray-500">Solo publicará en páginas Sincronizadas</span>
+            </div>
 
-                    <div class="relative">
-                        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                            {{-- icono link --}}
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24"
-                                fill="currentColor">
-                                <path
-                                    d="M10.59 13.41a1 1 0 0 0 1.41 1.41l4.24-4.24a3 3 0 1 0-4.24-4.24L9.17 8.17a1 1 0 1 0 1.41 1.41l2.12-2.12a1 1 0 1 1 1.41 1.41l-4.24 4.24ZM13.41 10.59a1 1 0 0 0-1.41-1.41L7.76 13.41a3 3 0 1 0 4.24 4.24l2.83-2.83a1 1 0 0 0-1.41-1.41l-2.83 2.83a1 1 0 0 1-1.41-1.41l4.24-4.24Z" />
-                            </svg>
-                        </span>
+            {{-- GRID de tarjetas --}}
+            <div id="pagesGrid" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                @foreach ($pages as $p)
+                    @php
+                        $isAdmin = auth()->user()->isAdmin();
 
-                        <input id="linkInput" type="url" name="link" placeholder="https://tusitio.com/…"
-                            class="w-full rounded-xl border border-gray-200 pl-9 pr-20 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500" />
+                        // Tu pivot
+                        $myPivot = optional($p->users->firstWhere('id', auth()->id()))->pivot;
+                        $isActiveMine = (bool) $myPivot?->is_active;
+                        $hasTokenMine = !empty($myPivot?->page_access_token);
 
-                        <button type="button" id="clearLink"
-                            class="absolute right-2 top-1/2 -translate-y-1/2 hidden rounded-md px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
-                            title="Limpiar enlace">
-                            Limpiar
+                        // Pivot ACTIVO de cualquier dueño (para admins)
+                        $activeOwnerUser = $p->users->first(fn($u) => $u->pivot && $u->pivot->is_active);
+                        $ownerName = $activeOwnerUser?->name;
+                        $okForAdmin = (bool) $activeOwnerUser;
+
+                        // Estado final de la tarjeta
+                        $ok = $isAdmin ? $okForAdmin : $isActiveMine && $hasTokenMine;
+
+                        $img = "https://graph.facebook.com/v20.0/{$p->page_id}/picture?type=square&width=96&height=96";
+                    @endphp
+
+                    <div class="page-card group rounded-xl border {{ $ok ? 'border-gray-200' : 'border-amber-200' }} bg-white p-3 hover:shadow-sm transition"
+                        data-name="{{ Str::lower($p->name . ' ' . $p->page_id) }}"
+                        data-status="{{ $ok ? 'active' : 'inactive' }}">
+
+                        <div class="flex items-center gap-3">
+                            <img src="{{ $img }}" alt=""
+                                class="w-12 h-12 rounded-full ring-1 ring-gray-200" loading="lazy">
+                            <div class="min-w-0">
+                                <div class="truncate font-semibold">{{ $p->name }}</div>
+                            </div>
+
+                            {{-- Estado compacto: puntico + origen --}}
+                            <div class="ml-auto flex flex-col items-end gap-1">
+                                <span
+                                    class="inline-block h-2.5 w-2.5 rounded-full {{ $ok ? 'bg-green-500' : 'bg-amber-400' }}"
+                                    title="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"
+                                    aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}">
+                                </span>
+
+                                @if ($isAdmin && $ownerName)
+                                    <span class="text-[10px] leading-none text-blue-500">
+                                        {{ $ownerName }}</span>
+                                @endif
+                            </div>
+
+                        </div>
+
+
+
+                        <div class="mt-3 flex items-center gap-2">
+                            <label class="flex items-center gap-2">
+                                <input type="checkbox" name="page_ids[]" value="{{ $p->id }}"
+                                    class="page-checkbox rounded border-gray-300" {{ $ok ? '' : 'disabled' }}>
+                                <span class="text-sm text-gray-700">Publicar aquí</span>
+                            </label>
+
+                            <div class="ml-auto flex items-center gap-2">
+                                @if ($isAdmin)
+                                    {{-- Admin: toggle según haya pivot activo de algún dueño --}}
+                                    @if ($okForAdmin)
+                                        <button type="submit" form="unlink-{{ $p->id }}"
+                                            class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200"
+                                            onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}» para todos los usuarios?');">
+                                            Desvincular
+                                        </button>
+                                    @else
+                                        <button type="submit" form="link-{{ $p->id }}"
+                                            class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                                            onclick="event.stopPropagation();">
+                                            Vincular
+                                        </button>
+                                    @endif
+                                @else
+                                    {{-- Usuario normal: toggle según su propio pivot --}}
+                                    @if ($isActiveMine && $hasTokenMine)
+                                        <button type="submit" form="unlink-{{ $p->id }}"
+                                            class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200"
+                                            onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}»?');">
+                                            Desvincular
+                                        </button>
+                                    @else
+                                        <button type="submit" form="link-{{ $p->id }}"
+                                            class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                                            onclick="event.stopPropagation();">
+                                            Vincular
+                                        </button>
+                                    @endif
+                                @endif
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        @auth
+            @if (auth()->user()->isAdmin())
+                <div class="sticky bottom-4 z-10">
+                    <div class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm flex items-center justify-between">
+                        <div class="text-sm text-gray-600"><span id="selectedCountFooter">0</span> páginas seleccionadas
+                        </div>
+                        <button id="publishBtn"
+                            class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                            Publicar (Admin)
                         </button>
                     </div>
-
-                    <p class="mt-1 text-[11px] text-gray-500">
-                        Usa <code>http://</code> o <code>https://</code>. Si dejas vacío, se publicará solo el texto.
-                    </p>
                 </div>
-            </div>
-
-
-            <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <div class="flex items-center justify-between mb-3">
-                    <p class="font-semibold">Selecciona páginas para publicar</p>
-                    <span class="text-xs text-gray-500">Solo publicará en páginas Sincronizadas</span>
-                </div>
-
-                {{-- GRID de tarjetas --}}
-                <div id="pagesGrid" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    @foreach ($pages as $p)
-                        @php
-                            $isAdmin = auth()->user()->isAdmin();
-
-                            // Tu pivot
-                            $myPivot = optional($p->users->firstWhere('id', auth()->id()))->pivot;
-                            $isActiveMine = (bool) $myPivot?->is_active;
-                            $hasTokenMine = !empty($myPivot?->page_access_token);
-
-                            // Pivot ACTIVO de cualquier dueño (para admins)
-                            $activeOwnerUser = $p->users->first(fn($u) => $u->pivot && $u->pivot->is_active);
-                            $ownerName = $activeOwnerUser?->name;
-                            $okForAdmin = (bool) $activeOwnerUser;
-
-                            // Estado final de la tarjeta
-                            $ok = $isAdmin ? $okForAdmin : $isActiveMine && $hasTokenMine;
-
-                            $img = "https://graph.facebook.com/v20.0/{$p->page_id}/picture?type=square&width=96&height=96";
-                        @endphp
-
-                        <div class="page-card group rounded-xl border {{ $ok ? 'border-gray-200' : 'border-amber-200' }} bg-white p-3 hover:shadow-sm transition"
-                            data-name="{{ Str::lower($p->name . ' ' . $p->page_id) }}"
-                            data-status="{{ $ok ? 'active' : 'inactive' }}">
-
-                            <div class="flex items-center gap-3">
-                                <img src="{{ $img }}" alt=""
-                                    class="w-12 h-12 rounded-full ring-1 ring-gray-200" loading="lazy">
-                                <div class="min-w-0">
-                                    <div class="truncate font-semibold">{{ $p->name }}</div>
-                                </div>
-
-                                {{-- Estado compacto: puntico + origen --}}
-                                <div class="ml-auto flex flex-col items-end gap-1">
-                                    <span
-                                        class="inline-block h-2.5 w-2.5 rounded-full {{ $ok ? 'bg-green-500' : 'bg-amber-400' }}"
-                                        title="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"
-                                        aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}">
-                                    </span>
-
-                                    @if ($isAdmin && $ownerName)
-                                        <span class="text-[10px] leading-none text-blue-500">
-                                            {{ $ownerName }}</span>
-                                    @endif
-                                </div>
-
-                            </div>
-
-
-
-                            <div class="mt-3 flex items-center gap-2">
-                                <label class="flex items-center gap-2">
-                                    <input type="checkbox" name="page_ids[]" value="{{ $p->id }}"
-                                        class="page-checkbox rounded border-gray-300" {{ $ok ? '' : 'disabled' }}>
-                                    <span class="text-sm text-gray-700">Publicar aquí</span>
-                                </label>
-
-                                <div class="ml-auto flex items-center gap-2">
-                                    @if ($isAdmin)
-                                        {{-- Admin: toggle según haya pivot activo de algún dueño --}}
-                                        @if ($okForAdmin)
-                                            <button type="submit" form="unlink-{{ $p->id }}"
-                                                class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200"
-                                                onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}» para todos los usuarios?');">
-                                                Desvincular
-                                            </button>
-                                        @else
-                                            <button type="submit" form="link-{{ $p->id }}"
-                                                class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                                                onclick="event.stopPropagation();">
-                                                Vincular
-                                            </button>
-                                        @endif
-                                    @else
-                                        {{-- Usuario normal: toggle según su propio pivot --}}
-                                        @if ($isActiveMine && $hasTokenMine)
-                                            <button type="submit" form="unlink-{{ $p->id }}"
-                                                class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200"
-                                                onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}»?');">
-                                                Desvincular
-                                            </button>
-                                        @else
-                                            <button type="submit" form="link-{{ $p->id }}"
-                                                class="inline-flex items-center text-xs px-2 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                                                onclick="event.stopPropagation();">
-                                                Vincular
-                                            </button>
-                                        @endif
-                                    @endif
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            </div>
-
-            @auth
-                @if (auth()->user()->isAdmin())
-                    <div class="sticky bottom-4 z-10">
-                        <div
-                            class="rounded-xl border border-gray-200 bg-white p-3 shadow-sm flex items-center justify-between">
-                            <div class="text-sm text-gray-600"><span id="selectedCountFooter">0</span> páginas seleccionadas
-                            </div>
-                            <button id="publishBtn"
-                                class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled>
-                                Publicar (Admin)
-                            </button>
-                        </div>
-                    </div>
-                @else
-                    <p class="text-sm text-gray-500">Solo el admin puede publicar en múltiples páginas.</p>
-                @endif
-            @endauth
+            @else
+                <p class="text-sm text-gray-500">Solo el admin puede publicar en múltiples páginas.</p>
+            @endif
+        @endauth
         </form>
 
         {{-- Forms ocultos para acciones por página --}}
