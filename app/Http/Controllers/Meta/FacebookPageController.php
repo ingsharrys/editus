@@ -187,7 +187,7 @@ class FacebookPageController extends Controller
     }
     public function publish(Request $request)
     {
-        // 1) Validación
+        // 1) Validación base
         $request->validate([
             'type'        => ['required', 'in:text,photo,video'],
             'page_ids'    => ['required', 'array', 'min:1'],
@@ -196,18 +196,20 @@ class FacebookPageController extends Controller
             'link'        => ['nullable', 'url'],
             'photos'      => ['nullable', 'array', 'max:50'],
             'photos.*'    => ['file', 'image', 'max:10240'], // 10MB
+            'video'       => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm', 'max:512000'], // ~500MB
         ]);
 
+        // Validación condicional
         if ($request->type === 'text') {
-            $request->validate([
-                'message' => ['required', 'string', 'max:63206'],
-            ]);
+            $request->validate(['message' => ['required', 'string', 'max:63206']]);
         } elseif ($request->type === 'photo') {
             if (!$request->hasFile('photos')) {
                 return back()->withErrors(['photos' => 'Selecciona al menos una imagen.'])->withInput();
             }
-        } else {
-            return back()->with('error', 'Publicación de video aún no habilitada.')->withInput();
+        } elseif ($request->type === 'video') {
+            if (!$request->hasFile('video')) {
+                return back()->withErrors(['video' => 'Selecciona un video.'])->withInput();
+            }
         }
 
         // 2) Páginas destino
@@ -246,73 +248,47 @@ class FacebookPageController extends Controller
             try {
                 if ($request->type === 'text') {
                     // === TEXTO/ENLACE ===
-                    $payload = [
-                        'message'      => $request->message,
-                        'access_token' => $token,
-                    ];
-                    if ($request->filled('link')) {
-                        $payload['link'] = $request->link;
-                    }
+                    $payload = ['message' => $request->message, 'access_token' => $token];
+                    if ($request->filled('link')) $payload['link'] = $request->link;
 
                     $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
-
                     $ok   = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
-                        $postId = data_get($body, 'id'); // ej: {pageId_postId}
-                        $permalink = null;
-
-                        // intenta recuperar permalink_url (no es fatal si falla)
-                        try {
-                            $r2 = Http::get("https://graph.facebook.com/v20.0/{$postId}", [
-                                'fields'       => 'permalink_url',
-                                'access_token' => $token,
-                            ]);
-                            if ($r2->ok()) {
-                                $permalink = data_get($r2->json(), 'permalink_url');
-                            }
-                        } catch (\Throwable $e) {
-                        }
-
-                        $postData['status']            = 'success';
-                        $postData['fb_post_id']        = $postId;
-                        $postData['fb_permalink_url']  = $permalink;
-                        $postData['published_at']      = now();
+                        $postId    = data_get($body, 'id');
+                        $permalink = $this->fetchPermalink($postId, $token);
+                        $postData['status'] = 'success';
+                        $postData['fb_post_id'] = $postId;
+                        $postData['fb_permalink_url'] = $permalink;
+                        $postData['published_at'] = now();
                     } else {
                         $postData['status'] = 'fail';
                         $postData['error']  = $resp->body();
                     }
 
                     MetaPost::create($postData);
-
-                    $results[] = [
-                        'page'  => $page->name,
-                        'ok'    => $ok,
-                        'body'  => $body,
-                        'error' => $ok ? null : $resp->body(),
-                    ];
+                    $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
                 } elseif ($request->type === 'photo') {
                     // === FOTOS (archivos) ===
-                    // 1) Guardar localmente todas las imágenes
+                    // 1) Guardar local
                     $savedPaths = [];
                     foreach ($request->file('photos', []) as $file) {
-                        // carpeta por fecha: posts/YYYY/MM/DD
                         $path = $file->store('posts/' . now()->format('Y/m/d'), 'public');
                         $savedPaths[] = $path;
                     }
                     $postData['local_media'] = $savedPaths;
 
-                    // 2) Subir cada imagen a FB como unpublished para obtener media_fbid
+                    // 2) Subir unpublished y recolectar media_fbid
                     $media = [];
-                    foreach ($savedPaths as $relPath) {
-                        $abs = storage_path('app/public/' . $relPath);
-                        $handle = @fopen($abs, 'r');
-                        if ($handle === false) {
-                            Log::warning('No se pudo abrir la imagen para subir', ['path' => $abs]);
+                    foreach ($savedPaths as $rel) {
+                        $abs = storage_path('app/public/' . $rel);
+                        $h = @fopen($abs, 'r');
+                        if ($h === false) {
+                            Log::warning('No se pudo abrir imagen', ['path' => $abs]);
                             continue;
                         }
-                        $r = Http::attach('source', $handle, basename($abs))
+                        $r = Http::attach('source', $h, basename($abs))
                             ->post("https://graph.facebook.com/v20.0/{$pageId}/photos", [
                                 'published'    => false,
                                 'access_token' => $token,
@@ -323,69 +299,74 @@ class FacebookPageController extends Controller
                             Log::warning('FB photo upload failed', ['page' => $pageId, 'resp' => $r->body()]);
                         }
                     }
-
                     if (empty($media)) {
                         $postData['status'] = 'fail';
                         $postData['error']  = 'No se pudieron subir las imágenes.';
                         MetaPost::create($postData);
-
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudieron subir las imágenes.'];
                         continue;
                     }
-
                     $postData['fb_media_ids'] = array_column($media, 'media_fbid');
 
-                    // 3) Crear el post en /feed con attached_media[index]
+                    // 3) Crear post con attached_media[index]
                     $payload = ['access_token' => $token];
-                    if ($request->filled('message')) {
-                        $payload['message'] = $request->message; // caption opcional
-                    }
-                    foreach ($media as $i => $m) {
-                        $payload["attached_media[$i]"] = json_encode($m);
-                    }
+                    if ($request->filled('message')) $payload['message'] = $request->message;
+                    foreach ($media as $i => $m) $payload["attached_media[$i]"] = json_encode($m);
 
                     $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
-
                     $ok   = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
-                        $postId = data_get($body, 'id');
-                        $permalink = null;
-                        try {
-                            $r2 = Http::get("https://graph.facebook.com/v20.0/{$postId}", [
-                                'fields'       => 'permalink_url',
-                                'access_token' => $token,
-                            ]);
-                            if ($r2->ok()) {
-                                $permalink = data_get($r2->json(), 'permalink_url');
-                            }
-                        } catch (\Throwable $e) {
-                        }
-
-                        $postData['status']            = 'success';
-                        $postData['fb_post_id']        = $postId;
-                        $postData['fb_permalink_url']  = $permalink;
-                        $postData['published_at']      = now();
+                        $postId    = data_get($body, 'id');
+                        $permalink = $this->fetchPermalink($postId, $token);
+                        $postData['status'] = 'success';
+                        $postData['fb_post_id'] = $postId;
+                        $postData['fb_permalink_url'] = $permalink;
+                        $postData['published_at'] = now();
                     } else {
                         $postData['status'] = 'fail';
                         $postData['error']  = $resp->body();
                     }
 
                     MetaPost::create($postData);
+                    $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
+                } elseif ($request->type === 'video') {
+                    // === VIDEO (archivo) ===
+                    $file  = $request->file('video');
+                    $local = $file->store('videos/' . now()->format('Y/m/d'), 'public');
+                    $postData['local_media'] = [$local];
 
-                    $results[] = [
-                        'page'  => $page->name,
-                        'ok'    => $ok,
-                        'body'  => $body,
-                        'error' => $ok ? null : $resp->body(),
-                    ];
+                    $abs  = storage_path('app/public/' . $local);
+                    $size = @filesize($abs) ?: 0;
+
+                    // threshold para usar chunked
+                    $threshold = 8 * 1024 * 1024; // 8MB
+                    $videoId = $size <= $threshold
+                        ? $this->uploadVideoSimple($pageId, $token, $abs, basename($abs), $request->message)
+                        : $this->uploadVideoResumable($pageId, $token, $abs, $request->message);
+
+                    if ($videoId) {
+                        $permalink = $this->fetchPermalink($videoId, $token);
+                        $postData['status'] = 'success';
+                        $postData['fb_post_id'] = $videoId;
+                        $postData['fb_media_ids'] = [$videoId];
+                        $postData['fb_permalink_url'] = $permalink;
+                        $postData['published_at'] = now();
+
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => true, 'body' => ['video_id' => $videoId], 'error' => null];
+                    } else {
+                        $postData['status'] = 'fail';
+                        $postData['error']  = 'No se pudo subir el video.';
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudo subir el video.'];
+                    }
                 }
             } catch (\Throwable $e) {
                 $postData['status'] = 'fail';
                 $postData['error']  = $e->getMessage();
                 MetaPost::create($postData);
-
                 $results[] = ['page' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
             }
         }
@@ -397,6 +378,7 @@ class FacebookPageController extends Controller
             ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
             ->with('publish_results', $results);
     }
+
 
     protected function socialite()
     {
