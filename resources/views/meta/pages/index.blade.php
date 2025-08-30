@@ -295,7 +295,6 @@
                                 <span id="photoCount">0</span> imagen(es) seleccionadas. Máx. 10 MB c/u.
                             </p>
                         </div>
-
                         {{-- Video (solo cuando type=video) --}}
                         <div id="videoWrap" class="mt-4 hidden">
                             <label for="videoFile" class="block text-sm font-medium mb-1">Selecciona un video</label>
@@ -306,18 +305,16 @@
                             {{-- Previsualización --}}
                             <video id="videoPreview" class="mt-3 w-full max-w-md rounded-lg border" controls
                                 style="display:none"></video>
-                            <div id="videoErrors" class="mt-2 text-xs text-red-600 hidden"></div>
 
                             <p class="mt-2 text-[11px] text-gray-500">
-                                Formatos comunes: MP4/WEBM/MOV. Límite aprox. 500 MB.
+                                Formatos comunes: MP4/WEBM/MOV. Para archivos grandes se usará carga por partes.
                             </p>
                         </div>
 
-
                     </div>
-           
             @endif
         @endauth
+
 
 
         <div class="rounded-xl border border-gray-200 bg-white p-4">
