@@ -498,12 +498,12 @@
                 // Tipo
                 const typeText = document.getElementById('typeText');
                 const typePhoto = document.getElementById('typePhoto');
-                const typeVideo = document.getElementById('typeVideo');
+                const typeVideo = document.getElementById('typeVideo'); // <-- agregado
 
                 // Bloques condicionales
                 const linkWrap = document.getElementById('linkWrap');
                 const photoFilesWrap = document.getElementById('photoFilesWrap');
-                const videoWrap = document.getElementById('videoWrap');
+                const videoWrap = document.getElementById('videoWrap'); // <-- agregado
 
                 // Archivos / preview (fotos)
                 const photoFiles = document.getElementById('photoFiles');
@@ -512,15 +512,11 @@
                 const photoErrors = document.getElementById('photoErrors');
 
                 // Archivo / preview (video)
-                const videoFile = document.getElementById('videoFile');
-                const videoPreview = document.getElementById('videoPreview');
-                const videoErrors = document.getElementById('videoErrors');
+                const videoFile = document.getElementById('videoFile'); // <-- agregado
+                const videoPreview = document.getElementById('videoPreview'); // <-- agregado
 
-                // Límites
-                const MAX_FILES = 50; // máx fotos
-                const MAX_IMG_SIZE = 10 * 1024 * 1024; // 10MB por imagen
-                const MAX_VIDEO = 512 * 1024 * 1024; // ~500MB por video
-
+                const MAX_FILES = 50; // ajusta si quieres
+                const MAX_SIZE = 10 * 1024 * 1024; // 10MB
                 let selectedFiles = [];
 
                 // ====== FILTROS Y SELECCIÓN ======
@@ -588,6 +584,26 @@
                     link.focus();
                 });
 
+                // ====== UI: TIPO ======
+                function refreshUI() {
+                    const isText = !!typeText?.checked;
+                    const isPhoto = !!typePhoto?.checked;
+                    const isVideo = !!typeVideo?.checked;
+
+                    linkWrap?.classList.toggle('hidden', !isText);
+                    photoFilesWrap?.classList.toggle('hidden', !isPhoto);
+                    videoWrap?.classList.toggle('hidden', !isVideo);
+
+                    if (msg) msg.required = isText;
+
+                    toggleClear();
+                    updateMsg();
+                    updatePublishState();
+                }
+                typeText && typeText.addEventListener('change', refreshUI);
+                typePhoto && typePhoto.addEventListener('change', refreshUI);
+                typeVideo && typeVideo.addEventListener('change', refreshUI);
+
                 // ====== PREVIEW IMÁGENES ======
                 function fmtSize(b) {
                     return b < 1024 ? b + ' B' :
@@ -633,7 +649,7 @@
                             errors.push(`No es imagen: ${f.name}`);
                             continue;
                         }
-                        if (f.size > MAX_IMG_SIZE) {
+                        if (f.size > MAX_SIZE) {
                             errors.push(`>10MB: ${f.name}`);
                             continue;
                         }
@@ -643,7 +659,6 @@
                         selectedFiles.push(f);
                         if (selectedFiles.length >= MAX_FILES) break;
                     }
-
                     if (photoErrors) {
                         if (errors.length) {
                             photoErrors.textContent = errors.join(' · ');
@@ -653,12 +668,10 @@
                             photoErrors.classList.add('hidden');
                         }
                     }
-
                     syncInput();
                     renderPreviews();
                     updatePublishState();
                 }
-
                 photoFiles && photoFiles.addEventListener('change', () => addFiles(photoFiles.files));
                 photoPreview && photoPreview.addEventListener('click', (e) => {
                     const btn = e.target.closest('.remove-img');
@@ -672,22 +685,10 @@
                     }
                 });
 
-                // ====== PREVIEW / VALIDACIÓN VIDEO (solo publicamos; no se guarda localmente) ======
+                // ====== PREVIEW VIDEO ======
                 videoFile && videoFile.addEventListener('change', () => {
-                    videoErrors?.classList.add('hidden');
-
                     if (videoFile.files?.[0]) {
-                        const f = videoFile.files[0];
-                        if (f.size > MAX_VIDEO) {
-                            videoErrors.textContent = 'El video supera el límite de 500MB.';
-                            videoErrors.classList.remove('hidden');
-                            videoFile.value = '';
-                            videoPreview.removeAttribute('src');
-                            videoPreview.style.display = 'none';
-                            updatePublishState();
-                            return;
-                        }
-                        const url = URL.createObjectURL(f);
+                        const url = URL.createObjectURL(videoFile.files[0]);
                         videoPreview.src = url;
                         videoPreview.style.display = 'block';
                     } else {
@@ -696,41 +697,6 @@
                     }
                     updatePublishState();
                 });
-
-                // ====== UI: TIPO ======
-                function refreshUI() {
-                    const isText = !!typeText?.checked;
-                    const isPhoto = !!typePhoto?.checked;
-                    const isVideo = !!typeVideo?.checked;
-
-                    linkWrap?.classList.toggle('hidden', !isText);
-                    photoFilesWrap?.classList.toggle('hidden', !isPhoto);
-                    videoWrap?.classList.toggle('hidden', !isVideo);
-
-                    if (msg) msg.required = isText;
-
-                    // limpiar fotos si no es photo
-                    if (!isPhoto) {
-                        selectedFiles = [];
-                        syncInput();
-                        renderPreviews();
-                        photoErrors?.classList.add('hidden');
-                    }
-                    // limpiar video si no es video
-                    if (!isVideo && videoFile) {
-                        videoFile.value = '';
-                        videoPreview.removeAttribute('src');
-                        videoPreview.style.display = 'none';
-                        videoErrors?.classList.add('hidden');
-                    }
-
-                    toggleClear();
-                    updateMsg();
-                    updatePublishState();
-                }
-                typeText && typeText.addEventListener('change', refreshUI);
-                typePhoto && typePhoto.addEventListener('change', refreshUI);
-                typeVideo && typeVideo.addEventListener('change', refreshUI);
 
                 // ====== VALIDACIÓN PARA HABILITAR “PUBLICAR” ======
                 function contentValid() {
@@ -744,12 +710,10 @@
                         return pagesOk && len > 0 && len <= MAX_MSG;
                     }
                     if (isPhoto) {
-                        return pagesOk && selectedFiles.length > 0 && !photoErrors || false;
+                        return pagesOk && selectedFiles.length > 0;
                     }
                     if (isVideo) {
-                        const hasVideo = (videoFile?.files?.length || 0) > 0;
-                        const videoHasError = !videoErrors?.classList.contains('hidden');
-                        return pagesOk && hasVideo && !videoHasError;
+                        return pagesOk && (videoFile?.files?.length || 0) > 0;
                     }
                     return false;
                 }
@@ -775,7 +739,6 @@
                 refreshUI();
             })();
         </script>
-
 
 
     </div>
