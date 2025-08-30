@@ -295,6 +295,22 @@
                                 <span id="photoCount">0</span> imagen(es) seleccionadas. Máx. 10 MB c/u.
                             </p>
                         </div>
+                        {{-- Video (solo cuando type=video) --}}
+                        <div id="videoWrap" class="mt-4 hidden">
+                            <label for="videoFile" class="block text-sm font-medium mb-1">Selecciona un video</label>
+
+                            <input id="videoFile" type="file" name="video" accept="video/*"
+                                class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-white hover:file:bg-indigo-700" />
+
+                            {{-- Previsualización --}}
+                            <video id="videoPreview" class="mt-3 w-full max-w-md rounded-lg border" controls
+                                style="display:none"></video>
+
+                            <p class="mt-2 text-[11px] text-gray-500">
+                                Formatos comunes: MP4/WEBM/MOV. Para archivos grandes se usará carga por partes.
+                            </p>
+                        </div>
+
                     </div>
             @endif
         @endauth
