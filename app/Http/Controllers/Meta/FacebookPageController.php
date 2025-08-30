@@ -172,6 +172,9 @@ class FacebookPageController extends Controller
 
         $results = [];
 
+        // Batch para agrupar este envío
+        $batch = (string) \Illuminate\Support\Str::uuid();
+
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
             if (!$pivot?->page_access_token) {
@@ -184,6 +187,7 @@ class FacebookPageController extends Controller
 
             // Registro base para histórico (sin uso de storage)
             $postData = [
+                'batch_uuid'         => $batch,
                 'user_id'            => auth()->id(),
                 'meta_page_id'       => $page->id,
                 'type'               => $request->type,
@@ -323,6 +327,7 @@ class FacebookPageController extends Controller
             ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
             ->with('publish_results', $results);
     }
+
 
 
 

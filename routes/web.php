@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Meta\FacebookPageController;
+use App\Http\Controllers\MetaPostController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -66,6 +67,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])
         ->name('meta.pages.link');
+
+    Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
+    Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');
 });
 
 
