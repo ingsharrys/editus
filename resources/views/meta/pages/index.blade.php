@@ -228,8 +228,9 @@
                                         class="accent-indigo-600">
                                     <span>Foto (una o varias)</span>
                                 </label>
-                                <label class="inline-flex items-center gap-2 opacity-50" title="Próximamente">
-                                    <input type="radio" name="type" value="video" disabled class="accent-indigo-600">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="type" value="video" id="typeVideo"
+                                        class="accent-indigo-600">
                                     <span>Video</span>
                                 </label>
                             </div>
@@ -481,16 +482,22 @@
                 // Tipo
                 const typeText = document.getElementById('typeText');
                 const typePhoto = document.getElementById('typePhoto');
+                const typeVideo = document.getElementById('typeVideo'); // <-- agregado
 
                 // Bloques condicionales
                 const linkWrap = document.getElementById('linkWrap');
                 const photoFilesWrap = document.getElementById('photoFilesWrap');
+                const videoWrap = document.getElementById('videoWrap'); // <-- agregado
 
-                // Archivos / preview
+                // Archivos / preview (fotos)
                 const photoFiles = document.getElementById('photoFiles');
                 const photoPreview = document.getElementById('photoPreview');
                 const photoCount = document.getElementById('photoCount');
                 const photoErrors = document.getElementById('photoErrors');
+
+                // Archivo / preview (video)
+                const videoFile = document.getElementById('videoFile'); // <-- agregado
+                const videoPreview = document.getElementById('videoPreview'); // <-- agregado
 
                 const MAX_FILES = 50; // ajusta si quieres
                 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
@@ -521,6 +528,7 @@
                     selectedCountFooter && (selectedCountFooter.textContent = count);
                     updatePublishState();
                 }
+
                 searchInput && searchInput.addEventListener('input', applyFilters);
                 statusFilter && statusFilter.addEventListener('change', applyFilters);
                 selectAll && selectAll.addEventListener('change', () => {
@@ -563,23 +571,32 @@
                 // ====== UI: TIPO ======
                 function refreshUI() {
                     const isText = !!typeText?.checked;
+                    const isPhoto = !!typePhoto?.checked;
+                    const isVideo = !!typeVideo?.checked;
+
                     linkWrap?.classList.toggle('hidden', !isText);
-                    photoFilesWrap?.classList.toggle('hidden', isText);
+                    photoFilesWrap?.classList.toggle('hidden', !isPhoto);
+                    videoWrap?.classList.toggle('hidden', !isVideo);
+
                     if (msg) msg.required = isText;
+
                     toggleClear();
                     updateMsg();
                     updatePublishState();
                 }
                 typeText && typeText.addEventListener('change', refreshUI);
                 typePhoto && typePhoto.addEventListener('change', refreshUI);
+                typeVideo && typeVideo.addEventListener('change', refreshUI);
 
                 // ====== PREVIEW IMÁGENES ======
                 function fmtSize(b) {
-                    return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) +
-                        ' MB';
+                    return b < 1024 ? b + ' B' :
+                        b < 1048576 ? (b / 1024).toFixed(1) + ' KB' :
+                        (b / 1048576).toFixed(1) + ' MB';
                 }
 
                 function syncInput() {
+                    if (!photoFiles) return;
                     const dt = new DataTransfer();
                     selectedFiles.forEach(f => dt.items.add(f));
                     photoFiles.files = dt.files;
@@ -616,7 +633,7 @@
                             errors.push(`No es imagen: ${f.name}`);
                             continue;
                         }
-                        if (f.size > 10 * 1024 * 1024) {
+                        if (f.size > MAX_SIZE) {
                             errors.push(`>10MB: ${f.name}`);
                             continue;
                         }
@@ -652,11 +669,25 @@
                     }
                 });
 
+                // ====== PREVIEW VIDEO ======
+                videoFile && videoFile.addEventListener('change', () => {
+                    if (videoFile.files?.[0]) {
+                        const url = URL.createObjectURL(videoFile.files[0]);
+                        videoPreview.src = url;
+                        videoPreview.style.display = 'block';
+                    } else {
+                        videoPreview.removeAttribute('src');
+                        videoPreview.style.display = 'none';
+                    }
+                    updatePublishState();
+                });
+
                 // ====== VALIDACIÓN PARA HABILITAR “PUBLICAR” ======
                 function contentValid() {
                     const pagesOk = pagesSelectedCount() > 0;
                     const isText = !!typeText?.checked;
                     const isPhoto = !!typePhoto?.checked;
+                    const isVideo = !!typeVideo?.checked;
 
                     if (isText) {
                         const len = (msg?.value || '').trim().length;
@@ -664,6 +695,9 @@
                     }
                     if (isPhoto) {
                         return pagesOk && selectedFiles.length > 0;
+                    }
+                    if (isVideo) {
+                        return pagesOk && (videoFile?.files?.length || 0) > 0;
                     }
                     return false;
                 }

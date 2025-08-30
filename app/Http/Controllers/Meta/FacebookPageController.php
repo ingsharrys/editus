@@ -60,6 +60,131 @@ class FacebookPageController extends Controller
         return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
     }
 
+    private function uploadVideoSimple(string $pageId, string $token, string $absPath, string $filename, ?string $description = null): ?string
+    {
+        $payload = [
+            'access_token' => $token,
+            'published'    => true,
+        ];
+        if ($description) $payload['description'] = $description;
+
+        $resp = Http::attach('source', fopen($absPath, 'r'), $filename)
+            ->post("https://graph.facebook.com/v20.0/{$pageId}/videos", $payload);
+
+        if ($resp->ok()) {
+            // algunas respuestas traen { id: "video_id" }
+            return data_get($resp->json(), 'id');
+        }
+        Log::warning('FB simple video upload failed', ['page' => $pageId, 'resp' => $resp->body()]);
+        return null;
+    }
+
+    /**
+     * Upload reanudable (chunked) para videos grandes. Devuelve video_id o null.
+     */
+    private function uploadVideoResumable(string $pageId, string $token, string $absPath, ?string $description = null): ?string
+    {
+        $fileSize = filesize($absPath);
+        $chunkSize = 8 * 1024 * 1024; // 8MB
+        $endpoint = "https://graph.facebook.com/v20.0/{$pageId}/videos";
+
+        // 1) START
+        $start = Http::asForm()->post($endpoint, [
+            'access_token' => $token,
+            'upload_phase' => 'start',
+            'file_size'    => $fileSize,
+        ]);
+
+        if (!$start->ok()) {
+            Log::warning('FB video start failed', ['resp' => $start->body()]);
+            return null;
+        }
+
+        $sessionId   = data_get($start->json(), 'upload_session_id');
+        $startOffset = (int) data_get($start->json(), 'start_offset', 0);
+        $endOffset   = (int) data_get($start->json(), 'end_offset', 0);
+
+        // 2) TRANSFER (loop)
+        $fh = fopen($absPath, 'rb');
+        if (!$fh) return null;
+
+        try {
+            while ($startOffset < $endOffset) {
+                $length = $endOffset - $startOffset;
+                // limita chunk
+                $length = min($length, $chunkSize);
+
+                fseek($fh, $startOffset);
+                $data = fread($fh, $length);
+
+                $transfer = Http::attach('video_file_chunk', $data, 'chunk.bin')
+                    ->asForm()
+                    ->post($endpoint, [
+                        'access_token'      => $token,
+                        'upload_phase'      => 'transfer',
+                        'upload_session_id' => $sessionId,
+                        'start_offset'      => $startOffset,
+                    ]);
+
+                if (!$transfer->ok()) {
+                    Log::warning('FB video transfer failed', ['resp' => $transfer->body()]);
+                    return null;
+                }
+
+                $startOffset = (int) data_get($transfer->json(), 'start_offset', 0);
+                $endOffset   = (int) data_get($transfer->json(), 'end_offset', 0);
+            }
+        } finally {
+            fclose($fh);
+        }
+
+        // 3) FINISH
+        $finishParams = [
+            'access_token'      => $token,
+            'upload_phase'      => 'finish',
+            'upload_session_id' => $sessionId,
+            'published'         => true,
+        ];
+        if ($description) $finishParams['description'] = $description;
+
+        $finish = Http::asForm()->post($endpoint, $finishParams);
+        if ($finish->ok()) {
+            // típicamente devuelve { success: true } y el video id se consulta con la sesión, pero FB también suele incluir "video_id" en alguna fase
+            $videoId = data_get($finish->json(), 'video_id')
+                ?? $this->resolveVideoIdFromSession($sessionId, $token);
+            return $videoId;
+        }
+
+        Log::warning('FB video finish failed', ['resp' => $finish->body()]);
+        return null;
+    }
+
+    /**
+     * Intento de resolver el video_id usando la sesión (fallback).
+     */
+    private function resolveVideoIdFromSession(string $sessionId, string $token): ?string
+    {
+        // Algunos entornos no exponen endpoint público para recuperar por sesión.
+        // Como fallback, devolvemos null. Puedes implementar un log/tabla temporal si lo necesitas.
+        return null;
+    }
+
+    /**
+     * Obtiene permalink_url si es posible (no es fatal si falla).
+     */
+    private function fetchPermalink(?string $objectId, string $token): ?string
+    {
+        if (!$objectId) return null;
+        try {
+            $r = Http::get("https://graph.facebook.com/v20.0/{$objectId}", [
+                'fields'       => 'permalink_url',
+                'access_token' => $token,
+            ]);
+            return $r->ok() ? data_get($r->json(), 'permalink_url') : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
     public function publish(Request $request)
     {
         // 1) Validación
@@ -104,18 +229,18 @@ class FacebookPageController extends Controller
 
             // Registro base para histórico
             $postData = [
-                'user_id'       => auth()->id(),
-                'meta_page_id'  => $page->id,
-                'type'          => $request->type,
-                'message'       => $request->message,
-                'link'          => $request->link,
-                'local_media'   => null,
-                'fb_media_ids'  => null,
-                'status'        => 'pending',
-                'published_at'  => null,
-                'fb_post_id'    => null,
-                'fb_permalink_url' => null,
-                'error'         => null,
+                'user_id'            => auth()->id(),
+                'meta_page_id'       => $page->id,
+                'type'               => $request->type,
+                'message'            => $request->message,
+                'link'               => $request->link,
+                'local_media'        => null,
+                'fb_media_ids'       => null,
+                'status'             => 'pending',
+                'published_at'       => null,
+                'fb_post_id'         => null,
+                'fb_permalink_url'   => null,
+                'error'              => null,
             ];
 
             try {
@@ -131,7 +256,7 @@ class FacebookPageController extends Controller
 
                     $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
 
-                    $ok = $resp->ok();
+                    $ok   = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
@@ -150,10 +275,10 @@ class FacebookPageController extends Controller
                         } catch (\Throwable $e) {
                         }
 
-                        $postData['status']       = 'success';
-                        $postData['fb_post_id']   = $postId;
-                        $postData['fb_permalink_url'] = $permalink;
-                        $postData['published_at'] = now();
+                        $postData['status']            = 'success';
+                        $postData['fb_post_id']        = $postId;
+                        $postData['fb_permalink_url']  = $permalink;
+                        $postData['published_at']      = now();
                     } else {
                         $postData['status'] = 'fail';
                         $postData['error']  = $resp->body();
@@ -182,7 +307,12 @@ class FacebookPageController extends Controller
                     $media = [];
                     foreach ($savedPaths as $relPath) {
                         $abs = storage_path('app/public/' . $relPath);
-                        $r = Http::attach('source', fopen($abs, 'r'), basename($abs))
+                        $handle = @fopen($abs, 'r');
+                        if ($handle === false) {
+                            Log::warning('No se pudo abrir la imagen para subir', ['path' => $abs]);
+                            continue;
+                        }
+                        $r = Http::attach('source', $handle, basename($abs))
                             ->post("https://graph.facebook.com/v20.0/{$pageId}/photos", [
                                 'published'    => false,
                                 'access_token' => $token,
@@ -216,7 +346,7 @@ class FacebookPageController extends Controller
 
                     $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
 
-                    $ok = $resp->ok();
+                    $ok   = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
@@ -233,10 +363,10 @@ class FacebookPageController extends Controller
                         } catch (\Throwable $e) {
                         }
 
-                        $postData['status']       = 'success';
-                        $postData['fb_post_id']   = $postId;
-                        $postData['fb_permalink_url'] = $permalink;
-                        $postData['published_at'] = now();
+                        $postData['status']            = 'success';
+                        $postData['fb_post_id']        = $postId;
+                        $postData['fb_permalink_url']  = $permalink;
+                        $postData['published_at']      = now();
                     } else {
                         $postData['status'] = 'fail';
                         $postData['error']  = $resp->body();
