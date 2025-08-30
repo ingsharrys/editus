@@ -10,26 +10,32 @@
                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
                             class="bi bi-facebook" color="blue" viewBox="0 0 16 16">
                             <path d="M16 8.049c0-4.446-3.582-8.05-8-8.05C3.58 0-.002 3.603-.002 8.05c0 4.017 2.926 7.347 6.75 7.951v-5.625h-2.03V8.05H6.75V6.275
-                   c0-2.017 1.195-3.131 3.022-3.131.876 0 1.791.157
-                   1.791.157v1.98h-1.009c-.993 0-1.303.621-1.303
-                   1.258v1.51h2.218l-.354 2.326H9.25V16c3.824-.604
-                   6.75-3.934 6.75-7.951" />
+                               c0-2.017 1.195-3.131 3.022-3.131.876 0 1.791.157
+                               1.791.157v1.98h-1.009c-.993 0-1.303.621-1.303
+                               1.258v1.51h2.218l-.354 2.326H9.25V16c3.824-.604
+                               6.75-3.934 6.75-7.951" />
                         </svg>
                         <span class="text-sm font-medium text-black ml-2">Mis Paginas</span>
                     </a>
                 </li>
-                 <li>
-                    <a href="{{ route('meta.posts.index') }}"
-                        class="flex flex-row items-center pl-2 pr-4 h-12 transform hover:translate-x-2 transition-transform ease-in duration-200  text-gray-500 hover:text-gray-800">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
-                            class="bi bi-facebook" color="blue" viewBox="0 0 16 16">
-                             <path d="M11 8h2V6h-2z"/>
-  <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm8.5.5a.5.5 0 0 0-1 0v7a.5.5 0 0 0 1 0zM2 5.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5M2.5 7a.5.5 0 0 0 0 1H6a.5.5 0 0 0 0-1zM2 9.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5m8-4v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5"/>
-                        </svg>
-                        <span class="text-sm font-medium text-black ml-2">Mis Publicaciones</span>
-                    </a>
-                </li>
-            </ul>
+                @auth
+                    @if (auth()->user()->role_id === 1)
+                        <li>
+                            <a href="{{ route('meta.posts.index') }}"
+                                class="flex flex-row items-center pl-2 pr-4 h-12 transform hover:translate-x-2 transition-transform ease-in duration-200  text-gray-500 hover:text-gray-800">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                                    class="bi bi-facebook" color="blue" viewBox="0 0 16 16">
+                                    <path d="M11 8h2V6h-2z" />
+                                    <path
+                                        d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm8.5.5a.5.5 0 0 0-1 0v7a.5.5 0 0 0 1 0zM2 5.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5M2.5 7a.5.5 0 0 0 0 1H6a.5.5 0 0 0 0-1zM2 9.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5m8-4v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5" />
+                                </svg>
+                                <span class="text-sm font-medium text-black ml-2">Mis Publicaciones</span>
+                            </a>
+                        </li>
+                </ul>
+                @endif
+            @endauth
+
         </div>
     </div>
 @endauth
