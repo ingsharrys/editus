@@ -295,6 +295,7 @@
                                 <span id="photoCount">0</span> imagen(es) seleccionadas. Máx. 10 MB c/u.
                             </p>
                         </div>
+
                         {{-- Video (solo cuando type=video) --}}
                         <div id="videoWrap" class="mt-4 hidden">
                             <label for="videoFile" class="block text-sm font-medium mb-1">Selecciona un video</label>
@@ -305,16 +306,18 @@
                             {{-- Previsualización --}}
                             <video id="videoPreview" class="mt-3 w-full max-w-md rounded-lg border" controls
                                 style="display:none"></video>
+                            <div id="videoErrors" class="mt-2 text-xs text-red-600 hidden"></div>
 
                             <p class="mt-2 text-[11px] text-gray-500">
-                                Formatos comunes: MP4/WEBM/MOV. Para archivos grandes se usará carga por partes.
+                                Formatos comunes: MP4/WEBM/MOV. Límite aprox. 500 MB.
                             </p>
                         </div>
 
+
                     </div>
+                </form>
             @endif
         @endauth
-
 
 
         <div class="rounded-xl border border-gray-200 bg-white p-4">
@@ -498,12 +501,12 @@
                 // Tipo
                 const typeText = document.getElementById('typeText');
                 const typePhoto = document.getElementById('typePhoto');
-                const typeVideo = document.getElementById('typeVideo'); // <-- agregado
+                const typeVideo = document.getElementById('typeVideo');
 
                 // Bloques condicionales
                 const linkWrap = document.getElementById('linkWrap');
                 const photoFilesWrap = document.getElementById('photoFilesWrap');
-                const videoWrap = document.getElementById('videoWrap'); // <-- agregado
+                const videoWrap = document.getElementById('videoWrap');
 
                 // Archivos / preview (fotos)
                 const photoFiles = document.getElementById('photoFiles');
@@ -512,11 +515,15 @@
                 const photoErrors = document.getElementById('photoErrors');
 
                 // Archivo / preview (video)
-                const videoFile = document.getElementById('videoFile'); // <-- agregado
-                const videoPreview = document.getElementById('videoPreview'); // <-- agregado
+                const videoFile = document.getElementById('videoFile');
+                const videoPreview = document.getElementById('videoPreview');
+                const videoErrors = document.getElementById('videoErrors');
 
-                const MAX_FILES = 50; // ajusta si quieres
-                const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+                // Límites
+                const MAX_FILES = 50; // máx fotos
+                const MAX_IMG_SIZE = 10 * 1024 * 1024; // 10MB por imagen
+                const MAX_VIDEO = 512 * 1024 * 1024; // ~500MB por video
+
                 let selectedFiles = [];
 
                 // ====== FILTROS Y SELECCIÓN ======
@@ -584,26 +591,6 @@
                     link.focus();
                 });
 
-                // ====== UI: TIPO ======
-                function refreshUI() {
-                    const isText = !!typeText?.checked;
-                    const isPhoto = !!typePhoto?.checked;
-                    const isVideo = !!typeVideo?.checked;
-
-                    linkWrap?.classList.toggle('hidden', !isText);
-                    photoFilesWrap?.classList.toggle('hidden', !isPhoto);
-                    videoWrap?.classList.toggle('hidden', !isVideo);
-
-                    if (msg) msg.required = isText;
-
-                    toggleClear();
-                    updateMsg();
-                    updatePublishState();
-                }
-                typeText && typeText.addEventListener('change', refreshUI);
-                typePhoto && typePhoto.addEventListener('change', refreshUI);
-                typeVideo && typeVideo.addEventListener('change', refreshUI);
-
                 // ====== PREVIEW IMÁGENES ======
                 function fmtSize(b) {
                     return b < 1024 ? b + ' B' :
@@ -649,7 +636,7 @@
                             errors.push(`No es imagen: ${f.name}`);
                             continue;
                         }
-                        if (f.size > MAX_SIZE) {
+                        if (f.size > MAX_IMG_SIZE) {
                             errors.push(`>10MB: ${f.name}`);
                             continue;
                         }
@@ -659,6 +646,7 @@
                         selectedFiles.push(f);
                         if (selectedFiles.length >= MAX_FILES) break;
                     }
+
                     if (photoErrors) {
                         if (errors.length) {
                             photoErrors.textContent = errors.join(' · ');
@@ -668,10 +656,12 @@
                             photoErrors.classList.add('hidden');
                         }
                     }
+
                     syncInput();
                     renderPreviews();
                     updatePublishState();
                 }
+
                 photoFiles && photoFiles.addEventListener('change', () => addFiles(photoFiles.files));
                 photoPreview && photoPreview.addEventListener('click', (e) => {
                     const btn = e.target.closest('.remove-img');
@@ -685,10 +675,22 @@
                     }
                 });
 
-                // ====== PREVIEW VIDEO ======
+                // ====== PREVIEW / VALIDACIÓN VIDEO (solo publicamos; no se guarda localmente) ======
                 videoFile && videoFile.addEventListener('change', () => {
+                    videoErrors?.classList.add('hidden');
+
                     if (videoFile.files?.[0]) {
-                        const url = URL.createObjectURL(videoFile.files[0]);
+                        const f = videoFile.files[0];
+                        if (f.size > MAX_VIDEO) {
+                            videoErrors.textContent = 'El video supera el límite de 500MB.';
+                            videoErrors.classList.remove('hidden');
+                            videoFile.value = '';
+                            videoPreview.removeAttribute('src');
+                            videoPreview.style.display = 'none';
+                            updatePublishState();
+                            return;
+                        }
+                        const url = URL.createObjectURL(f);
                         videoPreview.src = url;
                         videoPreview.style.display = 'block';
                     } else {
@@ -697,6 +699,41 @@
                     }
                     updatePublishState();
                 });
+
+                // ====== UI: TIPO ======
+                function refreshUI() {
+                    const isText = !!typeText?.checked;
+                    const isPhoto = !!typePhoto?.checked;
+                    const isVideo = !!typeVideo?.checked;
+
+                    linkWrap?.classList.toggle('hidden', !isText);
+                    photoFilesWrap?.classList.toggle('hidden', !isPhoto);
+                    videoWrap?.classList.toggle('hidden', !isVideo);
+
+                    if (msg) msg.required = isText;
+
+                    // limpiar fotos si no es photo
+                    if (!isPhoto) {
+                        selectedFiles = [];
+                        syncInput();
+                        renderPreviews();
+                        photoErrors?.classList.add('hidden');
+                    }
+                    // limpiar video si no es video
+                    if (!isVideo && videoFile) {
+                        videoFile.value = '';
+                        videoPreview.removeAttribute('src');
+                        videoPreview.style.display = 'none';
+                        videoErrors?.classList.add('hidden');
+                    }
+
+                    toggleClear();
+                    updateMsg();
+                    updatePublishState();
+                }
+                typeText && typeText.addEventListener('change', refreshUI);
+                typePhoto && typePhoto.addEventListener('change', refreshUI);
+                typeVideo && typeVideo.addEventListener('change', refreshUI);
 
                 // ====== VALIDACIÓN PARA HABILITAR “PUBLICAR” ======
                 function contentValid() {
@@ -710,10 +747,12 @@
                         return pagesOk && len > 0 && len <= MAX_MSG;
                     }
                     if (isPhoto) {
-                        return pagesOk && selectedFiles.length > 0;
+                        return pagesOk && selectedFiles.length > 0 && !photoErrors || false;
                     }
                     if (isVideo) {
-                        return pagesOk && (videoFile?.files?.length || 0) > 0;
+                        const hasVideo = (videoFile?.files?.length || 0) > 0;
+                        const videoHasError = !videoErrors?.classList.contains('hidden');
+                        return pagesOk && hasVideo && !videoHasError;
                     }
                     return false;
                 }
@@ -739,6 +778,7 @@
                 refreshUI();
             })();
         </script>
+
 
 
     </div>

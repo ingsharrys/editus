@@ -60,266 +60,7 @@ class FacebookPageController extends Controller
         return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
     }
 
-    private function uploadVideoSimple(string $pageId, string $token, string $absPath, string $filename, ?string $description = null): ?string
-    {
-        $size    = @filesize($absPath) ?: 0;
-        $mime    = @mime_content_type($absPath) ?: 'application/octet-stream';
-        Log::info('FB simple video upload: init', ['page' => $pageId, 'file' => $filename, 'size_bytes' => $size, 'mime' => $mime]);
 
-        $h = @fopen($absPath, 'r');
-        if ($h === false) {
-            Log::error('FB simple video upload: fopen failed', ['page' => $pageId, 'path' => $absPath]);
-            return null;
-        }
-
-        $payload = ['access_token' => $token, 'published' => true];
-        if ($description) $payload['description'] = $description;
-
-        $t0 = microtime(true);
-        $resp = Http::timeout(300)->connectTimeout(30)
-            ->attach('source', $h, $filename)
-            ->post("https://graph.facebook.com/v20.0/{$pageId}/videos", $payload);
-        $elapsed = round((microtime(true) - $t0), 3);
-
-        if ($resp->ok()) {
-            $id = data_get($resp->json(), 'id');
-            Log::info('FB simple video upload: success', ['page' => $pageId, 'video_id' => $id, 'elapsed_s' => $elapsed]);
-            return $id;
-        }
-
-        $j = @json_decode($resp->body(), true) ?: [];
-        Log::warning('FB simple video upload: failed', [
-            'page' => $pageId,
-            'status' => $resp->status(),
-            'elapsed_s' => $elapsed,
-            'error_message' => data_get($j, 'error.message'),
-            'error_type'    => data_get($j, 'error.type'),
-            'error_code'    => data_get($j, 'error.code'),
-            'error_subcode' => data_get($j, 'error.error_subcode'),
-            'user_title'    => data_get($j, 'error.error_user_title'),
-            'user_msg'      => data_get($j, 'error.error_user_msg'),
-            'fbtrace_id'    => data_get($j, 'error.fbtrace_id'),
-            'body_snippet'  => mb_substr($resp->body(), 0, 1000),
-        ]);
-        return null;
-    }
-
-    /**
-     * Upload reanudable (chunked) para videos grandes. Devuelve video_id o null.
-     */
-    private function uploadVideoResumable(string $pageId, string $token, string $absPath, ?string $description = null): ?string
-    {
-        $fileSize = @filesize($absPath) ?: 0;
-        $mime     = @mime_content_type($absPath) ?: 'application/octet-stream';
-        if ($fileSize <= 0) {
-            Log::error('FB chunked upload: invalid file size', ['page' => $pageId, 'path' => $absPath]);
-            return null;
-        }
-
-        $endpoint = "https://graph.facebook.com/v20.0/{$pageId}/videos";
-        $client   = Http::timeout(300)->connectTimeout(30)->retry(3, 2000);
-
-        Log::info('FB chunked upload: start', [
-            'page' => $pageId,
-            'size_bytes' => $fileSize,
-            'mime' => $mime
-        ]);
-
-        // 1) START
-        $t0 = microtime(true);
-        $start = $client->asForm()->post($endpoint, [
-            'access_token' => $token,
-            'upload_phase' => 'start',
-            'file_size'    => $fileSize,
-        ]);
-        Log::info('FB chunked upload: start response', [
-            'status' => $start->status(),
-            'elapsed_s' => round(microtime(true) - $t0, 3),
-            'body_snippet' => mb_substr($start->body(), 0, 400),
-        ]);
-        if (!$start->ok()) {
-            $j = @json_decode($start->body(), true) ?: [];
-            Log::warning('FB chunked upload: start failed', [
-                'page' => $pageId,
-                'error_message' => data_get($j, 'error.message'),
-                'error_code'    => data_get($j, 'error.code'),
-                'error_subcode' => data_get($j, 'error.error_subcode'),
-                'fbtrace_id'    => data_get($j, 'error.fbtrace_id'),
-            ]);
-            return null;
-        }
-
-        $sessionId   = (string) data_get($start->json(), 'upload_session_id');
-        $startOffset = (int) data_get($start->json(), 'start_offset', 0);
-        $endOffset   = (int) data_get($start->json(), 'end_offset', 0);
-
-        Log::info('FB chunked upload: session started', [
-            'page' => $pageId,
-            'session' => $sessionId,
-            'start_offset' => $startOffset,
-            'end_offset' => $endOffset,
-        ]);
-
-        // 2) TRANSFER (usar SIEMPRE end - start EXACTO)
-        $fh = @fopen($absPath, 'rb');
-        if (!$fh) {
-            Log::error('FB chunked upload: fopen failed', ['page' => $pageId, 'path' => $absPath]);
-            return null;
-        }
-
-        try {
-            $chunkIndex = 0;
-            while ($startOffset < $endOffset) {
-                $length = $endOffset - $startOffset; // <<--- CLAVE: exacto lo que FB pidió
-
-                Log::info('FB chunked upload: transfer try', [
-                    'session' => $sessionId,
-                    'chunk_index' => $chunkIndex,
-                    'offset' => $startOffset,
-                    'length' => $length
-                ]);
-
-                if (fseek($fh, $startOffset) !== 0) {
-                    Log::warning('FB chunked upload: fseek failed', ['offset' => $startOffset, 'length' => $length]);
-                    return null;
-                }
-                $data = fread($fh, $length);
-                if ($data === false || strlen($data) !== $length) {
-                    Log::warning('FB chunked upload: fread length mismatch', [
-                        'expected' => $length,
-                        'got' => strlen((string)$data)
-                    ]);
-                    return null;
-                }
-
-                $t1 = microtime(true);
-                $transfer = $client
-                    ->attach('video_file_chunk', $data, 'chunk_' . $chunkIndex . '.bin')
-                    ->asForm()
-                    ->post($endpoint, [
-                        'access_token'      => $token,
-                        'upload_phase'      => 'transfer',
-                        'upload_session_id' => $sessionId,
-                        'start_offset'      => $startOffset,
-                    ]);
-                $elapsed = round(microtime(true) - $t1, 3);
-
-                if (!$transfer->ok()) {
-                    $j = @json_decode($transfer->body(), true) ?: [];
-                    Log::warning('FB chunked upload: transfer failed', [
-                        'status' => $transfer->status(),
-                        'elapsed_s' => $elapsed,
-                        'error_message' => data_get($j, 'error.message'),
-                        'error_code'    => data_get($j, 'error.code'),
-                        'error_subcode' => data_get($j, 'error.error_subcode'),
-                        'is_transient'  => data_get($j, 'error.is_transient'),
-                        'user_title'    => data_get($j, 'error.error_user_title'),
-                        'user_msg'      => data_get($j, 'error.error_user_msg'),
-                        'fbtrace_id'    => data_get($j, 'error.fbtrace_id'),
-                        'body_snippet'  => mb_substr($transfer->body(), 0, 400),
-                    ]);
-
-                    // Reintento manual si es transitorio o 1363030 (timeout de sesión)
-                    $transient = (bool) data_get($j, 'error.is_transient');
-                    $subcode   = (string) data_get($j, 'error.error_subcode');
-                    if ($transient || $subcode === '1363030') {
-                        usleep(400000);
-                        $retry = $client
-                            ->attach('video_file_chunk', $data, 'chunk_' . $chunkIndex . '_retry.bin')
-                            ->asForm()
-                            ->post($endpoint, [
-                                'access_token'      => $token,
-                                'upload_phase'      => 'transfer',
-                                'upload_session_id' => $sessionId,
-                                'start_offset'      => $startOffset,
-                            ]);
-                        if (!$retry->ok()) {
-                            $jr = @json_decode($retry->body(), true) ?: [];
-                            Log::warning('FB chunked upload: transfer retry failed', [
-                                'status' => $retry->status(),
-                                'error_message' => data_get($jr, 'error.message'),
-                                'error_code'    => data_get($jr, 'error.code'),
-                                'error_subcode' => data_get($jr, 'error.error_subcode'),
-                                'fbtrace_id'    => data_get($jr, 'error.fbtrace_id'),
-                            ]);
-                            return null;
-                        }
-                        $startOffset = (int) data_get($retry->json(), 'start_offset', 0);
-                        $endOffset   = (int) data_get($retry->json(), 'end_offset', 0);
-                        Log::info('FB chunked upload: transfer retry success', [
-                            'chunk_index' => $chunkIndex,
-                            'new_start_offset' => $startOffset,
-                            'new_end_offset' => $endOffset,
-                        ]);
-                        $chunkIndex++;
-                        continue;
-                    }
-                    return null;
-                }
-
-                $startOffset = (int) data_get($transfer->json(), 'start_offset', 0);
-                $endOffset   = (int) data_get($transfer->json(), 'end_offset', 0);
-
-                Log::info('FB chunked upload: transfer ok', [
-                    'chunk_index' => $chunkIndex,
-                    'next_start_offset' => $startOffset,
-                    'next_end_offset'   => $endOffset,
-                    'elapsed_s'         => $elapsed,
-                ]);
-
-                $chunkIndex++;
-            }
-        } finally {
-            @fclose($fh);
-        }
-
-        // 3) FINISH
-        $finishParams = [
-            'access_token'      => $token,
-            'upload_phase'      => 'finish',
-            'upload_session_id' => $sessionId,
-            'published'         => true,
-        ];
-        if ($description) $finishParams['description'] = $description;
-
-        $t3 = microtime(true);
-        $finish = $client->asForm()->post($endpoint, $finishParams);
-        $elapsedFinish = round(microtime(true) - $t3, 3);
-
-        if ($finish->ok()) {
-            $videoId = data_get($finish->json(), 'video_id');
-            Log::info('FB chunked upload: finish ok', ['page' => $pageId, 'session' => $sessionId, 'video_id' => $videoId, 'elapsed_s' => $elapsedFinish]);
-            return $videoId;
-        }
-
-        $jf = @json_decode($finish->body(), true) ?: [];
-        Log::warning('FB chunked upload: finish failed', [
-            'page' => $pageId,
-            'session' => $sessionId,
-            'status' => $finish->status(),
-            'elapsed_s' => $elapsedFinish,
-            'error_message' => data_get($jf, 'error.message'),
-            'error_code'    => data_get($jf, 'error.code'),
-            'error_subcode' => data_get($jf, 'error.error_subcode'),
-            'fbtrace_id'    => data_get($jf, 'error.fbtrace_id'),
-            'body_snippet'  => mb_substr($finish->body(), 0, 400),
-        ]);
-
-        return null;
-    }
-
-
-
-
-    /**
-     * Intento de resolver el video_id usando la sesión (fallback).
-     */
-    private function resolveVideoIdFromSession(string $sessionId, string $token): ?string
-    {
-        // Algunos entornos no exponen endpoint público para recuperar por sesión.
-        // Como fallback, devolvemos null. Puedes implementar un log/tabla temporal si lo necesitas.
-        return null;
-    }
 
     /**
      * Obtiene permalink_url si es posible (no es fatal si falla).
@@ -327,37 +68,75 @@ class FacebookPageController extends Controller
     private function fetchPermalink(?string $objectId, string $token): ?string
     {
         if (!$objectId) return null;
-        try {
-            $t0 = microtime(true);
-            $r = Http::timeout(30)->connectTimeout(10)->get("https://graph.facebook.com/v20.0/{$objectId}", [
-                'fields'       => 'permalink_url',
-                'access_token' => $token,
-            ]);
-            $elapsed = round((microtime(true) - $t0), 3);
 
-            if ($r->ok()) {
-                $url = data_get($r->json(), 'permalink_url');
-                Log::info('FB fetchPermalink: ok', ['object_id' => $objectId, 'elapsed_s' => $elapsed, 'permalink' => $url]);
-                return $url;
+        $endpoint = "https://graph.facebook.com/v20.0/{$objectId}";
+        $params   = [
+            'fields'       => 'permalink_url',
+            'access_token' => $token,
+        ];
+
+        $maxAttempts = 3; // pequeño backoff por si FB aún no refleja el post
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $t0 = microtime(true);
+                $resp = Http::timeout(30)
+                    ->connectTimeout(10)
+                    ->acceptJson()
+                    ->get($endpoint, $params);
+
+                $elapsed = round(microtime(true) - $t0, 3);
+
+                if ($resp->ok()) {
+                    $permalink = data_get($resp->json(), 'permalink_url');
+                    if ($permalink) {
+                        Log::info('FB fetchPermalink: ok', [
+                            'object_id'  => $objectId,
+                            'attempt'    => $attempt,
+                            'elapsed_s'  => $elapsed,
+                            'permalink'  => $permalink,
+                        ]);
+                        return $permalink;
+                    }
+                }
+
+                // Log detallado de error/respuesta
+                $body = $resp->body();
+                $json = @json_decode($body, true) ?: [];
+                Log::warning('FB fetchPermalink: failed', [
+                    'object_id'     => $objectId,
+                    'attempt'       => $attempt,
+                    'status'        => $resp->status(),
+                    'elapsed_s'     => $elapsed,
+                    'error_message' => data_get($json, 'error.message'),
+                    'error_type'    => data_get($json, 'error.type'),
+                    'error_code'    => data_get($json, 'error.code'),
+                    'error_subcode' => data_get($json, 'error.error_subcode'),
+                    'fbtrace_id'    => data_get($json, 'error.fbtrace_id'),
+                    'body_snippet'  => mb_substr($body, 0, 800),
+                ]);
+
+                // Reintenta en errores típicos/consistencia eventual
+                if (in_array($resp->status(), [400, 404, 500, 502, 503, 504]) && $attempt < $maxAttempts) {
+                    usleep(300_000); // 300ms
+                    continue;
+                }
+
+                return null;
+            } catch (\Throwable $e) {
+                Log::error('FB fetchPermalink: exception', [
+                    'object_id' => $objectId,
+                    'attempt'   => $attempt,
+                    'msg'       => $e->getMessage(),
+                ]);
+                if ($attempt < $maxAttempts) {
+                    usleep(300_000);
+                    continue;
+                }
+                return null;
             }
-
-            $j = @json_decode($r->body(), true) ?: [];
-            Log::warning('FB fetchPermalink: failed', [
-                'object_id' => $objectId,
-                'status' => $r->status(),
-                'elapsed_s' => $elapsed,
-                'error_message' => data_get($j, 'error.message'),
-                'error_type'    => data_get($j, 'error.type'),
-                'error_code'    => data_get($j, 'error.code'),
-                'error_subcode' => data_get($j, 'error.error_subcode'),
-                'fbtrace_id'    => data_get($j, 'error.fbtrace_id'),
-                'body_snippet'  => mb_substr($r->body(), 0, 800),
-            ]);
-            return null;
-        } catch (\Throwable $e) {
-            Log::error('FB fetchPermalink: exception', ['object_id' => $objectId, 'msg' => $e->getMessage()]);
-            return null;
         }
+
+        return null;
     }
     public function publish(Request $request)
     {
@@ -403,7 +182,7 @@ class FacebookPageController extends Controller
             $pageId = $page->page_id;
             $token  = $pivot->page_access_token;
 
-            // Registro base para histórico
+            // Registro base para histórico (sin uso de storage)
             $postData = [
                 'user_id'            => auth()->id(),
                 'meta_page_id'       => $page->id,
@@ -421,7 +200,7 @@ class FacebookPageController extends Controller
 
             try {
                 if ($request->type === 'text') {
-                    // === TEXTO/ENLACE ===
+                    // === TEXTO / ENLACE ===
                     $payload = ['message' => $request->message, 'access_token' => $token];
                     if ($request->filled('link')) $payload['link'] = $request->link;
 
@@ -444,35 +223,26 @@ class FacebookPageController extends Controller
                     MetaPost::create($postData);
                     $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
                 } elseif ($request->type === 'photo') {
-                    // === FOTOS (archivos) ===
-                    // 1) Guardar local
-                    $savedPaths = [];
-                    foreach ($request->file('photos', []) as $file) {
-                        $path = $file->store('posts/' . now()->format('Y/m/d'), 'public');
-                        $savedPaths[] = $path;
-                    }
-                    $postData['local_media'] = $savedPaths;
-
-                    // 2) Subir unpublished y recolectar media_fbid
+                    // === FOTOS: subir DIRECTO (tmp) como unpublished y luego post con attached_media ===
                     $media = [];
-                    foreach ($savedPaths as $rel) {
-                        $abs = storage_path('app/public/' . $rel);
-                        $h = @fopen($abs, 'r');
-                        if ($h === false) {
-                            Log::warning('No se pudo abrir imagen', ['path' => $abs]);
-                            continue;
-                        }
-                        $r = Http::attach('source', $h, basename($abs))
+                    foreach ($request->file('photos', []) as $file) {
+                        $real = $file->getRealPath();
+                        $name = $file->getClientOriginalName();
+
+                        $r = Http::attach('source', fopen($real, 'r'), $name)
+                            ->asMultipart()
                             ->post("https://graph.facebook.com/v20.0/{$pageId}/photos", [
                                 'published'    => false,
                                 'access_token' => $token,
                             ]);
+
                         if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
                             $media[] = ['media_fbid' => $id];
                         } else {
                             Log::warning('FB photo upload failed', ['page' => $pageId, 'resp' => $r->body()]);
                         }
                     }
+
                     if (empty($media)) {
                         $postData['status'] = 'fail';
                         $postData['error']  = 'No se pudieron subir las imágenes.';
@@ -480,12 +250,14 @@ class FacebookPageController extends Controller
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudieron subir las imágenes.'];
                         continue;
                     }
-                    $postData['fb_media_ids'] = array_column($media, 'media_fbid');
 
-                    // 3) Crear post con attached_media[index]
+                    $postData['fb_media_ids'] = array_map(fn($m) => $m['media_fbid'], $media);
+
                     $payload = ['access_token' => $token];
                     if ($request->filled('message')) $payload['message'] = $request->message;
-                    foreach ($media as $i => $m) $payload["attached_media[$i]"] = json_encode($m);
+                    foreach ($media as $i => $m) {
+                        $payload["attached_media[$i]"] = json_encode($m);
+                    }
 
                     $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
                     $ok   = $resp->ok();
@@ -506,35 +278,34 @@ class FacebookPageController extends Controller
                     MetaPost::create($postData);
                     $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
                 } elseif ($request->type === 'video') {
-                    // === VIDEO (archivo) ===
-                    $file  = $request->file('video');
-                    $local = $file->store('videos/' . now()->format('Y/m/d'), 'public');
-                    $postData['local_media'] = [$local];
+                    // === VIDEO: subir DIRECTO desde el tmp (sin storage) ===
+                    $file = $request->file('video');
+                    $real = $file->getRealPath();
+                    $name = $file->getClientOriginalName();
 
-                    $abs  = storage_path('app/public/' . $local);
-                    $size = @filesize($abs) ?: 0;
+                    $r = Http::attach('source', fopen($real, 'r'), $name)
+                        ->asMultipart()
+                        ->post("https://graph.facebook.com/v20.0/{$pageId}/videos", [
+                            'published'    => true,
+                            'description'  => $request->message,
+                            'access_token' => $token,
+                        ]);
 
-                    // threshold para usar chunked
-                    $threshold = 8 * 1024 * 1024; // 8MB
-                    $videoId = $size <= $threshold
-                        ? $this->uploadVideoSimple($pageId, $token, $abs, basename($abs), $request->message)
-                        : $this->uploadVideoResumable($pageId, $token, $abs, $request->message);
-
-                    if ($videoId) {
+                    if ($r->ok() && ($videoId = data_get($r->json(), 'id'))) {
                         $permalink = $this->fetchPermalink($videoId, $token);
-                        $postData['status'] = 'success';
-                        $postData['fb_post_id'] = $videoId;
-                        $postData['fb_media_ids'] = [$videoId];
-                        $postData['fb_permalink_url'] = $permalink;
-                        $postData['published_at'] = now();
+                        $postData['status']            = 'success';
+                        $postData['fb_post_id']        = $videoId;
+                        $postData['fb_media_ids']      = [$videoId];
+                        $postData['fb_permalink_url']  = $permalink;
+                        $postData['published_at']      = now();
 
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => true, 'body' => ['video_id' => $videoId], 'error' => null];
                     } else {
                         $postData['status'] = 'fail';
-                        $postData['error']  = 'No se pudo subir el video.';
+                        $postData['error']  = $r->body();
                         MetaPost::create($postData);
-                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudo subir el video.'];
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $r->body()];
                     }
                 }
             } catch (\Throwable $e) {
@@ -552,6 +323,7 @@ class FacebookPageController extends Controller
             ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
             ->with('publish_results', $results);
     }
+
 
 
     protected function socialite()
