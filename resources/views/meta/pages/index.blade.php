@@ -206,13 +206,36 @@
 
 
 
-        {{-- Publicar --}}
         @auth
             @if (auth()->user()->role_id === 1)
-                <form method="POST" action="{{ route('meta.pages.publish') }}" class="space-y-4" id="publishForm">
+                <form method="POST" action="{{ route('meta.pages.publish') }}" class="space-y-4" id="publishForm"
+                    enctype="multipart/form-data">
                     @csrf
+
                     <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-                        {{-- Mensaje --}}
+
+                        {{-- Tipo de publicación --}}
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium mb-1">Tipo de publicación</label>
+                            <div class="flex items-center gap-4 text-sm">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="type" value="text" id="typeText"
+                                        class="accent-indigo-600" checked>
+                                    <span>Texto / Enlace</span>
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="type" value="photo" id="typePhoto"
+                                        class="accent-indigo-600">
+                                    <span>Foto (una o varias)</span>
+                                </label>
+                                <label class="inline-flex items-center gap-2 opacity-50" title="Próximamente">
+                                    <input type="radio" name="type" value="video" disabled class="accent-indigo-600">
+                                    <span>Video</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        {{-- Mensaje / Caption --}}
                         <div>
                             <div class="flex items-center justify-between mb-1">
                                 <label for="messageInput" class="block text-sm font-medium">Mensaje</label>
@@ -221,16 +244,17 @@
                                 </span>
                             </div>
 
-                            <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…" required
+                            <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…"
                                 class="w-full min-h-[96px] rounded-xl border border-gray-200 px-3 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"></textarea>
 
                             <p class="mt-1 text-[11px] text-gray-500">
-                                Consejo: puedes pegar emojis y enlaces; nosotros nos encargamos del formato.
+                                En <strong>Texto/Enlace</strong> el mensaje es obligatorio. En <strong>Foto</strong>, es
+                                opcional (caption).
                             </p>
                         </div>
 
-                        {{-- Enlace (opcional) --}}
-                        <div class="mt-4">
+                        {{-- Enlace (solo type=text) --}}
+                        <div class="mt-4" id="linkWrap">
                             <label for="linkInput" class="block text-sm font-medium mb-1">Enlace (opcional)</label>
 
                             <div class="relative">
@@ -248,13 +272,26 @@
 
                                 <button type="button" id="clearLink"
                                     class="absolute right-2 top-1/2 -translate-y-1/2 hidden rounded-md px-2 py-1 text-xs text-gray-600 hover:bg-gray-100"
-                                    title="Limpiar enlace">
-                                    Limpiar
-                                </button>
+                                    title="Limpiar enlace">Limpiar</button>
                             </div>
 
-                            <p class="mt-1 text-[11px] text-gray-500">
-                                Usa <code>http://</code> o <code>https://</code>. Si dejas vacío, se publicará solo el texto.
+                            <p class="mt-1 text-[11px] text-gray-500">Usa <code>http://</code> o <code>https://</code>.</p>
+                        </div>
+
+                        {{-- Foto(s) por archivo (solo cuando type=photo) --}}
+                        <div id="photoFilesWrap" class="mt-4 hidden">
+                            <label for="photoFiles" class="block text-sm font-medium mb-1">Selecciona imagen(es)</label>
+
+                            <input id="photoFiles" type="file" name="photos[]" accept="image/*" multiple
+                                class="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-600 file:px-3 file:py-2 file:text-white hover:file:bg-indigo-700" />
+
+                            <div id="photoErrors" class="mt-2 text-xs text-red-600 hidden"></div>
+
+                            {{-- Previsualización --}}
+                            <div id="photoPreview" class="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"></div>
+
+                            <p class="mt-2 text-[11px] text-gray-500">
+                                <span id="photoCount">0</span> imagen(es) seleccionadas. Máx. 10 MB c/u.
                             </p>
                         </div>
                     </div>
@@ -421,9 +458,9 @@
             </div>
         @endif
 
-        {{-- JS mínimo: búsqueda, filtro, seleccionar todas, contador, habilitar botón --}}
         <script>
             (function() {
+                // ====== ELEMENTOS ======
                 const searchInput = document.getElementById('searchInput');
                 const statusFilter = document.getElementById('statusFilter');
                 const grid = document.getElementById('pagesGrid');
@@ -433,12 +470,40 @@
                 const selectedCountFooter = document.getElementById('selectedCountFooter');
                 const checkboxes = () => Array.from(document.querySelectorAll('.page-checkbox'));
 
+                const form = document.getElementById('publishForm');
+                const msg = document.getElementById('messageInput');
+                const msgCount = document.getElementById('msgCount');
+                const MAX_MSG = 63206;
+
+                const link = document.getElementById('linkInput');
+                const clear = document.getElementById('clearLink');
+
+                // Tipo
+                const typeText = document.getElementById('typeText');
+                const typePhoto = document.getElementById('typePhoto');
+
+                // Bloques condicionales
+                const linkWrap = document.getElementById('linkWrap');
+                const photoFilesWrap = document.getElementById('photoFilesWrap');
+
+                // Archivos / preview
+                const photoFiles = document.getElementById('photoFiles');
+                const photoPreview = document.getElementById('photoPreview');
+                const photoCount = document.getElementById('photoCount');
+                const photoErrors = document.getElementById('photoErrors');
+
+                const MAX_FILES = 50; // ajusta si quieres
+                const MAX_SIZE = 10 * 1024 * 1024; // 10MB
+                let selectedFiles = [];
+
+                // ====== FILTROS Y SELECCIÓN ======
                 function applyFilters() {
+                    if (!grid) return;
                     const q = (searchInput?.value || '').trim().toLowerCase();
                     const st = statusFilter?.value || 'all';
                     const cards = Array.from(grid.querySelectorAll('.page-card'));
                     cards.forEach(card => {
-                        const name = card.dataset.name || '';
+                        const name = (card.dataset.name || '').toLowerCase();
                         const status = card.dataset.status || 'inactive';
                         const matchesText = !q || name.includes(q);
                         const matchesStatus = st === 'all' || st === status;
@@ -446,63 +511,47 @@
                     });
                 }
 
+                function pagesSelectedCount() {
+                    return checkboxes().filter(c => c.checked).length;
+                }
+
                 function updateCounts() {
-                    const count = checkboxes().filter(c => c.checked).length;
-                    if (selectedCount) selectedCount.textContent = count;
-                    if (selectedCountFooter) selectedCountFooter.textContent = count;
-                    if (publishBtn) publishBtn.disabled = (count === 0);
+                    const count = pagesSelectedCount();
+                    selectedCount && (selectedCount.textContent = count);
+                    selectedCountFooter && (selectedCountFooter.textContent = count);
+                    updatePublishState();
                 }
-
-                if (searchInput) searchInput.addEventListener('input', applyFilters);
-                if (statusFilter) statusFilter.addEventListener('change', applyFilters);
-
-                if (selectAll) {
-                    selectAll.addEventListener('change', () => {
-                        checkboxes().forEach(c => {
-                            if (!c.disabled) c.checked = selectAll.checked;
-                        });
-                        updateCounts();
+                searchInput && searchInput.addEventListener('input', applyFilters);
+                statusFilter && statusFilter.addEventListener('change', applyFilters);
+                selectAll && selectAll.addEventListener('change', () => {
+                    checkboxes().forEach(c => {
+                        if (!c.disabled) c.checked = selectAll.checked;
                     });
-                }
-
+                    updateCounts();
+                });
                 document.addEventListener('change', (e) => {
                     if (e.target.classList.contains('page-checkbox')) updateCounts();
                 });
 
-                // init
-                applyFilters();
-                updateCounts();
-            })();
-        </script>
-        <script>
-            (function() {
-                const msg = document.getElementById('messageInput');
-                const msgCount = document.getElementById('msgCount');
-                const max = 63206;
-
-                const link = document.getElementById('linkInput');
-                const clear = document.getElementById('clearLink');
-
-                // Auto-grow del textarea + contador
+                // ====== MENSAJE ======
                 function updateMsg() {
                     if (!msg) return;
-                    // autogrow
                     msg.style.height = 'auto';
                     msg.style.height = (msg.scrollHeight) + 'px';
-                    // contador
                     const len = (msg.value || '').length;
                     if (msgCount) {
                         msgCount.textContent = len;
-                        msgCount.classList.toggle('text-red-600', len > max);
+                        msgCount.classList.toggle('text-red-600', len > MAX_MSG);
                     }
+                    updatePublishState();
                 }
                 msg && msg.addEventListener('input', updateMsg);
-                updateMsg();
 
-                // Botón limpiar enlace
+                // ====== ENLACE ======
                 function toggleClear() {
                     if (!clear || !link) return;
                     clear.classList.toggle('hidden', !(link.value || '').trim());
+                    updatePublishState();
                 }
                 link && link.addEventListener('input', toggleClear);
                 clear && clear.addEventListener('click', () => {
@@ -510,9 +559,137 @@
                     link.dispatchEvent(new Event('input'));
                     link.focus();
                 });
+
+                // ====== UI: TIPO ======
+                function refreshUI() {
+                    const isText = !!typeText?.checked;
+                    linkWrap?.classList.toggle('hidden', !isText);
+                    photoFilesWrap?.classList.toggle('hidden', isText);
+                    if (msg) msg.required = isText;
+                    toggleClear();
+                    updateMsg();
+                    updatePublishState();
+                }
+                typeText && typeText.addEventListener('change', refreshUI);
+                typePhoto && typePhoto.addEventListener('change', refreshUI);
+
+                // ====== PREVIEW IMÁGENES ======
+                function fmtSize(b) {
+                    return b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) +
+                        ' MB';
+                }
+
+                function syncInput() {
+                    const dt = new DataTransfer();
+                    selectedFiles.forEach(f => dt.items.add(f));
+                    photoFiles.files = dt.files;
+                    photoCount && (photoCount.textContent = selectedFiles.length);
+                }
+
+                function renderPreviews() {
+                    if (!photoPreview) return;
+                    photoPreview.innerHTML = '';
+                    selectedFiles.forEach((file, idx) => {
+                        const url = URL.createObjectURL(file);
+                        const card = document.createElement('div');
+                        card.className = 'relative group border rounded-xl overflow-hidden';
+                        card.innerHTML = `
+        <img src="${url}" alt="" class="w-full h-32 object-cover" loading="lazy">
+        <button type="button" data-index="${idx}"
+          class="remove-img absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 shadow hidden group-hover:block"
+          title="Quitar">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" />
+          </svg>
+        </button>
+        <div class="px-2 py-1 text-[11px] text-gray-600 truncate">${file.name} · ${fmtSize(file.size)}</div>
+      `;
+                        photoPreview.appendChild(card);
+                    });
+                }
+
+                function addFiles(fileList) {
+                    let errors = [];
+                    const incoming = Array.from(fileList || []);
+                    for (const f of incoming) {
+                        if (!f.type.startsWith('image/')) {
+                            errors.push(`No es imagen: ${f.name}`);
+                            continue;
+                        }
+                        if (f.size > 10 * 1024 * 1024) {
+                            errors.push(`>10MB: ${f.name}`);
+                            continue;
+                        }
+                        const exists = selectedFiles.some(s => s.name === f.name && s.size === f.size && s.lastModified ===
+                            f.lastModified);
+                        if (exists) continue;
+                        selectedFiles.push(f);
+                        if (selectedFiles.length >= MAX_FILES) break;
+                    }
+                    if (photoErrors) {
+                        if (errors.length) {
+                            photoErrors.textContent = errors.join(' · ');
+                            photoErrors.classList.remove('hidden');
+                        } else {
+                            photoErrors.textContent = '';
+                            photoErrors.classList.add('hidden');
+                        }
+                    }
+                    syncInput();
+                    renderPreviews();
+                    updatePublishState();
+                }
+                photoFiles && photoFiles.addEventListener('change', () => addFiles(photoFiles.files));
+                photoPreview && photoPreview.addEventListener('click', (e) => {
+                    const btn = e.target.closest('.remove-img');
+                    if (!btn) return;
+                    const idx = parseInt(btn.dataset.index, 10);
+                    if (!Number.isNaN(idx)) {
+                        selectedFiles.splice(idx, 1);
+                        syncInput();
+                        renderPreviews();
+                        updatePublishState();
+                    }
+                });
+
+                // ====== VALIDACIÓN PARA HABILITAR “PUBLICAR” ======
+                function contentValid() {
+                    const pagesOk = pagesSelectedCount() > 0;
+                    const isText = !!typeText?.checked;
+                    const isPhoto = !!typePhoto?.checked;
+
+                    if (isText) {
+                        const len = (msg?.value || '').trim().length;
+                        return pagesOk && len > 0 && len <= MAX_MSG;
+                    }
+                    if (isPhoto) {
+                        return pagesOk && selectedFiles.length > 0;
+                    }
+                    return false;
+                }
+
+                function updatePublishState() {
+                    if (!publishBtn) return;
+                    publishBtn.disabled = !contentValid();
+                }
+
+                // Evita doble submit
+                form && form.addEventListener('submit', function() {
+                    if (publishBtn) {
+                        publishBtn.disabled = true;
+                        publishBtn.textContent = 'Publicando...';
+                    }
+                });
+
+                // ====== INIT ======
+                applyFilters();
+                updateCounts();
+                updateMsg();
                 toggleClear();
+                refreshUI();
             })();
         </script>
+
 
     </div>
 @endsection

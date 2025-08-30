@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Meta;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\MetaPage;
+use App\Models\MetaPost;
 use App\Models\SocialAccount;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
@@ -22,7 +23,7 @@ use App\Support\FacebookGraph;
 
 class FacebookPageController extends Controller
 {
-     protected FacebookGraph $fb;
+    protected FacebookGraph $fb;
 
     public function __construct(FacebookGraph $fb)
     {
@@ -48,9 +49,9 @@ class FacebookPageController extends Controller
 
             $pages = $query->latest()
                 ->paginate(18)
-                ->appends($request->query()); 
+                ->appends($request->query());
         } else {
-            $owners = collect(); 
+            $owners = collect();
             $pages = $user->metaPages()
                 ->with('users')
                 ->paginate(18);
@@ -61,16 +62,33 @@ class FacebookPageController extends Controller
 
     public function publish(Request $request)
     {
+        // 1) Validación
         $request->validate([
-            'message' => ['required', 'string', 'max:63206'], 
-            'page_ids' => ['required', 'array', 'min:1'],
-            'page_ids.*' => [Rule::exists('meta_pages', 'id')],
+            'type'        => ['required', 'in:text,photo,video'],
+            'page_ids'    => ['required', 'array', 'min:1'],
+            'page_ids.*'  => [Rule::exists('meta_pages', 'id')],
+            'message'     => ['nullable', 'string', 'max:63206'],
+            'link'        => ['nullable', 'url'],
+            'photos'      => ['nullable', 'array', 'max:50'],
+            'photos.*'    => ['file', 'image', 'max:10240'], // 10MB
         ]);
 
+        if ($request->type === 'text') {
+            $request->validate([
+                'message' => ['required', 'string', 'max:63206'],
+            ]);
+        } elseif ($request->type === 'photo') {
+            if (!$request->hasFile('photos')) {
+                return back()->withErrors(['photos' => 'Selecciona al menos una imagen.'])->withInput();
+            }
+        } else {
+            return back()->with('error', 'Publicación de video aún no habilitada.')->withInput();
+        }
+
+        // 2) Páginas destino
         $pages = MetaPage::whereIn('id', $request->page_ids)
-            ->with(['users' => function ($q) {
-                $q->wherePivot('is_active', true);
-            }])->get();
+            ->with(['users' => fn($q) => $q->wherePivot('is_active', true)])
+            ->get();
 
         $results = [];
 
@@ -81,27 +99,172 @@ class FacebookPageController extends Controller
                 continue;
             }
 
-            $url = "https://graph.facebook.com/v20.0/{$page->page_id}/feed";
-            $payload = ['message' => $request->message, 'access_token' => $pivot->page_access_token];
+            $pageId = $page->page_id;
+            $token  = $pivot->page_access_token;
 
-            if ($request->filled('link')) {
-                $payload['link'] = $request->input('link');
-            }
-
-            $resp = Http::asForm()->post($url, $payload);
-
-            $results[] = [
-                'page'  => $page->name,
-                'ok'    => $resp->ok(),
-                'body'  => $resp->json(),
-                'error' => $resp->ok() ? null : $resp->body(),
+            // Registro base para histórico
+            $postData = [
+                'user_id'       => auth()->id(),
+                'meta_page_id'  => $page->id,
+                'type'          => $request->type,
+                'message'       => $request->message,
+                'link'          => $request->link,
+                'local_media'   => null,
+                'fb_media_ids'  => null,
+                'status'        => 'pending',
+                'published_at'  => null,
+                'fb_post_id'    => null,
+                'fb_permalink_url' => null,
+                'error'         => null,
             ];
+
+            try {
+                if ($request->type === 'text') {
+                    // === TEXTO/ENLACE ===
+                    $payload = [
+                        'message'      => $request->message,
+                        'access_token' => $token,
+                    ];
+                    if ($request->filled('link')) {
+                        $payload['link'] = $request->link;
+                    }
+
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
+
+                    $ok = $resp->ok();
+                    $body = $resp->json();
+
+                    if ($ok) {
+                        $postId = data_get($body, 'id'); // ej: {pageId_postId}
+                        $permalink = null;
+
+                        // intenta recuperar permalink_url (no es fatal si falla)
+                        try {
+                            $r2 = Http::get("https://graph.facebook.com/v20.0/{$postId}", [
+                                'fields'       => 'permalink_url',
+                                'access_token' => $token,
+                            ]);
+                            if ($r2->ok()) {
+                                $permalink = data_get($r2->json(), 'permalink_url');
+                            }
+                        } catch (\Throwable $e) {
+                        }
+
+                        $postData['status']       = 'success';
+                        $postData['fb_post_id']   = $postId;
+                        $postData['fb_permalink_url'] = $permalink;
+                        $postData['published_at'] = now();
+                    } else {
+                        $postData['status'] = 'fail';
+                        $postData['error']  = $resp->body();
+                    }
+
+                    MetaPost::create($postData);
+
+                    $results[] = [
+                        'page'  => $page->name,
+                        'ok'    => $ok,
+                        'body'  => $body,
+                        'error' => $ok ? null : $resp->body(),
+                    ];
+                } elseif ($request->type === 'photo') {
+                    // === FOTOS (archivos) ===
+                    // 1) Guardar localmente todas las imágenes
+                    $savedPaths = [];
+                    foreach ($request->file('photos', []) as $file) {
+                        // carpeta por fecha: posts/YYYY/MM/DD
+                        $path = $file->store('posts/' . now()->format('Y/m/d'), 'public');
+                        $savedPaths[] = $path;
+                    }
+                    $postData['local_media'] = $savedPaths;
+
+                    // 2) Subir cada imagen a FB como unpublished para obtener media_fbid
+                    $media = [];
+                    foreach ($savedPaths as $relPath) {
+                        $abs = storage_path('app/public/' . $relPath);
+                        $r = Http::attach('source', fopen($abs, 'r'), basename($abs))
+                            ->post("https://graph.facebook.com/v20.0/{$pageId}/photos", [
+                                'published'    => false,
+                                'access_token' => $token,
+                            ]);
+                        if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
+                            $media[] = ['media_fbid' => $id];
+                        } else {
+                            Log::warning('FB photo upload failed', ['page' => $pageId, 'resp' => $r->body()]);
+                        }
+                    }
+
+                    if (empty($media)) {
+                        $postData['status'] = 'fail';
+                        $postData['error']  = 'No se pudieron subir las imágenes.';
+                        MetaPost::create($postData);
+
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudieron subir las imágenes.'];
+                        continue;
+                    }
+
+                    $postData['fb_media_ids'] = array_column($media, 'media_fbid');
+
+                    // 3) Crear el post en /feed con attached_media[index]
+                    $payload = ['access_token' => $token];
+                    if ($request->filled('message')) {
+                        $payload['message'] = $request->message; // caption opcional
+                    }
+                    foreach ($media as $i => $m) {
+                        $payload["attached_media[$i]"] = json_encode($m);
+                    }
+
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
+
+                    $ok = $resp->ok();
+                    $body = $resp->json();
+
+                    if ($ok) {
+                        $postId = data_get($body, 'id');
+                        $permalink = null;
+                        try {
+                            $r2 = Http::get("https://graph.facebook.com/v20.0/{$postId}", [
+                                'fields'       => 'permalink_url',
+                                'access_token' => $token,
+                            ]);
+                            if ($r2->ok()) {
+                                $permalink = data_get($r2->json(), 'permalink_url');
+                            }
+                        } catch (\Throwable $e) {
+                        }
+
+                        $postData['status']       = 'success';
+                        $postData['fb_post_id']   = $postId;
+                        $postData['fb_permalink_url'] = $permalink;
+                        $postData['published_at'] = now();
+                    } else {
+                        $postData['status'] = 'fail';
+                        $postData['error']  = $resp->body();
+                    }
+
+                    MetaPost::create($postData);
+
+                    $results[] = [
+                        'page'  => $page->name,
+                        'ok'    => $ok,
+                        'body'  => $body,
+                        'error' => $ok ? null : $resp->body(),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                $postData['status'] = 'fail';
+                $postData['error']  = $e->getMessage();
+                MetaPost::create($postData);
+
+                $results[] = ['page' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
+            }
         }
 
         $fails = collect($results)->where('ok', false)->count();
-        $ok = collect($results)->where('ok', true)->count();
+        $ok    = collect($results)->where('ok', true)->count();
 
-        return back()->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
+        return back()
+            ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
             ->with('publish_results', $results);
     }
 
@@ -109,23 +272,23 @@ class FacebookPageController extends Controller
     {
         return Socialite::driver('facebook')
             ->scopes(config('services.facebook.scopes', []))
-             ->redirectUrl(route('facebook.link.callback')); 
+            ->redirectUrl(route('facebook.link.callback'));
     }
 
     public function linkRedirect()
     {
         return Socialite::driver('facebook')
             ->scopes(config('services.facebook.scopes') ?? [])
-            ->redirectUrl(route('facebook.link.callback'))   
+            ->redirectUrl(route('facebook.link.callback'))
             ->redirect();
     }
 
     public function linkCallback()
     {
-         $fbUser = Socialite::driver('facebook')
-        ->redirectUrl(route('facebook.link.callback'))  
-        ->user();
-        
+        $fbUser = Socialite::driver('facebook')
+            ->redirectUrl(route('facebook.link.callback'))
+            ->user();
+
         $fbUser = $this->socialite()->user();
         $current = Auth::user();
 
@@ -249,7 +412,7 @@ class FacebookPageController extends Controller
         $user = Auth::user();
 
         DB::transaction(function () use ($user) {
-        
+
             $user->metaPages()->updateExistingPivot(
                 $user->metaPages()->pluck('meta_pages.id')->all(),
                 ['is_active' => false, 'page_access_token' => null, 'expires_at' => null]
@@ -266,11 +429,11 @@ class FacebookPageController extends Controller
     public function unlinkPage(Request $request, MetaPage $metaPage)
     {
         $user    = auth()->user();
-        $ownerId = $request->input('owner_id'); 
+        $ownerId = $request->input('owner_id');
 
         if ($user->isAdmin()) {
             if ($ownerId) {
-        
+
                 $exists = $metaPage->users()->where('users.id', $ownerId)->exists();
                 if (!$exists) {
                     return back()->with('error', 'Ese propietario no está asociado a esta página.');
@@ -278,7 +441,7 @@ class FacebookPageController extends Controller
 
                 $metaPage->users()->updateExistingPivot($ownerId, [
                     'is_active'         => false,
-                    'page_access_token' => '', 
+                    'page_access_token' => '',
                     'expires_at'        => null,
                 ]);
 
@@ -293,7 +456,7 @@ class FacebookPageController extends Controller
             foreach ($userIds as $uid) {
                 $metaPage->users()->updateExistingPivot($uid, [
                     'is_active'         => false,
-                    'page_access_token' => '',   
+                    'page_access_token' => '',
                     'expires_at'        => null,
                 ]);
             }
@@ -306,7 +469,7 @@ class FacebookPageController extends Controller
 
         $user->metaPages()->updateExistingPivot($metaPage->id, [
             'is_active'         => false,
-            'page_access_token' => '',   
+            'page_access_token' => '',
             'expires_at'        => null,
         ]);
 
@@ -316,7 +479,7 @@ class FacebookPageController extends Controller
     public function linkSinglePage(Request $request, MetaPage $metaPage)
     {
         $user    = auth()->user();
-        $ownerId = $request->input('owner_id'); 
+        $ownerId = $request->input('owner_id');
 
         if (!$user->isAdmin()) {
             $pivot = $user->metaPages()->where('meta_page_id', $metaPage->id)->first();
