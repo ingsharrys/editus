@@ -84,12 +84,21 @@ class FacebookPageController extends Controller
      */
     private function uploadVideoResumable(string $pageId, string $token, string $absPath, ?string $description = null): ?string
     {
-        $fileSize = filesize($absPath);
-        $chunkSize = 8 * 1024 * 1024; // 8MB
-        $endpoint = "https://graph.facebook.com/v20.0/{$pageId}/videos";
+        $fileSize   = @filesize($absPath) ?: 0;
+        if ($fileSize <= 0) return null;
+
+        $endpoint   = "https://graph.facebook.com/v20.0/{$pageId}/videos";
+
+        // Usa chunks más pequeños para no agotar la sesión (2 MB)
+        $chunkSize  = 2 * 1024 * 1024; // 2MB
+
+        // Cliente con timeouts altos y reintentos
+        $clientBase = Http::timeout(300)          // hasta 5 min por request
+            ->connectTimeout(30)    // 30s para conectar
+            ->retry(3, 2000);       // 3 reintentos con 2s entre intentos
 
         // 1) START
-        $start = Http::asForm()->post($endpoint, [
+        $start = $clientBase->asForm()->post($endpoint, [
             'access_token' => $token,
             'upload_phase' => 'start',
             'file_size'    => $fileSize,
@@ -100,7 +109,7 @@ class FacebookPageController extends Controller
             return null;
         }
 
-        $sessionId   = data_get($start->json(), 'upload_session_id');
+        $sessionId   = (string) data_get($start->json(), 'upload_session_id');
         $startOffset = (int) data_get($start->json(), 'start_offset', 0);
         $endOffset   = (int) data_get($start->json(), 'end_offset', 0);
 
@@ -110,14 +119,20 @@ class FacebookPageController extends Controller
 
         try {
             while ($startOffset < $endOffset) {
-                $length = $endOffset - $startOffset;
-                // limita chunk
-                $length = min($length, $chunkSize);
+                // Facebook te dice el siguiente rango; acótalo a chunkSize para no tardar
+                $length = min($endOffset - $startOffset, $chunkSize);
 
+                // Lee el trozo
                 fseek($fh, $startOffset);
                 $data = fread($fh, $length);
+                if ($data === false || strlen($data) === 0) {
+                    Log::warning('FB video read chunk failed', ['offset' => $startOffset, 'length' => $length]);
+                    return null;
+                }
 
-                $transfer = Http::attach('video_file_chunk', $data, 'chunk.bin')
+                // Sube el chunk con reintento y timeout alto
+                $transfer = $clientBase
+                    ->attach('video_file_chunk', $data, 'chunk.bin')
                     ->asForm()
                     ->post($endpoint, [
                         'access_token'      => $token,
@@ -127,10 +142,41 @@ class FacebookPageController extends Controller
                     ]);
 
                 if (!$transfer->ok()) {
-                    Log::warning('FB video transfer failed', ['resp' => $transfer->body()]);
-                    return null;
+                    // Intenta detectar error transitorio de sesión agotada
+                    $json = json_decode($transfer->body(), true);
+                    $sub  = data_get($json, 'error.error_subcode');
+                    $transient = (bool) data_get($json, 'error.is_transient');
+
+                    // Si es transitorio o 1363030, reintenta el MISMO chunk una vez más manualmente
+                    if ($transient || $sub === 1363030) {
+                        Log::warning('FB video transfer transient, retrying same chunk', [
+                            'offset' => $startOffset,
+                            'length' => $length,
+                            'resp' => $transfer->body()
+                        ]);
+
+                        // Un reintento manual extra
+                        $transfer = $clientBase
+                            ->attach('video_file_chunk', $data, 'chunk.bin')
+                            ->asForm()
+                            ->post($endpoint, [
+                                'access_token'      => $token,
+                                'upload_phase'      => 'transfer',
+                                'upload_session_id' => $sessionId,
+                                'start_offset'      => $startOffset,
+                            ]);
+
+                        if (!$transfer->ok()) {
+                            Log::warning('FB video transfer failed after retry', ['resp' => $transfer->body()]);
+                            return null;
+                        }
+                    } else {
+                        Log::warning('FB video transfer failed', ['resp' => $transfer->body()]);
+                        return null;
+                    }
                 }
 
+                // Actualiza offsets; sigue hasta que start_offset == end_offset
                 $startOffset = (int) data_get($transfer->json(), 'start_offset', 0);
                 $endOffset   = (int) data_get($transfer->json(), 'end_offset', 0);
             }
@@ -147,12 +193,9 @@ class FacebookPageController extends Controller
         ];
         if ($description) $finishParams['description'] = $description;
 
-        $finish = Http::asForm()->post($endpoint, $finishParams);
+        $finish = $clientBase->asForm()->post($endpoint, $finishParams);
         if ($finish->ok()) {
-            // típicamente devuelve { success: true } y el video id se consulta con la sesión, pero FB también suele incluir "video_id" en alguna fase
-            $videoId = data_get($finish->json(), 'video_id')
-                ?? $this->resolveVideoIdFromSession($sessionId, $token);
-            return $videoId;
+            return data_get($finish->json(), 'video_id') ?? null;
         }
 
         Log::warning('FB video finish failed', ['resp' => $finish->body()]);
