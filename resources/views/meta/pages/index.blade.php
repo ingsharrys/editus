@@ -452,10 +452,6 @@
             </form>
         @endforeach
 
-        {{-- Paginación --}}
-        <div class="mt-6">
-            {{ $pages->links() }}
-        </div>
 
         {{-- Resultados de publicación --}}
         @if (session('publish_results'))

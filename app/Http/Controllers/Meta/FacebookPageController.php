@@ -29,36 +29,39 @@ class FacebookPageController extends Controller
     {
         $this->fb = $fb;
     }
-    public function index(Request $request)
-    {
-        $user = Auth::user();
-        $ownerId = $request->query('owner_id');
+   public function index(Request $request)
+{
+    $user    = Auth::user();
+    $ownerId = $request->query('owner_id');
 
-        if ($user->isAdmin()) {
-            $owners = User::whereHas('metaPages')
-                ->orderBy('name')
-                ->get(['id', 'name']);
+    if ($user->isAdmin()) {
+        $owners = User::whereHas('metaPages')
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
-            $query = \App\Models\MetaPage::with('users');
+        $query = \App\Models\MetaPage::with('users');
 
-            if ($ownerId) {
-                $query->whereHas('users', function ($q) use ($ownerId) {
-                    $q->where('users.id', $ownerId);
-                });
-            }
-
-            $pages = $query->latest()
-                ->paginate(18)
-                ->appends($request->query());
-        } else {
-            $owners = collect();
-            $pages = $user->metaPages()
-                ->with('users')
-                ->paginate(18);
+        if ($ownerId) {
+            $query->whereHas('users', function ($q) use ($ownerId) {
+                $q->where('users.id', $ownerId);
+            });
         }
 
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
+        // 👇 sin paginar
+        $pages = $query->latest()->get();
+    } else {
+        $owners = collect();
+
+        // 👇 si tu tabla/pivot no tiene created_at, usa ->orderByDesc('meta_pages.id')
+        $pages = $user->metaPages()
+            ->with('users')
+            ->latest() // o ->orderByDesc('meta_pages.id')
+            ->get();
     }
+
+    return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
+}
+
 
 
 
