@@ -30,8 +30,10 @@ class MetaPage extends Model
         // Si prefieres forzar siempre Graph:
         $base = "https://graph.facebook.com/v20.0/{$this->page_id}/picture";
         $qs = ['type' => $type];
-        if ($width)  $qs['width']  = $width;
-        if ($height) $qs['height'] = $height;
+        if ($width)
+            $qs['width'] = $width;
+        if ($height)
+            $qs['height'] = $height;
         return $base . '?' . http_build_query($qs);
     }
 
@@ -46,10 +48,15 @@ class MetaPage extends Model
     }
 
     // Scope por usuario activo (útil si quieres filtrar)
-    public function scopeForUser($query, int $userId)
+    // App\Models\MetaPage.php
+    public function scopeForUser($query, int $userId, bool $onlyActive = true)
     {
-        return $query->whereHas('users', function ($q) use ($userId) {
-            $q->where('users.id', $userId)->wherePivot('is_active', true);
+        return $query->whereHas('users', function ($q) use ($userId, $onlyActive) {
+            $q->where('users.id', $userId);
+            if ($onlyActive) {
+                $q->where('meta_page_user.is_active', 1); // ← en vez de wherePivot(...)
+            }
         });
     }
+
 }

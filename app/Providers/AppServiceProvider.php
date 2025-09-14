@@ -6,6 +6,10 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
+    protected $policies = [
+        \App\Models\MetaPost::class => \App\Policies\MetaPostPolicy::class,
+    ];
+
     /**
      * Register any application services.
      */

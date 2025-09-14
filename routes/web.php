@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\Meta\FacebookPageController;
 use App\Http\Controllers\MetaPostController;
+use App\Http\Controllers\MyPostsController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
@@ -71,7 +72,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
     Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');
 });
-
+// routes/web.php
+Route::middleware(['auth'])->group(function () {
+    Route::get('/mis-publicaciones', [MyPostsController::class, 'index'])->name('mis-posts.index');
+    Route::get('/mis-publicaciones/{post}', [MyPostsController::class, 'show'])->name('mis-posts.show');
+    Route::put('/mis-publicaciones/{post}', [MyPostsController::class, 'update'])->name('mis-posts.update'); // ← guardar métricas
+});
 
 
 
