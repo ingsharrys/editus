@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Auth\FacebookAuthController;
+use App\Http\Controllers\InformeController;
 use App\Http\Controllers\Meta\FacebookPageController;
 use App\Http\Controllers\MetaPostController;
 use App\Http\Controllers\MyPostsController;
@@ -79,6 +80,9 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/mis-publicaciones/{post}', [MyPostsController::class, 'update'])->name('mis-posts.update'); // ← guardar métricas
 });
 
-
+Route::middleware(['auth'])->group(function () {
+    Route::get('/admin/informe', [InformeController::class, 'index'])->name('informe.index');
+    Route::get('/admin/informe/{key}', [InformeController::class, 'show'])->name('informe.show');
+});
 
 require __DIR__ . '/auth.php';
