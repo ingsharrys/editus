@@ -13,7 +13,7 @@ use App\Models\Role;
 
 class FacebookAuthController extends Controller
 {
-  public function redirect()
+    public function redirect()
     {
         $scopes = config('services.facebook.scopes', []);
         return Socialite::driver('facebook')
@@ -28,33 +28,39 @@ class FacebookAuthController extends Controller
         $user = User::firstOrCreate(
             ['email' => $fbUser->getEmail() ?: (Str::uuid() . '@no-email.local')],
             [
-                'name'     => $fbUser->getName() ?: $fbUser->getNickname() ?: 'FB User',
+                'name' => $fbUser->getName() ?: $fbUser->getNickname() ?: 'FB User',
                 'password' => bcrypt(Str::random(32)),
-                'role_id'  => optional(\App\Models\Role::where('slug', 'user')->first())->id,
+                'role_id' => optional(\App\Models\Role::where('slug', 'user')->first())->id,
             ]
         );
 
         $expiresAt = null;
         if (property_exists($fbUser, 'expiresIn') && $fbUser->expiresIn) {
-            $expiresAt = now()->addSeconds((int)$fbUser->expiresIn);
+            $expiresAt = now()->addSeconds((int) $fbUser->expiresIn);
         }
 
         SocialAccount::updateOrCreate(
+            ['provider' => 'facebook', 'provider_user_id' => $fbUser->getId()],
             [
-                'provider'         => 'facebook',
-                'provider_user_id' => $fbUser->getId(),
-            ],
-            [
-                'user_id'      => $user->id,
+                'user_id' => $user->id,
                 'access_token' => $fbUser->token,
                 'refresh_token' => $fbUser->refreshToken ?? null,
-                'expires_at'   => $expiresAt,
-                'raw'          => method_exists($fbUser, 'user') ? $fbUser->user : null,
+                'expires_at' => $expiresAt,
+                'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
             ]
         );
 
         Auth::login($user);
-
         return redirect('/dashboard');
+    }
+
+    // === Alias para rutas "Basic" (compatibilidad con prod) ===
+    public function redirectBasic()
+    {
+        return $this->redirect();
+    }
+    public function callbackBasic()
+    {
+        return $this->callback();
     }
 }
