@@ -7,25 +7,7 @@
         <h1 class="text-2xl md:text-3xl text-white  font-bold">Informe general</h1>
     </div>
 
-    {{-- Filtro Owner --}}
-    <form method="GET" class="mb-6">
-        <div class="rounded-2xl bg-white/90 backdrop-blur border border-gray-200 shadow p-4 flex items-center gap-3">
-            <div>
-                <label class="block text-xs font-medium uppercase tracking-wider text-gray-500">Propietario</label>
-                <select name="owner_id"
-                        class="border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500">
-                    <option value="">Todos</option>
-                    @foreach($owners as $o)
-                        <option value="{{ $o->id }}" @selected($ownerId == $o->id)>{{ $o->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <button class="bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700">Aplicar</button>
-            @if($ownerId)
-                <a href="{{ route('informe.index') }}" class="text-sm px-3 py-2 rounded-xl border hover:bg-gray-50">Limpiar</a>
-            @endif
-        </div>
-    </form>
+   
 
     {{-- Tarjetas de totales --}}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
