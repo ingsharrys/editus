@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\MetaPost;
+use App\Models\MetaPage;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,48 +19,65 @@ class InformeController extends Controller
         $user = Auth::user();
         abort_unless($user->isAdmin(), 403);
 
-        $ownerId = $request->query('owner_id');
+        // Filtros
+        $q = trim((string) $request->query('q', ''));        // texto en el título/mensaje
+        $pageId = $request->query('page_id');                     // página específica (opcional)
 
-        // Base: solo posts aprobados (success)
+        // Base: solo posts "success"
         $base = MetaPost::query()->where('status', 'success');
 
-        if ($ownerId) {
-            $base->where('user_id', $ownerId);
+        // Texto en el mensaje
+        if ($q !== '') {
+            $base->where('message', 'like', '%' . str_replace('%', '\%', $q) . '%');
         }
 
-        // Totales globales
+        // Filtrar por página (solo muestra publicaciones donde haya participado esa página)
+        if (!empty($pageId)) {
+            $base->where('meta_page_id', (int) $pageId);
+        }
+
+        // Totales sobre lo filtrado
         $totals = (clone $base)
-            ->selectRaw('COUNT(*) as total_posts,
-                         SUM(COALESCE(alcance,0)) as total_alcance,
-                         SUM(COALESCE(visualizaciones,0)) as total_visualizaciones,
-                         SUM(COALESCE(interacciones,0)) as total_interacciones')
+            ->selectRaw('
+            COUNT(*)                                       as total_posts,
+            COALESCE(SUM(alcance), 0)                      as total_alcance,
+            COALESCE(SUM(visualizaciones), 0)              as total_visualizaciones,
+            COALESCE(SUM(interacciones), 0)                as total_interacciones
+        ')
             ->first();
 
-        // Agrupación por publicación (batch) o single
+        // Agrupar publicaciones: batch_uuid o single-{id}
         $groups = (clone $base)
             ->selectRaw("
-                COALESCE(batch_uuid, CONCAT('single-', id)) as group_key,
-                MAX(COALESCE(published_at, created_at)) as effective_at,
-                MAX(message) as message_sample,
-                COUNT(*) as posts_count,
-                SUM(COALESCE(alcance,0)) as alcance_sum,
-                SUM(COALESCE(visualizaciones,0)) as visualizaciones_sum,
-                SUM(COALESCE(interacciones,0)) as interacciones_sum,
-                MIN(fb_permalink_url) as any_permalink
-            ")
+            CASE 
+                WHEN (batch_uuid IS NULL OR batch_uuid = '') 
+                    THEN CONCAT('single-', id)
+                ELSE batch_uuid
+            END                                            as group_key,
+            MAX(COALESCE(published_at, created_at))       as effective_at,
+            MIN(message)                                   as message_sample,
+            COALESCE(SUM(alcance), 0)                      as alcance_sum,
+            COALESCE(SUM(visualizaciones), 0)              as visualizaciones_sum,
+            COALESCE(SUM(interacciones), 0)                as interacciones_sum,
+            COUNT(DISTINCT meta_page_id)                   as posts_count,
+            MIN(NULLIF(fb_permalink_url, ''))              as any_permalink
+        ")
             ->groupBy('group_key')
             ->orderByDesc('effective_at')
             ->paginate(12)
             ->withQueryString();
 
-        // Owners para filtro (usuarios que tienen páginas vinculadas o que han publicado)
-        $owners = User::whereHas('metaPages')
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        // Páginas para el <select>
+        $pages = MetaPage::orderBy('name')->get(['id', 'name']);
 
-        return view('informe.index', compact('totals', 'groups', 'owners', 'ownerId'));
+        return view('informe.index', [
+            'totals' => $totals,
+            'groups' => $groups,
+            'pages' => $pages,
+            'q' => $q,
+            'pageId' => $pageId,
+        ]);
     }
-
     public function show(string $key)
     {
         $user = Auth::user();
