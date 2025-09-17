@@ -3,8 +3,8 @@
 @section('content')
     <div class="max-w-6xl mx-auto px-4 py-8">
 
-       
-       
+
+
         <div class="flex items-center justify-between mb-6 mt-10">
             <h1 class="text-2xl text-white md:text-3xl font-bold">Detalle de publicación</h1>
             <div class="flex items-center gap-3">
@@ -56,9 +56,18 @@
         </div>
 
         {{-- Desglose por página + modal de evidencia (solo Alpine aquí) --}}
-        <div class="rounded-2xl border bg-white p-6 shadow-sm" x-data="{ show: false, img: null, open(src) { this.img = src;
-                this.show = true }, close() { this.show = false;
-                this.img = null } }" @keydown.escape.window="close()">
+        <div class="rounded-2xl border bg-white p-6 shadow-sm" x-data="{
+            show: false,
+            img: null,
+            open(src) {
+                this.img = src;
+                this.show = true
+            },
+            close() {
+                this.show = false;
+                this.img = null
+            }
+        }" @keydown.escape.window="close()">
             <h3 class="text-lg font-semibold mb-4">Por página</h3>
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm">
@@ -126,34 +135,40 @@
             </div>
 
             {{-- MODAL --}}
-            <div x-show="show" x-transition.opacity class="fixed inset-0 z-50">
-                <div class="absolute inset-0 bg-black/60" @click="close()"></div>
-                <div class="absolute inset-0 flex items-center justify-center p-4">
-                    <div class="bg-white rounded-2xl shadow-xl max-w-3xl w-full overflow-hidden">
-                        <div class="flex items-center justify-between px-4 py-3 border-b">
-                            <h4 class="font-medium text-sm">Evidencia</h4>
-                            <div class="flex items-center gap-2">
-                                <template x-if="img">
-                                    <a :href="img" target="_blank"
-                                        class="text-xs px-3 py-1 rounded-lg border hover:bg-gray-50">Abrir en pestaña</a>
-                                </template>
-                                <button @click="close()" class="p-1 rounded hover:bg-gray-100" aria-label="Cerrar">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20"
-                                        fill="currentColor">
-                                        <path fill-rule="evenodd"
-                                            d="M10 8.586 4.293 2.879A1 1 0 1 0 2.879 4.293L8.586 10l-5.707 5.707a1 1 0 0 0 1.414 1.414L10 11.414l5.707 5.707a1 1 0 0 0 1.414-1.414L11.414 10l5.707-5.707A1 1 0 0 0 15.707 2.879L10 8.586Z"
-                                            clip-rule="evenodd" />
-                                    </svg>
-                                </button>
+            {{-- MODAL (a prueba de FOUC) --}}
+            <template x-teleport="body">
+                <div x-show="show" x-cloak x-transition.opacity.duration.150ms class="fixed inset-0 z-50"
+                    style="display:none">
+                    <div class="absolute inset-0 bg-black/60" @click="close()"></div>
+                    <div class="absolute inset-0 flex items-center justify-center p-4">
+                        <div class="bg-white rounded-2xl shadow-xl max-w-3xl w-full overflow-hidden">
+                            <div class="flex items-center justify-between px-4 py-3 border-b">
+                                <h4 class="font-medium text-sm">Evidencia</h4>
+                                <div class="flex items-center gap-2">
+                                    <template x-if="img">
+                                        <a :href="img" target="_blank"
+                                            class="text-xs px-3 py-1 rounded-lg border hover:bg-gray-50">Abrir en
+                                            pestaña</a>
+                                    </template>
+                                    <button @click="close()" class="p-1 rounded hover:bg-gray-100" aria-label="Cerrar">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20"
+                                            fill="currentColor">
+                                            <path fill-rule="evenodd"
+                                                d="M10 8.586 4.293 2.879A1 1 0 1 0 2.879 4.293L8.586 10l-5.707 5.707a1 1 0 0 0 1.414 1.414L10 11.414l5.707 5.707a1 1 0 0 0 1.414-1.414L11.414 10l5.707-5.707A1 1 0 0 0 15.707 2.879L10 8.586Z"
+                                                clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                        <div class="p-4">
-                            <img :src="img" alt="Evidencia"
-                                class="w-full h-auto max-h-[70vh] object-contain rounded-lg border">
+                            <div class="p-4">
+                                <img :src="img" alt="Evidencia"
+                                    class="w-full h-auto max-h-[70vh] object-contain rounded-lg border">
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </template>
+
         </div>
 
     </div>
