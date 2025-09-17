@@ -178,7 +178,9 @@
             @if ($row['evidencia_src'])
                 <div class="mb-2"></div>
                 <img src="{{ $row['evidencia_src'] }}"
-                    style="max-width:520px; width:520px; height:auto; border:1px solid #e5e7eb; border-radius:6px;"
+                    style="width:520px; max-width:520px; height:auto;
+            display:block; margin:8px auto; 
+            border:1px solid #e5e7eb; border-radius:6px;"
                     alt="Evidencia {{ $row['pagina'] }}">
             @endif
 
