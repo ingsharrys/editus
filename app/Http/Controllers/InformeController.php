@@ -208,9 +208,10 @@ class InformeController extends Controller
                 'evidencia_src' => $evidenciaSrc, // "pdf_cache/xxx.jpg" o URL
             ];
         })->values();
+        $rawTitle = (string) ($posts->first()->message ?? '—');
 
         $summary = [
-            'titulo' => (string) ($posts->first()->message ?? '—'),
+            'titulo' => $this->makePdfTitle($rawTitle, 120),
             'effective_at' => $posts->max(fn($p) => ($p->published_at ?? $p->created_at)),
             'total_alcance' => $rows->sum('alcance'),
             'total_visualizaciones' => $rows->sum('visualizaciones'),
@@ -238,6 +239,34 @@ class InformeController extends Controller
         return $pdf->stream($filename);
     }
 
+    private function makePdfTitle(?string $text, int $max = 120): string
+    {
+        $text = trim((string) $text);
+
+        // Colapsar saltos de línea y espacios múltiples
+        $text = preg_replace('/\s+/u', ' ', $text);
+
+        // Quitar VARIATION SELECTOR-16 y ZWJ/géneros que arman emojis
+        $text = preg_replace('/[\x{FE0F}\x{200D}\x{2640}\x{2642}]/u', '', $text);
+
+        // Quitar emojis y pictogramas comunes (rangos amplios)
+        $text = preg_replace('/[\x{1F300}-\x{1FAFF}\x{1F1E6}-\x{1F1FF}\x{2600}-\x{27BF}]/u', '', $text);
+
+        // Quitar cualquier caracter fuera del BMP (más raro)
+        $text = preg_replace('/[\x{10000}-\x{10FFFF}]/u', '', $text);
+
+        $text = trim($text);
+
+        // Si hay un punto, tomar solo la primera oración
+        if (preg_match('/^(.+?\.)\s*/u', $text, $m)) {
+            $text = $m[1];
+        }
+
+        // Corte duro a N caracteres con “…” si es necesario
+        $text = Str::limit($text !== '' ? $text : '—', $max, '…');
+
+        return $text;
+    }
 
 
 }

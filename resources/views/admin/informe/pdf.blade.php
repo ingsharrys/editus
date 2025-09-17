@@ -19,7 +19,9 @@
             font-size: 20px;
             margin: 0 0 6px;
             text-transform: capitalize;
+            line-height: 1.25;
         }
+
 
         h2 {
             font-size: 14px;
