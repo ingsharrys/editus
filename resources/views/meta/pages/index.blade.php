@@ -453,32 +453,23 @@
         @endforeach
 
 
+        {{-- Resultados de publicación --}}
         @if (session('publish_results'))
             <div class="mt-6 rounded-xl border border-gray-200 bg-white p-4">
                 <h3 class="font-semibold mb-2">Resultados:</h3>
-                <ul class="list-disc ml-5 space-y-2">
+                <ul class="list-disc ml-5 space-y-1">
                     @foreach (session('publish_results') as $r)
                         <li>
                             <strong>{{ $r['page'] }}:</strong>
                             {!! $r['ok'] ? '<span class="text-green-700">OK</span>' : '<span class="text-red-700">Error</span>' !!}
-                            @if (!empty($r['error']))
-                                <pre class="text-xs bg-red-50 border border-red-200 rounded p-2 mt-1 whitespace-pre-wrap">{{ $r['error'] }}</pre>
-                            @endif
-
-                            @if (!empty($r['debug']))
-                                <details class="mt-1">
-                                    <summary class="text-sm text-gray-700 cursor-pointer">ver detalles técnicos</summary>
-                                    <pre class="text-xs bg-gray-50 border border-gray-200 rounded p-2 mt-1 overflow-auto whitespace-pre-wrap">
-{{ json_encode($r['debug'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) }}
-              </pre>
-                                </details>
+                            @if (!$r['ok'])
+                                <pre class="text-xs bg-gray-50 border border-gray-200 rounded p-2 mt-1 whitespace-pre-wrap">{{ $r['error'] }}</pre>
                             @endif
                         </li>
                     @endforeach
                 </ul>
             </div>
         @endif
-
 
         <script>
             (function() {
