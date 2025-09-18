@@ -29,38 +29,38 @@ class FacebookPageController extends Controller
     {
         $this->fb = $fb;
     }
-   public function index(Request $request)
-{
-    $user    = Auth::user();
-    $ownerId = $request->query('owner_id');
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+        $ownerId = $request->query('owner_id');
 
-    if ($user->isAdmin()) {
-        $owners = User::whereHas('metaPages')
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        if ($user->isAdmin()) {
+            $owners = User::whereHas('metaPages')
+                ->orderBy('name')
+                ->get(['id', 'name']);
 
-        $query = \App\Models\MetaPage::with('users');
+            $query = \App\Models\MetaPage::with('users');
 
-        if ($ownerId) {
-            $query->whereHas('users', function ($q) use ($ownerId) {
-                $q->where('users.id', $ownerId);
-            });
+            if ($ownerId) {
+                $query->whereHas('users', function ($q) use ($ownerId) {
+                    $q->where('users.id', $ownerId);
+                });
+            }
+
+            // 👇 sin paginar
+            $pages = $query->latest()->get();
+        } else {
+            $owners = collect();
+
+            // 👇 si tu tabla/pivot no tiene created_at, usa ->orderByDesc('meta_pages.id')
+            $pages = $user->metaPages()
+                ->with('users')
+                ->latest() // o ->orderByDesc('meta_pages.id')
+                ->get();
         }
 
-        // 👇 sin paginar
-        $pages = $query->latest()->get();
-    } else {
-        $owners = collect();
-
-        // 👇 si tu tabla/pivot no tiene created_at, usa ->orderByDesc('meta_pages.id')
-        $pages = $user->metaPages()
-            ->with('users')
-            ->latest() // o ->orderByDesc('meta_pages.id')
-            ->get();
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
     }
-
-    return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
-}
 
 
 
@@ -70,11 +70,12 @@ class FacebookPageController extends Controller
      */
     private function fetchPermalink(?string $objectId, string $token): ?string
     {
-        if (!$objectId) return null;
+        if (!$objectId)
+            return null;
 
         $endpoint = "https://graph.facebook.com/v20.0/{$objectId}";
-        $params   = [
-            'fields'       => 'permalink_url',
+        $params = [
+            'fields' => 'permalink_url',
             'access_token' => $token,
         ];
 
@@ -93,10 +94,10 @@ class FacebookPageController extends Controller
                     $permalink = data_get($resp->json(), 'permalink_url');
                     if ($permalink) {
                         Log::info('FB fetchPermalink: ok', [
-                            'object_id'  => $objectId,
-                            'attempt'    => $attempt,
-                            'elapsed_s'  => $elapsed,
-                            'permalink'  => $permalink,
+                            'object_id' => $objectId,
+                            'attempt' => $attempt,
+                            'elapsed_s' => $elapsed,
+                            'permalink' => $permalink,
                         ]);
                         return $permalink;
                     }
@@ -106,16 +107,16 @@ class FacebookPageController extends Controller
                 $body = $resp->body();
                 $json = @json_decode($body, true) ?: [];
                 Log::warning('FB fetchPermalink: failed', [
-                    'object_id'     => $objectId,
-                    'attempt'       => $attempt,
-                    'status'        => $resp->status(),
-                    'elapsed_s'     => $elapsed,
+                    'object_id' => $objectId,
+                    'attempt' => $attempt,
+                    'status' => $resp->status(),
+                    'elapsed_s' => $elapsed,
                     'error_message' => data_get($json, 'error.message'),
-                    'error_type'    => data_get($json, 'error.type'),
-                    'error_code'    => data_get($json, 'error.code'),
+                    'error_type' => data_get($json, 'error.type'),
+                    'error_code' => data_get($json, 'error.code'),
                     'error_subcode' => data_get($json, 'error.error_subcode'),
-                    'fbtrace_id'    => data_get($json, 'error.fbtrace_id'),
-                    'body_snippet'  => mb_substr($body, 0, 800),
+                    'fbtrace_id' => data_get($json, 'error.fbtrace_id'),
+                    'body_snippet' => mb_substr($body, 0, 800),
                 ]);
 
                 // Reintenta en errores típicos/consistencia eventual
@@ -128,8 +129,8 @@ class FacebookPageController extends Controller
             } catch (\Throwable $e) {
                 Log::error('FB fetchPermalink: exception', [
                     'object_id' => $objectId,
-                    'attempt'   => $attempt,
-                    'msg'       => $e->getMessage(),
+                    'attempt' => $attempt,
+                    'msg' => $e->getMessage(),
                 ]);
                 if ($attempt < $maxAttempts) {
                     usleep(300_000);
@@ -145,14 +146,14 @@ class FacebookPageController extends Controller
     {
         // 1) Validación base
         $request->validate([
-            'type'        => ['required', 'in:text,photo,video'],
-            'page_ids'    => ['required', 'array', 'min:1'],
-            'page_ids.*'  => [Rule::exists('meta_pages', 'id')],
-            'message'     => ['nullable', 'string', 'max:63206'],
-            'link'        => ['nullable', 'url'],
-            'photos'      => ['nullable', 'array', 'max:50'],
-            'photos.*'    => ['file', 'image', 'max:10240'], // 10MB
-            'video'       => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm', 'max:512000'], // ~500MB
+            'type' => ['required', 'in:text,photo,video'],
+            'page_ids' => ['required', 'array', 'min:1'],
+            'page_ids.*' => [Rule::exists('meta_pages', 'id')],
+            'message' => ['nullable', 'string', 'max:63206'],
+            'link' => ['nullable', 'url'],
+            'photos' => ['nullable', 'array', 'max:50'],
+            'photos.*' => ['file', 'image', 'max:10240'], // 10MB
+            'video' => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime,video/x-msvideo,video/x-matroska,video/webm', 'max:512000'], // ~500MB
         ]);
 
         // Validación condicional
@@ -173,10 +174,12 @@ class FacebookPageController extends Controller
             ->with(['users' => fn($q) => $q->wherePivot('is_active', true)])
             ->get();
 
-        $results = [];
+        if ($pages->isEmpty()) {
+            return back()->withErrors(['page_ids' => 'No se encontraron páginas válidas.']);
+        }
 
-        // Batch para agrupar este envío
-        $batch = (string) \Illuminate\Support\Str::uuid();
+        $results = [];
+        $batch = (string) Str::uuid();
 
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
@@ -186,45 +189,52 @@ class FacebookPageController extends Controller
             }
 
             $pageId = $page->page_id;
-            $token  = $pivot->page_access_token;
+            $token = $pivot->page_access_token;
 
             // Registro base para histórico (sin uso de storage)
             $postData = [
-                'batch_uuid'         => $batch,
-                'user_id'            => auth()->id(),
-                'meta_page_id'       => $page->id,
-                'type'               => $request->type,
-                'message'            => $request->message,
-                'link'               => $request->link,
-                'local_media'        => null,
-                'fb_media_ids'       => null,
-                'status'             => 'pending',
-                'published_at'       => null,
-                'fb_post_id'         => null,
-                'fb_permalink_url'   => null,
-                'error'              => null,
+                'batch_uuid' => $batch,
+                'user_id' => auth()->id(),
+                'meta_page_id' => $page->id,
+                'type' => $request->type,
+                'message' => $request->message,
+                'link' => $request->link,
+                'local_media' => null,
+                'fb_media_ids' => null,
+                'status' => 'pending',
+                'published_at' => null,
+                'fb_post_id' => null,
+                'fb_permalink_url' => null, // lo llenamos solo si podemos
+                'error' => null,
             ];
 
             try {
                 if ($request->type === 'text') {
                     // === TEXTO / ENLACE ===
                     $payload = ['message' => $request->message, 'access_token' => $token];
-                    if ($request->filled('link')) $payload['link'] = $request->link;
+                    if ($request->filled('link'))
+                        $payload['link'] = $request->link;
 
-                    $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
-                    $ok   = $resp->ok();
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                    $ok = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
-                        $postId    = data_get($body, 'id');
-                        $permalink = $this->fetchPermalink($postId, $token);
+                        $postId = data_get($body, 'id');
                         $postData['status'] = 'success';
                         $postData['fb_post_id'] = $postId;
-                        $postData['fb_permalink_url'] = $permalink;
                         $postData['published_at'] = now();
+
+                        // Permalink opcional (no romper si falta permiso)
+                        try {
+                            $permalink = $this->fetchPermalink($postId, $token);
+                            $postData['fb_permalink_url'] = $permalink;
+                        } catch (\Throwable $e) {
+                            Log::warning('Permalink fetch skipped', ['post_id' => $postId, 'err' => $e->getMessage()]);
+                        }
                     } else {
                         $postData['status'] = 'fail';
-                        $postData['error']  = $resp->body();
+                        $postData['error'] = $resp->body();
                     }
 
                     MetaPost::create($postData);
@@ -238,21 +248,21 @@ class FacebookPageController extends Controller
 
                         $r = Http::attach('source', fopen($real, 'r'), $name)
                             ->asMultipart()
-                            ->post("https://graph.facebook.com/v20.0/{$pageId}/photos", [
-                                'published'    => false,
+                            ->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
+                                'published' => false,
                                 'access_token' => $token,
                             ]);
 
                         if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
                             $media[] = ['media_fbid' => $id];
                         } else {
-                            Log::warning('FB photo upload failed', ['page' => $pageId, 'resp' => $r->body()]);
+                            Log::warning('FB photo upload failed', ['page' => $pageId, 'resp' => $r->body(), 'status' => $r->status()]);
                         }
                     }
 
                     if (empty($media)) {
                         $postData['status'] = 'fail';
-                        $postData['error']  = 'No se pudieron subir las imágenes.';
+                        $postData['error'] = 'No se pudieron subir las imágenes.';
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudieron subir las imágenes.'];
                         continue;
@@ -261,75 +271,165 @@ class FacebookPageController extends Controller
                     $postData['fb_media_ids'] = array_map(fn($m) => $m['media_fbid'], $media);
 
                     $payload = ['access_token' => $token];
-                    if ($request->filled('message')) $payload['message'] = $request->message;
+                    if ($request->filled('message'))
+                        $payload['message'] = $request->message;
                     foreach ($media as $i => $m) {
                         $payload["attached_media[$i]"] = json_encode($m);
                     }
 
-                    $resp = Http::asForm()->post("https://graph.facebook.com/v20.0/{$pageId}/feed", $payload);
-                    $ok   = $resp->ok();
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                    $ok = $resp->ok();
                     $body = $resp->json();
 
                     if ($ok) {
-                        $postId    = data_get($body, 'id');
-                        $permalink = $this->fetchPermalink($postId, $token);
+                        $postId = data_get($body, 'id');
                         $postData['status'] = 'success';
                         $postData['fb_post_id'] = $postId;
-                        $postData['fb_permalink_url'] = $permalink;
                         $postData['published_at'] = now();
+
+                        // Permalink opcional
+                        try {
+                            $permalink = $this->fetchPermalink($postId, $token);
+                            $postData['fb_permalink_url'] = $permalink;
+                        } catch (\Throwable $e) {
+                            Log::warning('Permalink fetch skipped', ['post_id' => $postId, 'err' => $e->getMessage()]);
+                        }
                     } else {
                         $postData['status'] = 'fail';
-                        $postData['error']  = $resp->body();
+                        $postData['error'] = $resp->body();
                     }
 
                     MetaPost::create($postData);
                     $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
                 } elseif ($request->type === 'video') {
-                    // === VIDEO: subir DIRECTO desde el tmp (sin storage) ===
+                    // === VIDEO: subida RESUMABLE (start/transfer/finish) ===
+                    @set_time_limit(0);
+
                     $file = $request->file('video');
                     $real = $file->getRealPath();
-                    $name = $file->getClientOriginalName();
+                    $size = filesize($real);
 
-                    $r = Http::attach('source', fopen($real, 'r'), $name)
-                        ->asMultipart()
-                        ->post("https://graph.facebook.com/v20.0/{$pageId}/videos", [
-                            'published'    => true,
-                            'description'  => $request->message,
-                            'access_token' => $token,
-                        ]);
+                    // 1) START
+                    $start = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/videos", [
+                        'upload_phase' => 'start',
+                        'file_size' => $size,
+                        'access_token' => $token,
+                    ]);
 
-                    if ($r->ok() && ($videoId = data_get($r->json(), 'id'))) {
-                        $permalink = $this->fetchPermalink($videoId, $token);
-                        $postData['status']            = 'success';
-                        $postData['fb_post_id']        = $videoId;
-                        $postData['fb_media_ids']      = [$videoId];
-                        $postData['fb_permalink_url']  = $permalink;
-                        $postData['published_at']      = now();
+                    if (!$start->ok()) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = $start->body();
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $start->body()];
+                        continue;
+                    }
+
+                    $sessionId = data_get($start->json(), 'upload_session_id');
+                    $startOffset = (int) data_get($start->json(), 'start_offset', 0);
+                    $endOffset = (int) data_get($start->json(), 'end_offset', 0);
+
+                    $fh = fopen($real, 'rb');
+                    if (!$fh) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = 'No se pudo abrir el archivo de video.';
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'No se pudo abrir el archivo de video.'];
+                        continue;
+                    }
+
+                    try {
+                        // 2) TRANSFER: enviar en chunks hasta completar
+                        while (true) {
+                            $chunkLen = $endOffset - $startOffset;
+                            if ($chunkLen <= 0)
+                                break;
+
+                            fseek($fh, $startOffset);
+                            $chunk = fread($fh, $chunkLen);
+                            if ($chunk === false) {
+                                $postData['status'] = 'fail';
+                                $postData['error'] = 'Error leyendo chunk de video.';
+                                MetaPost::create($postData);
+                                $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'Error leyendo chunk de video.'];
+                                continue 2;
+                            }
+
+                            $transfer = Http::asMultipart()
+                                ->attach('video_file_chunk', $chunk, 'chunk.bin')
+                                ->post("https://graph.facebook.com/v23.0/{$pageId}/videos", [
+                                    ['name' => 'upload_phase', 'contents' => 'transfer'],
+                                    ['name' => 'start_offset', 'contents' => (string) $startOffset],
+                                    ['name' => 'upload_session_id', 'contents' => $sessionId],
+                                    ['name' => 'access_token', 'contents' => $token],
+                                ]);
+
+                            if (!$transfer->ok()) {
+                                $postData['status'] = 'fail';
+                                $postData['error'] = $transfer->body();
+                                MetaPost::create($postData);
+                                $results[] = ['page' => $page->name, 'ok' => false, 'error' => $transfer->body()];
+                                continue 2;
+                            }
+
+                            $startOffset = (int) data_get($transfer->json(), 'start_offset', 0);
+                            $endOffset = (int) data_get($transfer->json(), 'end_offset', 0);
+
+                            if ($startOffset === $endOffset)
+                                break; // terminado
+                        }
+                    } finally {
+                        fclose($fh);
+                    }
+
+                    // 3) FINISH
+                    $finish = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/videos", array_filter([
+                        'upload_phase' => 'finish',
+                        'upload_session_id' => $sessionId,
+                        'description' => $request->message,
+                        'access_token' => $token,
+                    ], fn($v) => !is_null($v)));
+
+                    if ($finish->ok()) {
+                        $videoId = data_get($finish->json(), 'video_id');
+
+                        $postData['status'] = 'success';
+                        $postData['fb_post_id'] = $videoId;
+                        $postData['fb_media_ids'] = $videoId ? [$videoId] : null;
+                        $postData['published_at'] = now();
+
+                        // Permalink opcional
+                        try {
+                            $permalink = $this->fetchPermalink($videoId, $token);
+                            $postData['fb_permalink_url'] = $permalink;
+                        } catch (\Throwable $e) {
+                            Log::warning('Permalink fetch skipped', ['post_id' => $videoId, 'err' => $e->getMessage()]);
+                        }
 
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => true, 'body' => ['video_id' => $videoId], 'error' => null];
                     } else {
                         $postData['status'] = 'fail';
-                        $postData['error']  = $r->body();
+                        $postData['error'] = $finish->body();
                         MetaPost::create($postData);
-                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $r->body()];
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $finish->body()];
                     }
                 }
             } catch (\Throwable $e) {
                 $postData['status'] = 'fail';
-                $postData['error']  = $e->getMessage();
+                $postData['error'] = $e->getMessage();
                 MetaPost::create($postData);
                 $results[] = ['page' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
             }
         }
 
         $fails = collect($results)->where('ok', false)->count();
-        $ok    = collect($results)->where('ok', true)->count();
+        $ok = collect($results)->where('ok', true)->count();
 
         return back()
             ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
             ->with('publish_results', $results);
     }
+
 
 
 
@@ -364,29 +464,29 @@ class FacebookPageController extends Controller
 
         if ($existing && $existing->user_id !== $current->id) {
             $existing->update([
-                'user_id'       => $current->id,
-                'name'          => $fbUser->getName(),
-                'avatar'        => $fbUser->getAvatar(),
-                'access_token'  => $fbUser->token,
+                'user_id' => $current->id,
+                'name' => $fbUser->getName(),
+                'avatar' => $fbUser->getAvatar(),
+                'access_token' => $fbUser->token,
                 'refresh_token' => $fbUser->refreshToken ?? null,
-                'expires_at'    => isset($fbUser->expiresIn) ? now()->addSeconds((int)$fbUser->expiresIn) : null,
-                'raw'           => method_exists($fbUser, 'user') ? $fbUser->user : null,
+                'expires_at' => isset($fbUser->expiresIn) ? now()->addSeconds((int) $fbUser->expiresIn) : null,
+                'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
             ]);
             $social = $existing;
         } else {
             $social = SocialAccount::updateOrCreate(
                 [
-                    'user_id'          => $current->id,
-                    'provider'         => 'facebook',
+                    'user_id' => $current->id,
+                    'provider' => 'facebook',
                     'provider_user_id' => $fbUser->getId(),
                 ],
                 [
-                    'name'          => $fbUser->getName(),
-                    'avatar'        => $fbUser->getAvatar(),
-                    'access_token'  => $fbUser->token,
+                    'name' => $fbUser->getName(),
+                    'avatar' => $fbUser->getAvatar(),
+                    'access_token' => $fbUser->token,
                     'refresh_token' => $fbUser->refreshToken ?? null,
-                    'expires_at'    => isset($fbUser->expiresIn) ? now()->addSeconds((int)$fbUser->expiresIn) : null,
-                    'raw'           => method_exists($fbUser, 'user') ? $fbUser->user : null,
+                    'expires_at' => isset($fbUser->expiresIn) ? now()->addSeconds((int) $fbUser->expiresIn) : null,
+                    'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
                 ]
             );
         }
@@ -425,7 +525,7 @@ class FacebookPageController extends Controller
         if (!$resp->ok()) {
             Log::error('FB /me/accounts error', [
                 'status' => $resp->status(),
-                'body'   => $resp->body()
+                'body' => $resp->body()
             ]);
             throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
         }
@@ -439,10 +539,10 @@ class FacebookPageController extends Controller
 
         DB::transaction(function () use ($pages, $user, $social) {
             foreach ($pages as $page) {
-                $pageId   = (string) data_get($page, 'id');
-                $name     = data_get($page, 'name');
+                $pageId = (string) data_get($page, 'id');
+                $name = data_get($page, 'name');
                 $category = data_get($page, 'category');
-                $picture  = "https://graph.facebook.com/v20.0/{$pageId}/picture?type=normal";
+                $picture = "https://graph.facebook.com/v20.0/{$pageId}/picture?type=normal";
 
                 $tasks = data_get($page, 'tasks', []);
                 if (!is_array($tasks)) {
@@ -452,11 +552,11 @@ class FacebookPageController extends Controller
                 $metaPage = \App\Models\MetaPage::updateOrCreate(
                     ['page_id' => $pageId],
                     [
-                        'name'        => $name,
-                        'category'    => $category,
+                        'name' => $name,
+                        'category' => $category,
                         'instagram_business_account_id' => data_get($page, 'connected_instagram_business_account.id'),
                         'picture_url' => $picture,
-                        'tasks'       => array_values($tasks),
+                        'tasks' => array_values($tasks),
                     ]
                 );
 
@@ -464,8 +564,8 @@ class FacebookPageController extends Controller
                     $metaPage->id => [
                         'page_access_token' => data_get($page, 'access_token'),
                         'social_account_id' => $social->id,
-                        'expires_at'        => null,
-                        'is_active'         => true,
+                        'expires_at' => null,
+                        'is_active' => true,
                     ]
                 ]);
             }
@@ -494,7 +594,7 @@ class FacebookPageController extends Controller
 
     public function unlinkPage(Request $request, MetaPage $metaPage)
     {
-        $user    = auth()->user();
+        $user = auth()->user();
         $ownerId = $request->input('owner_id');
 
         if ($user->isAdmin()) {
@@ -506,9 +606,9 @@ class FacebookPageController extends Controller
                 }
 
                 $metaPage->users()->updateExistingPivot($ownerId, [
-                    'is_active'         => false,
+                    'is_active' => false,
                     'page_access_token' => '',
-                    'expires_at'        => null,
+                    'expires_at' => null,
                 ]);
 
                 return back()->with('success', "Página «{$metaPage->name}» desvinculada para el usuario seleccionado.");
@@ -521,9 +621,9 @@ class FacebookPageController extends Controller
 
             foreach ($userIds as $uid) {
                 $metaPage->users()->updateExistingPivot($uid, [
-                    'is_active'         => false,
+                    'is_active' => false,
                     'page_access_token' => '',
-                    'expires_at'        => null,
+                    'expires_at' => null,
                 ]);
             }
 
@@ -534,9 +634,9 @@ class FacebookPageController extends Controller
         abort_unless($exists, 403);
 
         $user->metaPages()->updateExistingPivot($metaPage->id, [
-            'is_active'         => false,
+            'is_active' => false,
             'page_access_token' => '',
-            'expires_at'        => null,
+            'expires_at' => null,
         ]);
 
         return back()->with('success', "Página «{$metaPage->name}» desvinculada.");
@@ -544,7 +644,7 @@ class FacebookPageController extends Controller
 
     public function linkSinglePage(Request $request, MetaPage $metaPage)
     {
-        $user    = auth()->user();
+        $user = auth()->user();
         $ownerId = $request->input('owner_id');
 
         if (!$user->isAdmin()) {
@@ -560,16 +660,16 @@ class FacebookPageController extends Controller
                     ->with('info', 'Conecta tu Facebook y vuelve a intentar.');
             }
 
-            $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string)$metaPage->page_id);
+            $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string) $metaPage->page_id);
             if (!$found || empty($found['access_token'])) {
                 return back()->with('error', 'No se encontró token para esta página. Verifica tu rol y permisos (pages_manage_posts).');
             }
 
             $metaPage->update([
-                'name'        => $found['name'] ?? $metaPage->name,
-                'category'    => $found['category'] ?? $metaPage->category,
+                'name' => $found['name'] ?? $metaPage->name,
+                'category' => $found['category'] ?? $metaPage->category,
                 'picture_url' => "https://graph.facebook.com/v20.0/{$metaPage->page_id}/picture?type=normal",
-                'tasks'       => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
+                'tasks' => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
                 'instagram_business_account_id' => data_get($found, 'connected_instagram_business_account.id', $metaPage->instagram_business_account_id),
             ]);
 
@@ -578,8 +678,8 @@ class FacebookPageController extends Controller
                 $metaPage->id => [
                     'page_access_token' => $found['access_token'],
                     'social_account_id' => $social->id,
-                    'expires_at'        => null,
-                    'is_active'         => true,
+                    'expires_at' => null,
+                    'is_active' => true,
                 ]
             ]);
 
@@ -588,44 +688,48 @@ class FacebookPageController extends Controller
 
         if ($ownerId) {
             $owner = User::find($ownerId);
-            if (!$owner) return back()->with('error', 'El propietario especificado no existe.');
+            if (!$owner)
+                return back()->with('error', 'El propietario especificado no existe.');
             if (!$metaPage->users()->where('users.id', $owner->id)->exists()) {
                 return back()->with('error', 'Ese propietario no tiene esta página asociada.');
             }
             $social = SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
-            if (!$social) return back()->with('error', "«{$owner->name}» no tiene Facebook conectado.");
+            if (!$social)
+                return back()->with('error', "«{$owner->name}» no tiene Facebook conectado.");
         } else {
             $owner = $metaPage->users()
                 ->wherePivotNotNull('social_account_id')
                 ->withPivot(['social_account_id'])
                 ->first();
 
-            if (!$owner) return back()->with('error', 'No hay un usuario propietario con Facebook conectado para esta página.');
+            if (!$owner)
+                return back()->with('error', 'No hay un usuario propietario con Facebook conectado para esta página.');
 
             $social = SocialAccount::find($owner->pivot->social_account_id)
                 ?: SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
 
-            if (!$social) return back()->with('error', 'No se encontró el token del propietario.');
+            if (!$social)
+                return back()->with('error', 'No se encontró el token del propietario.');
         }
 
-        $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string)$metaPage->page_id);
+        $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string) $metaPage->page_id);
         if (!$found || empty($found['access_token'])) {
             return back()->with('error', 'El propietario no tiene permisos actuales sobre esta página o no hay token.');
         }
 
         $metaPage->update([
-            'name'        => $found['name'] ?? $metaPage->name,
-            'category'    => $found['category'] ?? $metaPage->category,
+            'name' => $found['name'] ?? $metaPage->name,
+            'category' => $found['category'] ?? $metaPage->category,
             'picture_url' => "https://graph.facebook.com/v20.0/{$metaPage->page_id}/picture?type=normal",
-            'tasks'       => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
+            'tasks' => is_array($found['tasks'] ?? null) ? array_values($found['tasks']) : $metaPage->tasks,
             'instagram_business_account_id' => data_get($found, 'connected_instagram_business_account.id', $metaPage->instagram_business_account_id),
         ]);
 
         $metaPage->users()->updateExistingPivot($owner->id, [
             'page_access_token' => $found['access_token'],
             'social_account_id' => $social->id,
-            'expires_at'        => null,
-            'is_active'         => true,
+            'expires_at' => null,
+            'is_active' => true,
         ]);
 
         return back()->with('success', "Página «{$metaPage->name}» vinculada usando la cuenta de «{$owner->name}».");
