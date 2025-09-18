@@ -434,7 +434,7 @@
                     </div>
                 </div>
             @else
-                <p class="text-sm text-gray-500">Solo el admin puede publicar en múltiples páginas.</p>
+                <p class="text-sm text-gray-500">Solo el admin puede publicar en múltiples página.</p>
             @endif
         @endauth
         </form>
