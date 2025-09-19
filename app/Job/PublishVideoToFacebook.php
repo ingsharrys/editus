@@ -49,7 +49,7 @@ class PublishVideoToFacebook implements ShouldQueue
         }
 
         // En progreso
-        $metaPost->update(['status' => 'processing']);
+        $metaPost->update(['status' => 'pending']);
 
         $pageId    = $this->payload['page_id'];
         $pageToken = $this->payload['page_token'];

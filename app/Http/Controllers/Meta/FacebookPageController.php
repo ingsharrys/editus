@@ -340,7 +340,7 @@ class FacebookPageController extends Controller
                     }
 
                     // 2) Crear MetaPost como "queued"
-                    $postData['status'] = 'queued';
+                    $postData['status'] = 'pending';
                     $postData['local_media'] = json_encode([
                         'public_url' => $pub['url'],
                         'cleanup_rel' => $pub['cleanup_rel'] ?? null,
