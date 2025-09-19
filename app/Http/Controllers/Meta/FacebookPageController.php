@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Auth\Access\AuthorizationException;
 use App\Support\FacebookGraph;
-use Illuminate\Support\Arr;
+
 
 class FacebookPageController extends Controller
 {
@@ -375,22 +375,11 @@ class FacebookPageController extends Controller
 
                     // Éxito
                     $videoId = $res['video_id'] ?? null;
-
                     $postData['status'] = 'success';
                     $postData['fb_post_id'] = $videoId;
                     $postData['fb_media_ids'] = $videoId ? [$videoId] : null;
                     $postData['published_at'] = now();
-
-                    // >>> NUEVO: resolver permalink (usa el que venga o lo busca con el helper)
-                    $permalink = $res['permalink'] ?? null;
-                    if (!$permalink && $videoId) {
-                        try {
-                            // sube tries si tus videos tardan en procesar
-                            $permalink = $this->fetchPermalinkSmart($videoId, $token, 10);
-                        } catch (\Throwable $e) {
-                        }
-                    }
-                    $postData['fb_permalink_url'] = $permalink;
+                    $postData['fb_permalink_url'] = $res['permalink'] ?? null;
 
                     MetaPost::create($postData);
                     $results[] = [
@@ -400,7 +389,6 @@ class FacebookPageController extends Controller
                         'body' => ['video_id' => $videoId],
                     ];
                     continue;
-
                 }
 
             } catch (\Throwable $e) {
@@ -534,23 +522,8 @@ class FacebookPageController extends Controller
      */
     private function uploadVideoByFileUrl(string $pageId, string $pageAccessToken, string $fileUrl, ?string $description): array
     {
-        $trace = (string) \Illuminate\Support\Str::uuid();
-        $t0 = microtime(true);
-
-        // Mascara simple del token para logs
-        $tokMask = substr($pageAccessToken, 0, 6) . '…' . substr($pageAccessToken, -5);
-
         $endpoint = "https://graph-video.facebook.com/v23.0/{$pageId}/videos";
-        Log::info('[FB][video][start]', [
-            'trace' => $trace,
-            'pageId' => $pageId,
-            'endpoint' => $endpoint,
-            'file_url' => $fileUrl,
-            'has_description' => !empty($description),
-            'token' => $tokMask,
-        ]);
 
-        // 1) Crear el objeto de video desde file_url
         $resp = Http::asForm()->post($endpoint, array_filter([
             'file_url' => $fileUrl,
             'description' => $description,
@@ -561,212 +534,43 @@ class FacebookPageController extends Controller
         if (!$resp->ok()) {
             $body = $resp->json() ?? $resp->body();
             $msg = is_array($body) ? data_get($body, 'error.message') : (string) $body;
-            $code = is_array($body) ? data_get($body, 'error.code') : null;
-            $sub = is_array($body) ? data_get($body, 'error.error_subcode') : null;
-            $fbid = is_array($body) ? data_get($body, 'error.fbtrace_id') : null;
-
-            Log::warning('[FB][video][create:fail]', [
-                'trace' => $trace,
-                'status' => $resp->status(),
-                'code' => $code,
-                'subcode' => $sub,
-                'fbtrace_id' => $fbid,
-                'message' => $msg,
-                'raw' => is_string($body) ? mb_substr($body, 0, 1000) : $body,
-            ]);
-
             return ['ok' => false, 'error' => $msg ?: 'Graph error', 'body' => $body];
         }
 
-        $jsonCreate = $resp->json();
-        $videoId = data_get($jsonCreate, 'id');
-
-        Log::info('[FB][video][create:ok]', [
-            'trace' => $trace,
-            'video_id' => $videoId,
-            'resp' => $jsonCreate,
-        ]);
-
+        $videoId = data_get($resp->json(), 'id');
         if (!$videoId) {
-            Log::warning('[FB][video][create:no_video_id]', ['trace' => $trace, 'resp' => $jsonCreate]);
-            return ['ok' => false, 'error' => 'Sin video_id en respuesta', 'body' => $jsonCreate];
+            return ['ok' => false, 'error' => 'Sin video_id en respuesta', 'body' => $resp->json()];
         }
 
-        // 2) Poll: espera a que el video esté listo y/o intenta sacar permalink del post asociado
+        // Poll corto para diagnosticar procesamiento (ready/error)
         $permalink = null;
         try {
-            $maxTries = 10;
-            $delays = [2, 3, 5, 5, 6, 8, 8, 10, 10, 12];
-
-            for ($i = 0; $i < $maxTries; $i++) {
-                $vr = Http::get("https://graph.facebook.com/v23.0/{$videoId}", [
-                    'fields' => 'status,processing_progress,permalink_url,post_id',
+            $tries = 3;
+            while ($tries-- > 0) {
+                $s = Http::get("https://graph.facebook.com/v23.0/{$videoId}", [
+                    'fields' => 'status,processing_progress,permalink_url',
                     'access_token' => $pageAccessToken,
-                ]);
+                ])->json();
 
-                $state = null;
-                $postId = null;
-                $vjson = null;
+                $state = data_get($s, 'status.video_status');  // ready | processing | error
+                $permalink = data_get($s, 'permalink_url');
 
-                if ($vr->ok()) {
-                    $vjson = $vr->json();
-                    $state = data_get($vjson, 'status.video_status'); // processing | ready | error
-                    $permalink = data_get($vjson, 'permalink_url');
-                    $postId = data_get($vjson, 'post_id');
-
-                    Log::debug('[FB][video][poll]', [
-                        'trace' => $trace,
-                        'try' => $i + 1,
-                        'state' => $state,
-                        'progress' => data_get($vjson, 'processing_progress'),
-                        'has_permalink' => (bool) $permalink,
-                        'post_id' => $postId,
-                    ]);
-
-                    if ($permalink) {
-                        Log::info('[FB][video][poll:permalink_found]', [
-                            'trace' => $trace,
-                            'try' => $i + 1,
-                            'permalink' => $permalink,
-                        ]);
-                        break;
-                    }
-
-                    if ($state === 'error') {
-                        $reason = data_get($vjson, 'status.failure_reason') ?: 'processing_failed';
-                        Log::warning('[FB][video][poll:error]', [
-                            'trace' => $trace,
-                            'try' => $i + 1,
-                            'reason' => $reason,
-                            'video_id' => $videoId,
-                            'json' => $vjson,
-                        ]);
-                        return ['ok' => false, 'error' => $reason, 'body' => $vjson];
-                    }
-
-                    // Si ya existe post_id, intenta obtener el permalink del post
-                    if ($postId && !$permalink) {
-                        $pr = Http::get("https://graph.facebook.com/v23.0/{$postId}", [
-                            'fields' => 'permalink_url',
-                            'access_token' => $pageAccessToken,
-                        ]);
-
-                        if ($pr->ok()) {
-                            $pjson = $pr->json();
-                            $plink = data_get($pjson, 'permalink_url');
-                            Log::debug('[FB][video][poll:post_lookup]', [
-                                'trace' => $trace,
-                                'try' => $i + 1,
-                                'post_id' => $postId,
-                                'post_has_permalink' => (bool) $plink,
-                            ]);
-
-                            if ($plink) {
-                                $permalink = $plink;
-                                Log::info('[FB][video][poll:permalink_from_post]', [
-                                    'trace' => $trace,
-                                    'try' => $i + 1,
-                                    'permalink' => $permalink,
-                                ]);
-                                break;
-                            }
-                        } else {
-                            Log::debug('[FB][video][poll:post_lookup_fail]', [
-                                'trace' => $trace,
-                                'try' => $i + 1,
-                                'post_id' => $postId,
-                                'status' => $pr->status(),
-                                'raw' => mb_substr($pr->body(), 0, 500),
-                            ]);
-                        }
-                    }
-                } else {
-                    Log::debug('[FB][video][poll:fetch_fail]', [
-                        'trace' => $trace,
-                        'try' => $i + 1,
-                        'status' => $vr->status(),
-                        'raw' => mb_substr($vr->body(), 0, 500),
-                    ]);
+                if ($state === 'ready')
+                    break;
+                if ($state === 'error') {
+                    $reason = data_get($s, 'status.failure_reason') ?: 'processing_failed';
+                    return ['ok' => false, 'error' => $reason, 'body' => $s];
                 }
-
-                // Aún no listo: backoff
-                sleep($delays[$i] ?? 10);
+                sleep(6);
             }
         } catch (\Throwable $e) {
-            Log::warning('[FB][video][poll:exception]', [
-                'trace' => $trace,
-                'video_id' => $videoId,
-                'err' => $e->getMessage(),
-            ]);
-            // no-op: devolvemos lo que tengamos
+            // no-op
         }
 
-        Log::info('[FB][video][done]', [
-            'trace' => $trace,
-            'video_id' => $videoId,
-            'permalink' => $permalink,
-            'elapsed_ms' => (int) ((microtime(true) - $t0) * 1000),
-        ]);
-
-        return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $jsonCreate];
+        return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $resp->json()];
     }
 
-    private function fetchPermalinkSmart(string $objectId, string $pageAccessToken, int $maxTries = 8): ?string
-    {
-        // Intentamos primero con el ID tal cual; si aparece post_id, lo agregamos a la cola.
-        $queue = [$objectId];
-        $seen = [];
 
-        // Backoff suave (segundos)
-        $delays = [2, 3, 5, 7, 10, 10, 10, 10];
-
-        for ($i = 0; $i < $maxTries; $i++) {
-            foreach ($queue as $id) {
-                if (isset($seen[$id]))
-                    continue;
-                $seen[$id] = true;
-
-                $r = Http::get("https://graph.facebook.com/v23.0/{$id}", [
-                    'fields' => 'permalink_url,post_id,status,processing_progress',
-                    'access_token' => $pageAccessToken,
-                ]);
-
-                if (!$r->ok()) {
-                    // Si hay error transitorio, seguimos intentando con backoff
-                    continue;
-                }
-
-                $j = $r->json();
-
-                // 1) ¿Ya hay permalink?
-                $permalink = Arr::get($j, 'permalink_url');
-                if ($permalink) {
-                    return $permalink;
-                }
-
-                // 2) ¿Es un video en proceso?
-                $videoStatus = Arr::get($j, 'status.video_status'); // processing | ready | error
-                if ($videoStatus === 'ready') {
-                    // Algunos objetos marcan ready pero tardan 1-2s en exponer el permalink.
-                    // Reintentamos en la siguiente vuelta.
-                } elseif ($videoStatus === 'error') {
-                    // Falló procesamiento: no habrá permalink válido
-                    return null;
-                }
-
-                // 3) ¿Nos dio un post_id asociado? Intenta también con ese.
-                $postId = Arr::get($j, 'post_id');
-                if ($postId && !isset($seen[$postId])) {
-                    $queue[] = $postId;
-                }
-            }
-
-            // Backoff antes de la siguiente ronda
-            sleep($delays[min($i, count($delays) - 1)]);
-        }
-
-        return null; // no se consiguió en tiempo razonable
-    }
     protected function socialite()
     {
         return Socialite::driver('facebook')
