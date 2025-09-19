@@ -161,6 +161,19 @@ Route::post('/diag/upload-test', function (\Illuminate\Http\Request $req) {
         'info'=>$info
     ]);
 });
+// routes/web.php
+Route::get('/diag/php-ini-quick', function () {
+    return response()->json([
+        'file_uploads'       => ini_get('file_uploads'),
+        'upload_max_filesize'=> ini_get('upload_max_filesize'),
+        'post_max_size'      => ini_get('post_max_size'),
+        'max_execution_time' => ini_get('max_execution_time'),
+        'max_input_time'     => ini_get('max_input_time'),
+        'memory_limit'       => ini_get('memory_limit'),
+        'upload_tmp_dir'     => ini_get('upload_tmp_dir') ?: 'default',
+        'sapi'               => PHP_SAPI,
+    ]);
+});
 
 /*
 |--------------------------------------------------------------------------
