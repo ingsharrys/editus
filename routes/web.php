@@ -129,6 +129,68 @@ Route::get('/diag/fs', function () {
 Route::get('/diag/phpinfo', function () {
     phpinfo();
 });
+// GET: formulario simple
+Route::get('/diag/upload-form', function () {
+    return <<<HTML
+<!DOCTYPE html><html><body>
+<form method="POST" action="/diag/upload-test" enctype="multipart/form-data">
+  <input type="hidden" name="_token" value="".csrf_token()."">
+  <input type="file" name="video">
+  <button type="submit">Subir</button>
+</form>
+</body></html>
+HTML;
+});
+
+// POST: guarda como hace storeVideoPublicTmp()
+Route::post('/diag/upload-test', function (\Illuminate\Http\Request $req) {
+    if (!$req->hasFile('video')) return ['ok'=>false,'why'=>'no-file'];
+    $f = $req->file('video');
+    $info = [
+        'isValid' => $f->isValid(),
+        'error'   => $f->getError(),
+        'name'    => $f->getClientOriginalName(),
+        'size'    => $f->getSize(),
+        'mime'    => $f->getMimeType(),
+    ];
+
+    if (!$f->isValid()) return ['ok'=>false,'why'=>'upload-error','info'=>$info];
+
+    // intenta a public/storage
+    try {
+        \Illuminate\Support\Facades\Storage::disk('public')->exists('.');
+        if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('videos/tmp')) {
+            \Illuminate\Support\Facades\Storage::disk('public')->makeDirectory('videos/tmp');
+        }
+        $name = (string) \Illuminate\Support\Str::uuid().'.mp4';
+        $stream = fopen($f->getRealPath(),'r');
+        $saved = \Illuminate\Support\Facades\Storage::disk('public')->put('videos/tmp/'.$name, $stream);
+        if (is_resource($stream)) fclose($stream);
+
+        if ($saved) {
+            return [
+                'ok'=>true,
+                'disk'=>'public',
+                'url'=>asset('storage/videos/tmp/'.$name),
+                'info'=>$info
+            ];
+        }
+    } catch (\Throwable $e) {
+        // fallback
+    }
+
+    // fallback a public/uploads/tmp
+    $dir = public_path('uploads/tmp');
+    if (!is_dir($dir)) @mkdir($dir,0755,true);
+    $name = (string) \Illuminate\Support\Str::uuid().'.mp4';
+    $f->move($dir, $name);
+    return [
+        'ok'=>true,
+        'disk'=>'public/uploads/tmp',
+        'url'=>url('uploads/tmp/'.$name),
+        'info'=>$info
+    ];
+});
 
 /*
 |--------------------------------------------------------------------------

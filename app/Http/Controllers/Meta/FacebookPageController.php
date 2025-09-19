@@ -300,15 +300,44 @@ class FacebookPageController extends Controller
                     continue;
                 }
 
-                // ===== VIDEO =====  (Plan A: file_url)
+                // ===== VIDEO =====  (Plan A: file_url con chequeo de errores de upload)
                 if ($request->type === 'video') {
                     @set_time_limit(0);
 
                     $file = $request->file('video');
                     $message = $request->message;
 
+                    // 0) ¿Llegó el archivo y es válido?
+                    if (!$file) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = 'No llegó el archivo desde el navegador.';
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
+                        continue;
+                    }
+
+                    if (!$file->isValid()) {
+                        $code = $file->getError(); // código PHP UPLOAD_ERR_*
+                        $msg = match ($code) {
+                            UPLOAD_ERR_INI_SIZE => 'El archivo supera upload_max_filesize (php.ini).',
+                            UPLOAD_ERR_FORM_SIZE => 'El archivo supera MAX_FILE_SIZE (formulario).',
+                            UPLOAD_ERR_PARTIAL => 'El archivo se subió parcialmente (conexión/WAF).',
+                            UPLOAD_ERR_NO_FILE => 'No se subió ningún archivo.',
+                            UPLOAD_ERR_NO_TMP_DIR => 'Falta directorio temporal (upload_tmp_dir).',
+                            UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir en disco (permisos/cota).',
+                            UPLOAD_ERR_EXTENSION => 'Una extensión de PHP detuvo la subida.',
+                            default => 'Fallo de subida (código ' . $code . ').',
+                        };
+
+                        $postData['status'] = 'fail';
+                        $postData['error'] = 'Error de subida: ' . $msg;
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
+                        continue;
+                    }
+
                     // 1) Guardar el archivo en URL pública temporal (con chequeos)
-                    $pub = $this->storeVideoPublicTmp($file);
+                    $pub = $this->storeVideoPublicTmp($file); // ['ok', 'url', ... o 'error']
 
                     if (!($pub['ok'] ?? false)) {
                         $postData['status'] = 'fail';
@@ -324,7 +353,7 @@ class FacebookPageController extends Controller
                     // Limpieza del temporal público
                     if (!empty($pub['cleanup_rel'])) {
                         try {
-                            Storage::delete($pub['cleanup_rel']);
+                            \Illuminate\Support\Facades\Storage::delete($pub['cleanup_rel']);
                         } catch (\Throwable $e) {
                         }
                     } else if (!empty($pub['cleanup_abs'])) {
@@ -335,7 +364,12 @@ class FacebookPageController extends Controller
                         $postData['status'] = 'fail';
                         $postData['error'] = $res['error'] ?? 'Upload failed (file_url)';
                         MetaPost::create($postData);
-                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error'], 'body' => $res['body'] ?? null];
+                        $results[] = [
+                            'page' => $page->name,
+                            'ok' => false,
+                            'error' => $postData['error'],
+                            'body' => $res['body'] ?? null,
+                        ];
                         continue;
                     }
 
@@ -348,7 +382,12 @@ class FacebookPageController extends Controller
                     $postData['fb_permalink_url'] = $res['permalink'] ?? null;
 
                     MetaPost::create($postData);
-                    $results[] = ['page' => $page->name, 'ok' => true, 'error' => null, 'body' => ['video_id' => $videoId]];
+                    $results[] = [
+                        'page' => $page->name,
+                        'ok' => true,
+                        'error' => null,
+                        'body' => ['video_id' => $videoId],
+                    ];
                     continue;
                 }
 
@@ -393,51 +432,60 @@ class FacebookPageController extends Controller
      */
     private function storeVideoPublicTmp(\Illuminate\Http\UploadedFile $file): array
     {
+        // Sanidad previa
+        $size = (int) ($file->getSize() ?? 0);
+        if ($size <= 0) {
+            return ['ok' => false, 'error' => 'El archivo llegó con tamaño 0 (parcial o bloqueado).'];
+        }
+
         $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
-        $name = (string) \Str::uuid() . '.' . $ext;
+        $name = (string) \Illuminate\Support\Str::uuid() . '.' . $ext;
 
         // 1) Intentar disco "public" (storage/app/public → public/storage)
         try {
-            $diskOk = Storage::disk('public')->exists('.');
-            if ($diskOk) {
-                // asegúrate de que exista la carpeta
-                if (!Storage::disk('public')->exists('videos/tmp')) {
-                    Storage::disk('public')->makeDirectory('videos/tmp');
-                }
-                // escribir archivo
-                $stream = fopen($file->getRealPath(), 'r');
-                $path = 'videos/tmp/' . $name;
-                $saved = Storage::disk('public')->put($path, $stream);
-                if (is_resource($stream))
-                    fclose($stream);
-
-                if ($saved) {
-                    $abs = storage_path('app/public/' . $path);
-                    $url = asset('storage/' . $path);
-                    // sanity check de lectura
-                    if (!file_exists($abs)) {
-                        return ['ok' => false, 'error' => 'Archivo no se encuentra en storage/app/public (verifica permisos).'];
-                    }
-                    return [
-                        'ok' => true,
-                        'url' => $url,
-                        'rel' => 'public/' . $path, // para Storage::delete
-                        'abs' => $abs,
-                        'cleanup_rel' => 'public/' . $path,
-                        'cleanup_abs' => null,
-                    ];
-                }
+            // ¿existe el disk?
+            \Illuminate\Support\Facades\Storage::disk('public')->exists('.');
+            if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('videos/tmp')) {
+                \Illuminate\Support\Facades\Storage::disk('public')->makeDirectory('videos/tmp');
             }
+
+            // guardar
+            $stream = fopen($file->getRealPath(), 'r');
+            if ($stream === false) {
+                return ['ok' => false, 'error' => 'No se pudo abrir el archivo temporal del upload.'];
+            }
+
+            $path = 'videos/tmp/' . $name;
+            $saved = \Illuminate\Support\Facades\Storage::disk('public')->put($path, $stream);
+            if (is_resource($stream))
+                fclose($stream);
+
+            if (!$saved) {
+                return ['ok' => false, 'error' => 'Falló escribir en storage/app/public/videos/tmp.'];
+            }
+
+            $abs = storage_path('app/public/' . $path);
+            if (!file_exists($abs)) {
+                return ['ok' => false, 'error' => 'No se encontró el archivo guardado en storage (permisos).'];
+            }
+
+            $url = asset('storage/' . $path);
+            return [
+                'ok' => true,
+                'url' => $url,
+                'rel' => 'public/' . $path, // para Storage::delete
+                'abs' => $abs,
+                'cleanup_rel' => 'public/' . $path,
+                'cleanup_abs' => null,
+            ];
         } catch (\Throwable $e) {
-            // continúa a fallback
+            // sigue a fallback
         }
 
-        // 2) Fallback a public/uploads/tmp (sin symlink)
+        // 2) Fallback a public/uploads/tmp
         $dir = public_path('uploads/tmp');
-        if (!is_dir($dir)) {
-            if (!@mkdir($dir, 0755, true)) {
-                return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp (permisos).'];
-            }
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
+            return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp (permisos).'];
         }
         if (!is_writable($dir)) {
             return ['ok' => false, 'error' => 'public/uploads/tmp no es escribible (permisos).'];
@@ -447,11 +495,11 @@ class FacebookPageController extends Controller
         try {
             $file->move($dir, $name);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'No se pudo mover el archivo a public/uploads/tmp: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => 'No se pudo mover a public/uploads/tmp: ' . $e->getMessage()];
         }
 
         if (!file_exists($abs)) {
-            return ['ok' => false, 'error' => 'El archivo no se guardó en public/uploads/tmp (permisos/hosting).'];
+            return ['ok' => false, 'error' => 'El archivo no quedó en public/uploads/tmp.'];
         }
 
         $url = url('uploads/tmp/' . $name);
@@ -461,9 +509,10 @@ class FacebookPageController extends Controller
             'rel' => null,
             'abs' => $abs,
             'cleanup_rel' => null,
-            'cleanup_abs' => $abs, // limpiar a mano con unlink
+            'cleanup_abs' => $abs,
         ];
     }
+
 
     /**
      * Sube un video a la Página usando file_url (Meta descarga el archivo desde tu dominio).
