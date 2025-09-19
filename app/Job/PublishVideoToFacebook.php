@@ -11,35 +11,44 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class PublishVideoToFacebook implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $tries   = 5;
-    public $backoff = [10, 30, 60, 120, 300];   // backoff progresivo
-    public $timeout = 1200;                     // 20 min para videos pesados
+    /** Reintentos por job (overridea el --tries del worker) */
+    public $tries = 5;
 
+    /** Backoff progresivo entre reintentos */
+    public $backoff = [10, 30, 60, 120, 300];
+
+    /** Timeout duro del job (segundos) */
+    public $timeout = 1200;
+
+    /** Cola por defecto */
+    public $queue = 'default';
+
+    /** Payload: meta_post_id, page_id, page_name, page_token, public_url, cleanup_rel, cleanup_abs, caption */
     protected array $payload;
 
     public function __construct(array $payload)
     {
-        // payload: meta_post_id, page_id, page_name, page_token, public_url, cleanup_rel, cleanup_abs, caption
         $this->payload = $payload;
     }
 
     public function handle(): void
     {
-        $t0 = microtime(true);
+        $t0    = microtime(true);
         $trace = (string) \Illuminate\Support\Str::uuid();
 
         $metaPost = MetaPost::find($this->payload['meta_post_id']);
         if (!$metaPost) {
-            Log::warning('[FB][job] MetaPost no encontrado', ['trace' => $trace, 'id' => $this->payload['meta_post_id']]);
+            Log::warning('[FB][job] MetaPost no encontrado', ['trace' => $trace, 'id' => $this->payload['meta_post_id'] ?? null]);
             return;
         }
 
-        // Marcar en progreso
+        // En progreso
         $metaPost->update(['status' => 'processing']);
 
         $pageId    = $this->payload['page_id'];
@@ -73,10 +82,10 @@ class PublishVideoToFacebook implements ShouldQueue
             ]);
 
             Log::warning('[FB][job][create:fail]', [
-                'trace' => $trace,
-                'status'=> $resp->status(),
-                'msg'   => $msg,
-                'raw'   => is_string($body) ? mb_substr($body, 0, 1000) : $body,
+                'trace'  => $trace,
+                'status' => $resp->status(),
+                'msg'    => $msg,
+                'raw'    => is_string($body) ? mb_substr($body, 0, 1000) : $body,
             ]);
 
             $this->cleanupTemp();
@@ -138,7 +147,7 @@ class PublishVideoToFacebook implements ShouldQueue
 
                     if ($postId && !$permalink) {
                         $pr = Http::get("https://graph.facebook.com/v23.0/{$postId}", [
-                            'fields' => 'permalink_url',
+                            'fields'       => 'permalink_url',
                             'access_token' => $pageToken,
                         ]);
                         if ($pr->ok()) {
@@ -150,7 +159,7 @@ class PublishVideoToFacebook implements ShouldQueue
 
                 sleep($delays[$i] ?? 10);
             }
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('[FB][job][poll:exception]', ['trace' => $trace, 'err' => $e->getMessage()]);
         }
 
@@ -174,18 +183,64 @@ class PublishVideoToFacebook implements ShouldQueue
         ]);
     }
 
+    /**
+     * Se ejecuta cuando el job Falla definitivamente (después de agotar reintentos,
+     * por excepción no capturada, timeout, etc.)
+     */
+    public function failed(Throwable $e): void
+    {
+        try {
+            $metaPostId = $this->payload['meta_post_id'] ?? null;
+
+            if ($metaPostId) {
+                if ($metaPost = MetaPost::find($metaPostId)) {
+                    $metaPost->update([
+                        'status' => 'fail',
+                        'error'  => $e->getMessage() ?: class_basename($e),
+                    ]);
+                }
+            }
+
+            Log::error('[FB][job][failed]', [
+                'meta_post_id' => $metaPostId,
+                'exception'    => get_class($e),
+                'message'      => $e->getMessage(),
+                'file'         => $e->getFile() . ':' . $e->getLine(),
+                // recorta el trace para no llenar logs
+                'trace'        => collect(explode("\n", $e->getTraceAsString()))->take(12)->implode("\n"),
+            ]);
+        } catch (Throwable $inner) {
+            Log::error('[FB][job][failed-handler-error]', ['err' => $inner->getMessage()]);
+        } finally {
+            // Siempre intentamos limpiar el temporal
+            $this->cleanupTemp();
+        }
+    }
+
     protected function cleanupTemp(): void
     {
-        // Intentamos eliminar el temporal si vino en payload
         $rel = $this->payload['cleanup_rel'] ?? null;
         $abs = $this->payload['cleanup_abs'] ?? null;
 
         try {
             if ($rel) Storage::delete($rel);
-        } catch (\Throwable $e) {}
+        } catch (Throwable $e) {
+            Log::debug('[FB][job][cleanup:rel:error]', ['err' => $e->getMessage(), 'rel' => $rel]);
+        }
 
         if ($abs && file_exists($abs)) {
             @unlink($abs);
         }
+    }
+
+    /** Tags útiles para Horizon (o para filtrar logs) */
+    public function tags(): array
+    {
+        return [
+            'fb',
+            'video',
+            'page:' . ($this->payload['page_id'] ?? 'n/a'),
+            'meta_post:' . ($this->payload['meta_post_id'] ?? 'n/a'),
+        ];
     }
 }
