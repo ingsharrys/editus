@@ -26,8 +26,8 @@ class PublishVideoToFacebook implements ShouldQueue
     /** Timeout duro del job (segundos) */
     public $timeout = 1200;
 
-    /** Cola por defecto */
-    public $queue = 'default';
+    /** NO declares $queue aquí; el trait Queueable ya la define */
+    // public $queue = 'default';  <-- QUITAR
 
     /** Payload: meta_post_id, page_id, page_name, page_token, public_url, cleanup_rel, cleanup_abs, caption */
     protected array $payload;
@@ -35,6 +35,11 @@ class PublishVideoToFacebook implements ShouldQueue
     public function __construct(array $payload)
     {
         $this->payload = $payload;
+
+        // Si quieres forzar la cola, hazlo así (del trait Queueable):
+        $this->onQueue('default');
+        // (Opcional) fuerza conexión si usas 'database' u otra:
+        // $this->onConnection('database');
     }
 
     public function handle(): void
@@ -48,7 +53,7 @@ class PublishVideoToFacebook implements ShouldQueue
             return;
         }
 
-        // En progreso
+        // Mantén solo estados permitidos por tu ENUM (pending/success/fail)
         $metaPost->update(['status' => 'pending']);
 
         $pageId    = $this->payload['page_id'];
@@ -183,10 +188,6 @@ class PublishVideoToFacebook implements ShouldQueue
         ]);
     }
 
-    /**
-     * Se ejecuta cuando el job Falla definitivamente (después de agotar reintentos,
-     * por excepción no capturada, timeout, etc.)
-     */
     public function failed(Throwable $e): void
     {
         try {
@@ -206,13 +207,8 @@ class PublishVideoToFacebook implements ShouldQueue
                 'exception'    => get_class($e),
                 'message'      => $e->getMessage(),
                 'file'         => $e->getFile() . ':' . $e->getLine(),
-                // recorta el trace para no llenar logs
-                'trace'        => collect(explode("\n", $e->getTraceAsString()))->take(12)->implode("\n"),
             ]);
-        } catch (Throwable $inner) {
-            Log::error('[FB][job][failed-handler-error]', ['err' => $inner->getMessage()]);
         } finally {
-            // Siempre intentamos limpiar el temporal
             $this->cleanupTemp();
         }
     }
@@ -233,7 +229,6 @@ class PublishVideoToFacebook implements ShouldQueue
         }
     }
 
-    /** Tags útiles para Horizon (o para filtrar logs) */
     public function tags(): array
     {
         return [
