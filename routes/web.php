@@ -93,6 +93,42 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->name('informe.pdf'); // << NUEVO
     });
 });
+// 4.1) ¿Puedo escribir en storage y en public/uploads/tmp?
+Route::get('/diag/fs', function () {
+    $out = [];
+
+    // storage/logs
+    try {
+        $p = storage_path('logs/diag.txt');
+        file_put_contents($p, "ok ".date('c')."\n", FILE_APPEND);
+        $out['storage_logs_write'] = file_exists($p) ? 'OK' : 'FAIL';
+    } catch (\Throwable $e) { $out['storage_logs_write'] = 'FAIL: '.$e->getMessage(); }
+
+    // storage/app/public/videos/tmp (si existe el symlink)
+    try {
+        $dir = storage_path('app/public/videos/tmp');
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $p = $dir.'/probe.txt';
+        file_put_contents($p, "ok ".date('c'));
+        $out['storage_public_write'] = file_exists($p) ? 'OK' : 'FAIL';
+    } catch (\Throwable $e) { $out['storage_public_write'] = 'FAIL: '.$e->getMessage(); }
+
+    // public/uploads/tmp
+    try {
+        $dir = public_path('uploads/tmp');
+        if (!is_dir($dir)) @mkdir($dir, 0755, true);
+        $p = $dir.'/probe.txt';
+        file_put_contents($p, "ok ".date('c'));
+        $out['public_uploads_write'] = file_exists($p) ? 'OK' : 'FAIL';
+    } catch (\Throwable $e) { $out['public_uploads_write'] = 'FAIL: '.$e->getMessage(); }
+
+    return response()->json($out);
+});
+
+// 4.2) (opcional) phpinfo para confirmar ini efectivos (BORRAR luego)
+Route::get('/diag/phpinfo', function () {
+    phpinfo();
+});
 
 /*
 |--------------------------------------------------------------------------

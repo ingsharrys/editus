@@ -149,15 +149,15 @@ class FacebookPageController extends Controller
         $request->validate([
             'type' => ['required', 'in:text,photo,video'],
             'page_ids' => ['required', 'array', 'min:1'],
-            'page_ids.*' => [\Illuminate\Validation\Rule::exists('meta_pages', 'id')],
+            'page_ids.*' => [Rule::exists('meta_pages', 'id')],
             'message' => ['nullable', 'string', 'max:63206'],
             'link' => ['nullable', 'url'],
 
             'photos' => ['nullable', 'array', 'max:50'],
             'photos.*' => ['file', 'image', 'max:10240'], // 10MB
 
-            // más estricto: MP4/MOV, evita contenedores problemáticos
-            'video' => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime', 'mimes:mp4,mov', 'max:1024000'], // ~1GB
+            // Estricto: MP4/MOV
+            'video' => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime', 'mimes:mp4,mov', 'max:1024000'],
         ]);
 
         if ($request->type === 'text') {
@@ -182,7 +182,7 @@ class FacebookPageController extends Controller
         }
 
         $results = [];
-        $batch = (string) \Illuminate\Support\Str::uuid();
+        $batch = (string) \Str::uuid();
 
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
@@ -214,12 +214,10 @@ class FacebookPageController extends Controller
                 // ===== TEXTO =====
                 if ($request->type === 'text') {
                     $payload = ['message' => $request->message, 'access_token' => $token];
-                    if ($request->filled('link')) {
+                    if ($request->filled('link'))
                         $payload['link'] = $request->link;
-                    }
 
-                    $resp = \Illuminate\Support\Facades\Http::asForm()
-                        ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
 
                     $ok = $resp->ok();
                     $body = $resp->json();
@@ -231,10 +229,8 @@ class FacebookPageController extends Controller
                         $postData['published_at'] = now();
 
                         try {
-                            $permalink = $this->fetchPermalink($postId, $token);
-                            $postData['fb_permalink_url'] = $permalink;
+                            $postData['fb_permalink_url'] = $this->fetchPermalink($postId, $token);
                         } catch (\Throwable $e) {
-                            // opcional: log warn
                         }
                     } else {
                         $postData['status'] = 'fail';
@@ -252,8 +248,7 @@ class FacebookPageController extends Controller
                     foreach ($request->file('photos', []) as $file) {
                         $real = $file->getRealPath();
                         $name = $file->getClientOriginalName();
-
-                        $r = \Illuminate\Support\Facades\Http::attach('source', fopen($real, 'r'), $name)
+                        $r = Http::attach('source', fopen($real, 'r'), $name)
                             ->asMultipart()
                             ->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
                                 'published' => false,
@@ -276,15 +271,12 @@ class FacebookPageController extends Controller
                     $postData['fb_media_ids'] = array_map(fn($m) => $m['media_fbid'], $media);
 
                     $payload = ['access_token' => $token];
-                    if ($request->filled('message')) {
+                    if ($request->filled('message'))
                         $payload['message'] = $request->message;
-                    }
-                    foreach ($media as $i => $m) {
+                    foreach ($media as $i => $m)
                         $payload["attached_media[$i]"] = json_encode($m);
-                    }
 
-                    $resp = \Illuminate\Support\Facades\Http::asForm()
-                        ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
 
                     $ok = $resp->ok();
                     $body = $resp->json();
@@ -294,12 +286,9 @@ class FacebookPageController extends Controller
                         $postData['status'] = 'success';
                         $postData['fb_post_id'] = $postId;
                         $postData['published_at'] = now();
-
                         try {
-                            $permalink = $this->fetchPermalink($postId, $token);
-                            $postData['fb_permalink_url'] = $permalink;
+                            $postData['fb_permalink_url'] = $this->fetchPermalink($postId, $token);
                         } catch (\Throwable $e) {
-                            // opcional
                         }
                     } else {
                         $postData['status'] = 'fail';
@@ -318,8 +307,16 @@ class FacebookPageController extends Controller
                     $file = $request->file('video');
                     $message = $request->message;
 
-                    // 1) Guardar el archivo en URL pública temporal
-                    $pub = $this->storeVideoPublicTmp($file); // ['abs','rel','url','cleanup_rel']
+                    // 1) Guardar el archivo en URL pública temporal (con chequeos)
+                    $pub = $this->storeVideoPublicTmp($file);
+
+                    if (!($pub['ok'] ?? false)) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = $pub['error'] ?? 'No se pudo guardar el video en público (permisos).';
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
+                        continue;
+                    }
 
                     // 2) Subir por file_url a graph-video
                     $res = $this->uploadVideoByFileUrl($pageId, $token, $pub['url'], $message);
@@ -327,21 +324,18 @@ class FacebookPageController extends Controller
                     // Limpieza del temporal público
                     if (!empty($pub['cleanup_rel'])) {
                         try {
-                            \Illuminate\Support\Facades\Storage::delete($pub['cleanup_rel']);
+                            Storage::delete($pub['cleanup_rel']);
                         } catch (\Throwable $e) {
                         }
+                    } else if (!empty($pub['cleanup_abs'])) {
+                        @unlink($pub['cleanup_abs']);
                     }
 
                     if (!($res['ok'] ?? false)) {
                         $postData['status'] = 'fail';
                         $postData['error'] = $res['error'] ?? 'Upload failed (file_url)';
                         MetaPost::create($postData);
-                        $results[] = [
-                            'page' => $page->name,
-                            'ok' => false,
-                            'error' => $postData['error'],
-                            'body' => $res['body'] ?? null,
-                        ];
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error'], 'body' => $res['body'] ?? null];
                         continue;
                     }
 
@@ -354,19 +348,14 @@ class FacebookPageController extends Controller
                     $postData['fb_permalink_url'] = $res['permalink'] ?? null;
 
                     MetaPost::create($postData);
-                    $results[] = [
-                        'page' => $page->name,
-                        'ok' => true,
-                        'error' => null,
-                        'body' => ['video_id' => $videoId],
-                    ];
+                    $results[] = ['page' => $page->name, 'ok' => true, 'error' => null, 'body' => ['video_id' => $videoId]];
                     continue;
                 }
 
             } catch (\Throwable $e) {
                 $postData['status'] = 'fail';
                 $postData['error'] = $e->getMessage();
-                \Illuminate\Support\Facades\Log::error('[FB] publish(): exception', ['err' => $e]);
+                Log::error('[FB] publish(): exception', ['err' => $e]);
                 MetaPost::create($postData);
                 $results[] = ['page' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
             }
@@ -380,7 +369,7 @@ class FacebookPageController extends Controller
             ->with('publish_results', $results);
 
         if ($oks === 0 && $fails > 0) {
-            $resp->with('error', 'Ningún video se pudo publicar. Revisa formato/URL pública de acceso directo o el Page Access Token.');
+            $resp->with('error', 'Ningún video se pudo publicar. Verifica permisos de escritura y que la URL pública sea accesible.');
         }
 
         return $resp;
@@ -389,43 +378,90 @@ class FacebookPageController extends Controller
 
     /**
      * Guarda el video en un URL público temporal.
-     * - Si existe storage:link, usa storage/app/public/videos/tmp
-     * - Si no, usa public/uploads/tmp
-     * @return array{abs:string, rel:?string, url:string, cleanup_rel:?string}
+     * - Intenta disco "public" (requiere storage:link). Si falla, cae a public/uploads/tmp.
+     * - Hace chequeos de directorio y permisos. Si algo falla, devuelve ok=false con error.
+     *
+     * @return array{
+     *   ok: bool,
+     *   url?: string,
+     *   rel?: string|null,
+     *   abs?: string,
+     *   cleanup_rel?: string|null,
+     *   cleanup_abs?: string|null,
+     *   error?: string
+     * }
      */
     private function storeVideoPublicTmp(\Illuminate\Http\UploadedFile $file): array
     {
         $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
-        $name = (string) Str::uuid() . '.' . $ext;
+        $name = (string) \Str::uuid() . '.' . $ext;
 
-        // Preferimos el disco "public" (requiere storage:link)
+        // 1) Intentar disco "public" (storage/app/public → public/storage)
         try {
-            $rel = $file->storeAs('public/videos/tmp', $name); // storage/app/public/videos/tmp/...
-            $url = asset('storage/videos/tmp/' . $name);       // https://tu-dominio/storage/videos/tmp/...
-            return [
-                'abs' => storage_path('app/' . $rel),
-                'rel' => $rel,               // para Storage::delete($rel)
-                'url' => $url,
-                'cleanup_rel' => $rel,
-            ];
+            $diskOk = Storage::disk('public')->exists('.');
+            if ($diskOk) {
+                // asegúrate de que exista la carpeta
+                if (!Storage::disk('public')->exists('videos/tmp')) {
+                    Storage::disk('public')->makeDirectory('videos/tmp');
+                }
+                // escribir archivo
+                $stream = fopen($file->getRealPath(), 'r');
+                $path = 'videos/tmp/' . $name;
+                $saved = Storage::disk('public')->put($path, $stream);
+                if (is_resource($stream))
+                    fclose($stream);
+
+                if ($saved) {
+                    $abs = storage_path('app/public/' . $path);
+                    $url = asset('storage/' . $path);
+                    // sanity check de lectura
+                    if (!file_exists($abs)) {
+                        return ['ok' => false, 'error' => 'Archivo no se encuentra en storage/app/public (verifica permisos).'];
+                    }
+                    return [
+                        'ok' => true,
+                        'url' => $url,
+                        'rel' => 'public/' . $path, // para Storage::delete
+                        'abs' => $abs,
+                        'cleanup_rel' => 'public/' . $path,
+                        'cleanup_abs' => null,
+                    ];
+                }
+            }
         } catch (\Throwable $e) {
-            // Fallback a public/uploads/tmp (sin symlink)
+            // continúa a fallback
         }
 
-        // Fallback sin symlink
+        // 2) Fallback a public/uploads/tmp (sin symlink)
         $dir = public_path('uploads/tmp');
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            if (!@mkdir($dir, 0755, true)) {
+                return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp (permisos).'];
+            }
         }
-        $abs = $dir . '/' . $name;
-        $file->move($dir, $name);
-        $url = url('uploads/tmp/' . $name);
+        if (!is_writable($dir)) {
+            return ['ok' => false, 'error' => 'public/uploads/tmp no es escribible (permisos).'];
+        }
 
+        $abs = $dir . '/' . $name;
+        try {
+            $file->move($dir, $name);
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => 'No se pudo mover el archivo a public/uploads/tmp: ' . $e->getMessage()];
+        }
+
+        if (!file_exists($abs)) {
+            return ['ok' => false, 'error' => 'El archivo no se guardó en public/uploads/tmp (permisos/hosting).'];
+        }
+
+        $url = url('uploads/tmp/' . $name);
         return [
-            'abs' => $abs,
-            'rel' => null, // no está en Storage
+            'ok' => true,
             'url' => $url,
-            'cleanup_rel' => null, // limpiar por CRON (carpeta public/uploads/tmp)
+            'rel' => null,
+            'abs' => $abs,
+            'cleanup_rel' => null,
+            'cleanup_abs' => $abs, // limpiar a mano con unlink
         ];
     }
 
@@ -439,7 +475,6 @@ class FacebookPageController extends Controller
     {
         $endpoint = "https://graph-video.facebook.com/v23.0/{$pageId}/videos";
 
-        // POST form (no multipart)
         $resp = Http::asForm()->post($endpoint, array_filter([
             'file_url' => $fileUrl,
             'description' => $description,
@@ -471,22 +506,21 @@ class FacebookPageController extends Controller
                 $state = data_get($s, 'status.video_status');  // ready | processing | error
                 $permalink = data_get($s, 'permalink_url');
 
-                if ($state === 'ready') {
+                if ($state === 'ready')
                     break;
-                }
                 if ($state === 'error') {
                     $reason = data_get($s, 'status.failure_reason') ?: 'processing_failed';
                     return ['ok' => false, 'error' => $reason, 'body' => $s];
                 }
-
                 sleep(6);
             }
         } catch (\Throwable $e) {
-            // si falla el poll, igual devolvemos ok con video_id
+            // no-op
         }
 
         return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $resp->json()];
     }
+
 
     protected function socialite()
     {
