@@ -19,7 +19,6 @@ use Illuminate\Support\Facades\Redirect;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Auth\Access\AuthorizationException;
 use App\Support\FacebookGraph;
-use App\Jobs\PublishVideoToFacebook;
 
 
 class FacebookPageController extends Controller
@@ -308,16 +307,25 @@ class FacebookPageController extends Controller
                     $file = $request->file('video');
                     $message = $request->message;
 
-                    if (!$file || !$file->isValid()) {
-                        $code = $file?->getError() ?? UPLOAD_ERR_NO_FILE;
+                    // 0) ¿Llegó el archivo y es válido?
+                    if (!$file) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = 'No llegó el archivo desde el navegador.';
+                        MetaPost::create($postData);
+                        $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
+                        continue;
+                    }
+
+                    if (!$file->isValid()) {
+                        $code = $file->getError(); // código PHP UPLOAD_ERR_*
                         $msg = match ($code) {
                             UPLOAD_ERR_INI_SIZE => 'El archivo supera upload_max_filesize (php.ini).',
                             UPLOAD_ERR_FORM_SIZE => 'El archivo supera MAX_FILE_SIZE (formulario).',
-                            UPLOAD_ERR_PARTIAL => 'El archivo se subió parcialmente.',
+                            UPLOAD_ERR_PARTIAL => 'El archivo se subió parcialmente (conexión/WAF).',
                             UPLOAD_ERR_NO_FILE => 'No se subió ningún archivo.',
-                            UPLOAD_ERR_NO_TMP_DIR => 'Falta upload_tmp_dir.',
-                            UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir en disco.',
-                            UPLOAD_ERR_EXTENSION => 'Una extensión detuvo la subida.',
+                            UPLOAD_ERR_NO_TMP_DIR => 'Falta directorio temporal (upload_tmp_dir).',
+                            UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir en disco (permisos/cota).',
+                            UPLOAD_ERR_EXTENSION => 'Una extensión de PHP detuvo la subida.',
                             default => 'Fallo de subida (código ' . $code . ').',
                         };
 
@@ -328,43 +336,57 @@ class FacebookPageController extends Controller
                         continue;
                     }
 
-                    // 1) Guarda a URL pública temporal (NO subimos aún a FB)
-                    $pub = $this->storeVideoPublicTmp($file);
+                    // 1) Guardar el archivo en URL pública temporal (con chequeos)
+                    $pub = $this->storeVideoPublicTmp($file); // ['ok', 'url', ... o 'error']
+
                     if (!($pub['ok'] ?? false)) {
                         $postData['status'] = 'fail';
-                        $postData['error'] = $pub['error'] ?? 'No se pudo guardar el video en público.';
+                        $postData['error'] = $pub['error'] ?? 'No se pudo guardar el video en público (permisos).';
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                         continue;
                     }
 
-                    // 2) Crea el MetaPost en cola
-                    $postData['status'] = 'queued';
-                    $postData['local_media'] = json_encode(['public_url' => $pub['url'], 'cleanup_rel' => $pub['cleanup_rel'] ?? null, 'cleanup_abs' => $pub['cleanup_abs'] ?? null]);
-                    $postData['message'] = $message;
-                    $postData['fb_media_ids'] = null;
-                    $postData['fb_post_id'] = null;
-                    $postData['fb_permalink_url'] = null;
+                    // 2) Subir por file_url a graph-video
+                    $res = $this->uploadVideoByFileUrl($pageId, $token, $pub['url'], $message);
 
-                    $metaPost = MetaPost::create($postData);
+                    // Limpieza del temporal público
+                    if (!empty($pub['cleanup_rel'])) {
+                        try {
+                            \Illuminate\Support\Facades\Storage::delete($pub['cleanup_rel']);
+                        } catch (\Throwable $e) {
+                        }
+                    } else if (!empty($pub['cleanup_abs'])) {
+                        @unlink($pub['cleanup_abs']);
+                    }
 
-                    // 3) Despacha el Job (pasa lo necesario)
-                    PublishVideoToFacebook::dispatch([
-                        'meta_post_id' => $metaPost->id,
-                        'page_id' => $pageId,
-                        'page_name' => $page->name,
-                        'page_token' => $token,
-                        'public_url' => $pub['url'],
-                        'cleanup_rel' => $pub['cleanup_rel'] ?? null,
-                        'cleanup_abs' => $pub['cleanup_abs'] ?? null,
-                        'caption' => $message,
-                    ])->onQueue('default');
+                    if (!($res['ok'] ?? false)) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = $res['error'] ?? 'Upload failed (file_url)';
+                        MetaPost::create($postData);
+                        $results[] = [
+                            'page' => $page->name,
+                            'ok' => false,
+                            'error' => $postData['error'],
+                            'body' => $res['body'] ?? null,
+                        ];
+                        continue;
+                    }
 
-                    // 4) Feedback inmediato
+                    // Éxito
+                    $videoId = $res['video_id'] ?? null;
+                    $postData['status'] = 'success';
+                    $postData['fb_post_id'] = $videoId;
+                    $postData['fb_media_ids'] = $videoId ? [$videoId] : null;
+                    $postData['published_at'] = now();
+                    $postData['fb_permalink_url'] = $res['permalink'] ?? null;
+
+                    MetaPost::create($postData);
                     $results[] = [
                         'page' => $page->name,
                         'ok' => true,
-                        'body' => ['queued' => true, 'meta_post_id' => $metaPost->id],
+                        'error' => null,
+                        'body' => ['video_id' => $videoId],
                     ];
                     continue;
                 }
