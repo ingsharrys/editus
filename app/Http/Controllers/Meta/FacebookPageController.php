@@ -246,58 +246,59 @@ class FacebookPageController extends Controller
 
                 // ===== FOTOS (en cola) =====
                 if ($request->type === 'photo') {
-                    $message = $request->message;
-
-                    // 1) Guardar cada foto en URL pública temporal
-                    $uploads = [];
-                    $errors = [];
+                    // 1) guarda todas las fotos en URL pública temporal
+                    $urls = [];
+                    $rels = [];
+                    $abss = [];
 
                     foreach ($request->file('photos', []) as $file) {
-                        $res = $this->storePhotoPublicTmp($file);
+                        $res = $this->storePhotoPublicTmp($file); // ya lo tienes implementado
                         if (!($res['ok'] ?? false)) {
-                            $errors[] = $res['error'] ?? 'No se pudo guardar una imagen.';
-                            continue;
+                            $postData['status'] = 'fail';
+                            $postData['error'] = $res['error'] ?? 'No se pudo guardar una imagen en público.';
+                            MetaPost::create($postData);
+                            $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
+                            continue 2; // salta a la siguiente página del foreach ($pages as $page)
                         }
-                        $uploads[] = $res; // cada $res tiene url, cleanup_rel, cleanup_abs
+                        $urls[] = $res['url'];
+                        $rels[] = $res['cleanup_rel'] ?? null;
+                        $abss[] = $res['cleanup_abs'] ?? null;
                     }
 
-                    if (empty($uploads)) {
+                    if (empty($urls)) {
                         $postData['status'] = 'fail';
-                        $postData['error'] = $errors ? implode(' | ', $errors) : 'No se pudieron preparar imágenes.';
+                        $postData['error'] = 'No se pudo preparar ninguna imagen.';
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                         continue;
                     }
 
-                    // 2) MetaPost pendiente
+                    // 2) crea el MetaPost como pending (tu enum permite: pending|success|fail)
                     $postData['status'] = 'pending';
                     $postData['local_media'] = json_encode([
-                        'photos' => array_map(fn($u) => [
-                            'url' => $u['url'],
-                            'cleanup_rel' => $u['cleanup_rel'] ?? null,
-                            'cleanup_abs' => $u['cleanup_abs'] ?? null,
-                        ], $uploads),
+                        'photo_urls' => $urls,
+                        'cleanup_rel' => $rels,
+                        'cleanup_abs' => $abss,
                     ]);
-                    $postData['message'] = $message;
                     $postData['fb_media_ids'] = null;
                     $postData['fb_post_id'] = null;
                     $postData['fb_permalink_url'] = null;
 
                     $metaPost = MetaPost::create($postData);
 
-                    // 3) Despachar Job
+                    // 3) despacha el Job (opcional: añade ->delay() si quieres escalonar por página)
                     PublishPhotosToFacebook::dispatch([
                         'meta_post_id' => $metaPost->id,
                         'page_id' => $pageId,
                         'page_name' => $page->name,
                         'page_token' => $token,
-                        'photo_urls' => array_map(fn($u) => $u['url'], $uploads),
-                        'cleanup_rel' => array_values(array_filter(array_map(fn($u) => $u['cleanup_rel'] ?? null, $uploads))),
-                        'cleanup_abs' => array_values(array_filter(array_map(fn($u) => $u['cleanup_abs'] ?? null, $uploads))),
-                        'caption' => $message,
+                        'photo_urls' => $urls,
+                        'cleanup_rel' => $rels,
+                        'cleanup_abs' => $abss,
+                        'caption' => $request->message,
                     ])->onQueue('default');
 
-                    // 4) Feedback inmediato
+                    // 4) feedback inmediato
                     $results[] = [
                         'page' => $page->name,
                         'ok' => true,
@@ -305,7 +306,6 @@ class FacebookPageController extends Controller
                     ];
                     continue;
                 }
-
 
                 // ===== VIDEO (en cola con file_url) =====
                 if ($request->type === 'video') {
@@ -519,18 +519,15 @@ class FacebookPageController extends Controller
      */
     private function storePhotoPublicTmp(\Illuminate\Http\UploadedFile $file): array
     {
-        // Sanidad
-        if (!$file->isValid()) {
-            return ['ok' => false, 'error' => 'Upload inválido.'];
-        }
-        if (strpos($file->getMimeType() ?? '', 'image/') !== 0) {
-            return ['ok' => false, 'error' => 'El archivo no es imagen.'];
+        $size = (int) ($file->getSize() ?? 0);
+        if ($size <= 0) {
+            return ['ok' => false, 'error' => 'El archivo llegó con tamaño 0 (parcial/bloqueado).'];
         }
 
         $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
         $name = (string) \Illuminate\Support\Str::uuid() . '.' . $ext;
 
-        // 1) Intentar en storage/app/public/images/tmp  => public/storage/images/tmp
+        // 1) disco public (storage:link)
         try {
             \Illuminate\Support\Facades\Storage::disk('public')->exists('.');
             if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('images/tmp')) {
@@ -539,7 +536,7 @@ class FacebookPageController extends Controller
 
             $stream = fopen($file->getRealPath(), 'r');
             if ($stream === false) {
-                return ['ok' => false, 'error' => 'No se pudo abrir el temporal del upload.'];
+                return ['ok' => false, 'error' => 'No se pudo abrir el archivo temporal del upload.'];
             }
 
             $path = 'images/tmp/' . $name;
@@ -547,53 +544,56 @@ class FacebookPageController extends Controller
             if (is_resource($stream))
                 fclose($stream);
 
-            if (!$saved) {
-                return ['ok' => false, 'error' => 'No se pudo escribir en storage/public.'];
-            }
+            if (!$saved)
+                return ['ok' => false, 'error' => 'Falló escribir en storage/app/public/images/tmp.'];
 
             $abs = storage_path('app/public/' . $path);
-            if (!file_exists($abs)) {
-                return ['ok' => false, 'error' => 'El archivo no quedó en storage/public.'];
-            }
+            if (!file_exists($abs))
+                return ['ok' => false, 'error' => 'No se encontró el archivo guardado en storage.'];
 
             $url = asset('storage/' . $path);
             return [
                 'ok' => true,
                 'url' => $url,
-                'cleanup_rel' => 'public/' . $path,  // para Storage::delete
+                'rel' => 'public/' . $path,   // para Storage::delete
+                'abs' => $abs,
+                'cleanup_rel' => 'public/' . $path,
                 'cleanup_abs' => null,
             ];
         } catch (\Throwable $e) {
-            // cae a fallback
+            // fallback
         }
 
-        // 2) Fallback a public/uploads/tmp/images
-        $dir = public_path('uploads/tmp/images');
+        // 2) fallback a public/uploads/tmp
+        $dir = public_path('uploads/tmp');
         if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
-            return ['ok' => false, 'error' => 'No se pudo crear uploads/tmp/images.'];
+            return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp.'];
         }
         if (!is_writable($dir)) {
-            return ['ok' => false, 'error' => 'uploads/tmp/images no es escribible.'];
-        }
-
-        try {
-            $file->move($dir, $name);
-        } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'Move falló: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => 'public/uploads/tmp no es escribible.'];
         }
 
         $abs = $dir . '/' . $name;
-        if (!file_exists($abs)) {
-            return ['ok' => false, 'error' => 'El archivo no quedó en uploads/tmp/images.'];
+        try {
+            $file->move($dir, $name);
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'error' => 'No se pudo mover a public/uploads/tmp: ' . $e->getMessage()];
         }
 
+        if (!file_exists($abs))
+            return ['ok' => false, 'error' => 'El archivo no quedó en public/uploads/tmp.'];
+
+        $url = url('uploads/tmp/' . $name);
         return [
             'ok' => true,
-            'url' => url('uploads/tmp/images/' . $name),
+            'url' => $url,
+            'rel' => null,
+            'abs' => $abs,
             'cleanup_rel' => null,
             'cleanup_abs' => $abs,
         ];
     }
+
 
     /**
      * Sube un video a la Página usando file_url (Meta descarga el archivo desde tu dominio).

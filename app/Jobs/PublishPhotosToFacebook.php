@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
+use App\Jobs\RefreshMetaPermalink;
 
 class PublishPhotosToFacebook implements ShouldQueue
 {
@@ -42,10 +43,10 @@ class PublishPhotosToFacebook implements ShouldQueue
         }
 
         // Mantener status 'pending' (tu enum es: pending|success|fail)
-        $pageId    = $this->payload['page_id'];
+        $pageId = $this->payload['page_id'];
         $pageToken = $this->payload['page_token'];
-        $caption   = $this->payload['caption'] ?? null;
-        $urls      = (array)($this->payload['photo_urls'] ?? []);
+        $caption = $this->payload['caption'] ?? null;
+        $urls = (array) ($this->payload['photo_urls'] ?? []);
 
         Log::info('[FB][photos][start]', ['trace' => $trace, 'meta_post' => $metaPost->id, 'count' => count($urls)]);
 
@@ -59,8 +60,8 @@ class PublishPhotosToFacebook implements ShouldQueue
         $media = [];
         foreach ($urls as $u) {
             $r = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
-                'published'    => false,
-                'url'          => $u,
+                'published' => false,
+                'url' => $u,
                 'access_token' => $pageToken,
             ]);
 
@@ -69,8 +70,8 @@ class PublishPhotosToFacebook implements ShouldQueue
             } else {
                 Log::warning('[FB][photos][create:fail]', [
                     'trace' => $trace,
-                    'url'   => $u,
-                    'raw'   => $r->json() ?? $r->body(),
+                    'url' => $u,
+                    'raw' => $r->json() ?? $r->body(),
                 ]);
             }
         }
@@ -83,7 +84,8 @@ class PublishPhotosToFacebook implements ShouldQueue
 
         // 2) Crear el post en /feed con attached_media
         $payload = ['access_token' => $pageToken];
-        if ($caption) $payload['message'] = $caption;
+        if ($caption)
+            $payload['message'] = $caption;
         foreach ($media as $i => $m) {
             $payload["attached_media[$i]"] = json_encode($m);
         }
@@ -101,13 +103,19 @@ class PublishPhotosToFacebook implements ShouldQueue
 
         // 3) Finalizar
         $metaPost->update([
-            'status'           => 'success',
-            'fb_post_id'       => $postId,
-            'fb_media_ids'     => json_encode(array_map(fn($m) => $m['media_fbid'], $media)),
+            'status' => 'success',
+            'fb_post_id' => $postId,
+            'fb_media_ids' => json_encode(array_map(fn($m) => $m['media_fbid'], $media)),
             'fb_permalink_url' => $permalink,
-            'published_at'     => now(),
-            'error'            => null,
+            'published_at' => now(),
+            'error' => null,
         ]);
+
+        // refresco diferido del permalink (por si Graph aún no lo tenía)
+        RefreshMetaPermalink::dispatch([
+            'meta_post_id' => $metaPost->id,
+            'page_token' => $pageToken,
+        ])->delay(now()->addMinute());
 
         $this->cleanupTemp();
 
@@ -122,7 +130,7 @@ class PublishPhotosToFacebook implements ShouldQueue
             if ($metaPost) {
                 $metaPost->update([
                     'status' => 'fail',
-                    'error'  => $e->getMessage() ?: class_basename($e),
+                    'error' => $e->getMessage() ?: class_basename($e),
                 ]);
             }
         } catch (Throwable $inner) {
@@ -133,31 +141,37 @@ class PublishPhotosToFacebook implements ShouldQueue
 
         Log::error('[FB][photos][failed]', [
             'meta_post_id' => $this->payload['meta_post_id'] ?? null,
-            'exception'    => get_class($e),
-            'message'      => $e->getMessage(),
+            'exception' => get_class($e),
+            'message' => $e->getMessage(),
         ]);
     }
 
     protected function cleanupTemp(): void
     {
         // Puede venir como arrays
-        $rels = (array)($this->payload['cleanup_rel'] ?? []);
-        $abss = (array)($this->payload['cleanup_abs'] ?? []);
+        $rels = (array) ($this->payload['cleanup_rel'] ?? []);
+        $abss = (array) ($this->payload['cleanup_abs'] ?? []);
 
         foreach ($rels as $r) {
-            try { if ($r) Storage::delete($r); } catch (Throwable $e) {}
+            try {
+                if ($r)
+                    Storage::delete($r);
+            } catch (Throwable $e) {
+            }
         }
         foreach ($abss as $a) {
-            if ($a && file_exists($a)) @unlink($a);
+            if ($a && file_exists($a))
+                @unlink($a);
         }
     }
 
     private function fetchPermalinkQuick(?string $postId, string $token): ?string
     {
-        if (!$postId) return null;
+        if (!$postId)
+            return null;
         try {
             $r = Http::get("https://graph.facebook.com/v23.0/{$postId}", [
-                'fields'       => 'permalink_url',
+                'fields' => 'permalink_url',
                 'access_token' => $token,
             ]);
             return $r->ok() ? (data_get($r->json(), 'permalink_url') ?: null) : null;
