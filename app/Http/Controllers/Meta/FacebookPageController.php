@@ -149,15 +149,14 @@ class FacebookPageController extends Controller
         $request->validate([
             'type' => ['required', 'in:text,photo,video'],
             'page_ids' => ['required', 'array', 'min:1'],
-            'page_ids.*' => [Rule::exists('meta_pages', 'id')],
+            'page_ids.*' => [\Illuminate\Validation\Rule::exists('meta_pages', 'id')],
             'message' => ['nullable', 'string', 'max:63206'],
             'link' => ['nullable', 'url'],
 
             'photos' => ['nullable', 'array', 'max:50'],
             'photos.*' => ['file', 'image', 'max:10240'], // 10MB
 
-            // 🔒 Más estricto para evitar processing fails por contenedores raros.
-            // Si prefieres permitir otros, ajusta, pero MP4/MOV es lo más sólido en FB.
+            // más estricto: MP4/MOV, evita contenedores problemáticos
             'video' => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime', 'mimes:mp4,mov', 'max:1024000'], // ~1GB
         ]);
 
@@ -173,49 +172,6 @@ class FacebookPageController extends Controller
             }
         }
 
-        // 2) Loggers: fb.log + laravel.log (con mascarado de tokens)
-        $fbLog = Log::build([
-            'driver' => 'single',
-            'path' => storage_path('logs/fb.log'),
-            'level' => 'debug',
-        ]);
-
-        $sanitize = function (array $ctx) {
-            // enmascara access_token y upload_session_id si aparecen
-            array_walk_recursive($ctx, function (&$v, $k) {
-                if (is_string($k) && in_array($k, ['access_token', 'upload_session_id'], true)) {
-                    $v = '***';
-                }
-                if (is_string($v)) {
-                    $v = preg_replace('/(access_token=)([^&\s]+)/i', '$1***', $v);
-                }
-            });
-            return $ctx;
-        };
-
-        $logResp = function (string $label, \Illuminate\Http\Client\Response $resp) use ($fbLog, $sanitize) {
-            $payload = [
-                'label' => $label,
-                'status' => $resp->status(),
-                'headers' => $resp->headers(),
-                'json' => $resp->json(),
-                'bodyRaw' => mb_substr($resp->body(), 0, 2000),
-            ];
-            $payload = $sanitize($payload);
-            $fbLog->debug($label, $payload);
-            Log::debug("[FB] {$label}", $payload);
-        };
-
-        $logInfo = function (string $label, array $ctx = []) use ($fbLog, $sanitize) {
-            $fbLog->info($label, $sanitize($ctx));
-            Log::info("[FB] {$label}", $sanitize($ctx));
-        };
-
-        $logWarn = function (string $label, array $ctx = []) use ($fbLog, $sanitize) {
-            $fbLog->warning($label, $sanitize($ctx));
-            Log::warning("[FB] {$label}", $sanitize($ctx));
-        };
-
         // 3) Páginas
         $pages = MetaPage::whereIn('id', $request->page_ids)
             ->with(['users' => fn($q) => $q->wherePivot('is_active', true)])
@@ -226,7 +182,7 @@ class FacebookPageController extends Controller
         }
 
         $results = [];
-        $batch = (string) Str::uuid();
+        $batch = (string) \Illuminate\Support\Str::uuid();
 
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
@@ -262,10 +218,8 @@ class FacebookPageController extends Controller
                         $payload['link'] = $request->link;
                     }
 
-                    $logInfo('FEED text/link: begin', ['page' => $pageId, 'payload' => array_diff_key($payload, ['access_token' => true])]);
-
-                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
-                    $logResp('FEED text/link: response', $resp);
+                    $resp = \Illuminate\Support\Facades\Http::asForm()
+                        ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
 
                     $ok = $resp->ok();
                     $body = $resp->json();
@@ -280,7 +234,7 @@ class FacebookPageController extends Controller
                             $permalink = $this->fetchPermalink($postId, $token);
                             $postData['fb_permalink_url'] = $permalink;
                         } catch (\Throwable $e) {
-                            $logWarn('Permalink fetch skipped', ['post_id' => $postId, 'err' => $e->getMessage()]);
+                            // opcional: log warn
                         }
                     } else {
                         $postData['status'] = 'fail';
@@ -299,21 +253,15 @@ class FacebookPageController extends Controller
                         $real = $file->getRealPath();
                         $name = $file->getClientOriginalName();
 
-                        $logInfo('PHOTO upload: begin', ['page' => $pageId, 'name' => $name, 'size' => $file->getSize()]);
-
-                        $r = Http::attach('source', fopen($real, 'r'), $name)
+                        $r = \Illuminate\Support\Facades\Http::attach('source', fopen($real, 'r'), $name)
                             ->asMultipart()
                             ->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
                                 'published' => false,
                                 'access_token' => $token,
                             ]);
 
-                        $logResp('PHOTO upload: response', $r);
-
                         if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
                             $media[] = ['media_fbid' => $id];
-                        } else {
-                            $logWarn('FB photo upload failed', ['page' => $pageId, 'status' => $r->status(), 'body' => $r->body()]);
                         }
                     }
 
@@ -335,10 +283,8 @@ class FacebookPageController extends Controller
                         $payload["attached_media[$i]"] = json_encode($m);
                     }
 
-                    $logInfo('FEED publish photos: begin', ['page' => $pageId]);
-
-                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
-                    $logResp('FEED publish photos: response', $resp);
+                    $resp = \Illuminate\Support\Facades\Http::asForm()
+                        ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
 
                     $ok = $resp->ok();
                     $body = $resp->json();
@@ -353,7 +299,7 @@ class FacebookPageController extends Controller
                             $permalink = $this->fetchPermalink($postId, $token);
                             $postData['fb_permalink_url'] = $permalink;
                         } catch (\Throwable $e) {
-                            $logWarn('Permalink fetch skipped', ['post_id' => $postId, 'err' => $e->getMessage()]);
+                            // opcional
                         }
                     } else {
                         $postData['status'] = 'fail';
@@ -365,38 +311,54 @@ class FacebookPageController extends Controller
                     continue;
                 }
 
-                // ===== VIDEO ===== (delegado a helper)
+                // ===== VIDEO =====  (Plan A: file_url)
                 if ($request->type === 'video') {
                     @set_time_limit(0);
 
                     $file = $request->file('video');
-                    $name = $file->getClientOriginalName();
-                    $size = (int) $file->getSize();
-                    $mime = $file->getMimeType();
                     $message = $request->message;
 
-                    $logInfo('VIDEO: begin', ['page' => $pageId, 'name' => $name, 'size' => $size, 'mime' => $mime]);
+                    // 1) Guardar el archivo en URL pública temporal
+                    $pub = $this->storeVideoPublicTmp($file); // ['abs','rel','url','cleanup_rel']
 
-                    $res = $this->uploadVideoToFacebookPage($pageId, $token, $file, $message, $logInfo, $logResp, $logWarn);
+                    // 2) Subir por file_url a graph-video
+                    $res = $this->uploadVideoByFileUrl($pageId, $token, $pub['url'], $message);
 
-                    if ($res['ok'] ?? false) {
-                        $videoId = $res['video_id'] ?? null;
-                        $postData['status'] = 'success';
-                        $postData['fb_post_id'] = $videoId;
-                        $postData['fb_media_ids'] = $videoId ? [$videoId] : null;
-                        $postData['published_at'] = now();
-                        $postData['fb_permalink_url'] = $res['permalink'] ?? null;
-                    } else {
-                        $postData['status'] = 'fail';
-                        $postData['error'] = $res['error'] ?? 'Upload failed';
+                    // Limpieza del temporal público
+                    if (!empty($pub['cleanup_rel'])) {
+                        try {
+                            \Illuminate\Support\Facades\Storage::delete($pub['cleanup_rel']);
+                        } catch (\Throwable $e) {
+                        }
                     }
+
+                    if (!($res['ok'] ?? false)) {
+                        $postData['status'] = 'fail';
+                        $postData['error'] = $res['error'] ?? 'Upload failed (file_url)';
+                        MetaPost::create($postData);
+                        $results[] = [
+                            'page' => $page->name,
+                            'ok' => false,
+                            'error' => $postData['error'],
+                            'body' => $res['body'] ?? null,
+                        ];
+                        continue;
+                    }
+
+                    // Éxito
+                    $videoId = $res['video_id'] ?? null;
+                    $postData['status'] = 'success';
+                    $postData['fb_post_id'] = $videoId;
+                    $postData['fb_media_ids'] = $videoId ? [$videoId] : null;
+                    $postData['published_at'] = now();
+                    $postData['fb_permalink_url'] = $res['permalink'] ?? null;
 
                     MetaPost::create($postData);
                     $results[] = [
                         'page' => $page->name,
-                        'ok' => (bool) ($res['ok'] ?? false),
-                        'error' => $res['error'] ?? null,
-                        'body' => $res['body'] ?? null,
+                        'ok' => true,
+                        'error' => null,
+                        'body' => ['video_id' => $videoId],
                     ];
                     continue;
                 }
@@ -404,224 +366,126 @@ class FacebookPageController extends Controller
             } catch (\Throwable $e) {
                 $postData['status'] = 'fail';
                 $postData['error'] = $e->getMessage();
-                Log::error('[FB] publish(): exception', ['err' => $e]);
+                \Illuminate\Support\Facades\Log::error('[FB] publish(): exception', ['err' => $e]);
                 MetaPost::create($postData);
                 $results[] = ['page' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
             }
         }
 
         $fails = collect($results)->where('ok', false)->count();
-        $ok = collect($results)->where('ok', true)->count();
+        $oks = collect($results)->where('ok', true)->count();
 
-        return back()
-            ->with('success', "Publicación enviada. OK: {$ok}, Fails: {$fails}")
+        $resp = back()
+            ->with('success', "Publicación enviada. OK: {$oks}, Fails: {$fails}")
             ->with('publish_results', $results);
+
+        if ($oks === 0 && $fails > 0) {
+            $resp->with('error', 'Ningún video se pudo publicar. Revisa formato/URL pública de acceso directo o el Page Access Token.');
+        }
+
+        return $resp;
+    }
+
+
+    /**
+     * Guarda el video en un URL público temporal.
+     * - Si existe storage:link, usa storage/app/public/videos/tmp
+     * - Si no, usa public/uploads/tmp
+     * @return array{abs:string, rel:?string, url:string, cleanup_rel:?string}
+     */
+    private function storeVideoPublicTmp(\Illuminate\Http\UploadedFile $file): array
+    {
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
+        $name = (string) Str::uuid() . '.' . $ext;
+
+        // Preferimos el disco "public" (requiere storage:link)
+        try {
+            $rel = $file->storeAs('public/videos/tmp', $name); // storage/app/public/videos/tmp/...
+            $url = asset('storage/videos/tmp/' . $name);       // https://tu-dominio/storage/videos/tmp/...
+            return [
+                'abs' => storage_path('app/' . $rel),
+                'rel' => $rel,               // para Storage::delete($rel)
+                'url' => $url,
+                'cleanup_rel' => $rel,
+            ];
+        } catch (\Throwable $e) {
+            // Fallback a public/uploads/tmp (sin symlink)
+        }
+
+        // Fallback sin symlink
+        $dir = public_path('uploads/tmp');
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $abs = $dir . '/' . $name;
+        $file->move($dir, $name);
+        $url = url('uploads/tmp/' . $name);
+
+        return [
+            'abs' => $abs,
+            'rel' => null, // no está en Storage
+            'url' => $url,
+            'cleanup_rel' => null, // limpiar por CRON (carpeta public/uploads/tmp)
+        ];
     }
 
     /**
-     * Helper PRIVADO: sube un video a una Página (simple o reanudable).
-     * - Guarda el archivo en storage temporal
-     * - Usa siempre graph-video.facebook.com
-     * - Corrige multipart del TRANSFER
-     * - Poll opcional del estado al terminar (para diagnosticar processing)
+     * Sube un video a la Página usando file_url (Meta descarga el archivo desde tu dominio).
+     * Requiere Page Access Token con pages_manage_posts.
      *
-     * @param  \Illuminate\Http\UploadedFile $file
      * @return array{ok:bool, video_id?:string, permalink?:string, error?:string, body?:mixed}
      */
-    private function uploadVideoToFacebookPage(
-        string $pageId,
-        string $accessToken,
-        $file,
-        ?string $description,
-        \Closure $logInfo,
-        \Closure $logResp,
-        \Closure $logWarn
-    ): array {
-        $videoBase = "https://graph-video.facebook.com/v23.0/{$pageId}/videos";
+    private function uploadVideoByFileUrl(string $pageId, string $pageAccessToken, string $fileUrl, ?string $description): array
+    {
+        $endpoint = "https://graph-video.facebook.com/v23.0/{$pageId}/videos";
 
-        // 1) Copiar a storage para tener control del handle (evita tmp ephemeral)
-        $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
-        $uuid = (string) Str::uuid();
-        $storedRel = "videos/tmp/{$uuid}.{$ext}";
-        $storedAbs = storage_path('app/' . $storedRel);
+        // POST form (no multipart)
+        $resp = Http::asForm()->post($endpoint, array_filter([
+            'file_url' => $fileUrl,
+            'description' => $description,
+            'published' => true,
+            'access_token' => $pageAccessToken,
+        ], fn($v) => !is_null($v)));
 
-        try {
-            $storedRel = $file->storeAs('videos/tmp', "{$uuid}.{$ext}");
-            $storedAbs = storage_path('app/' . $storedRel);
-        } catch (\Throwable $e) {
-            $logWarn('VIDEO temp store failed', ['err' => $e->getMessage()]);
-            // fallback: usar el real path del tmp
-            $storedAbs = $file->getRealPath();
+        if (!$resp->ok()) {
+            $body = $resp->json() ?? $resp->body();
+            $msg = is_array($body) ? data_get($body, 'error.message') : (string) $body;
+            return ['ok' => false, 'error' => $msg ?: 'Graph error', 'body' => $body];
         }
 
-        $size = (int) filesize($storedAbs);
-
-        // 2) Umbral simple vs reanudable (25MB)
-        $simpleThreshold = 25 * 1024 * 1024;
-
-        // a) SIMPLE
-        if ($size > 0 && $size <= $simpleThreshold) {
-            $handle = @fopen($storedAbs, 'rb');
-            if ($handle === false) {
-                return ['ok' => false, 'error' => 'No se pudo abrir el archivo para simple upload.'];
-            }
-
-            $logInfo('VIDEO simple: POST /videos', ['page' => $pageId, 'size' => $size]);
-
-            $resp = Http::timeout(600)
-                ->asMultipart()
-                ->attach('source', $handle, basename($storedAbs))
-                ->post($videoBase, array_filter([
-                    'published' => true,
-                    'description' => $description,
-                    'access_token' => $accessToken,
-                ], fn($v) => !is_null($v)));
-
-            @fclose($handle);
-
-            $logResp('VIDEO simple: response', $resp);
-
-            if (!$resp->ok()) {
-                return ['ok' => false, 'error' => $resp->body()];
-            }
-
-            $videoId = data_get($resp->json(), 'id');
-
-            // Poll opcional de estado (2-3 checks cortos)
-            $permalink = null;
-            try {
-                $status = $this->checkVideoStatusShort($videoId, $accessToken, $logInfo);
-                $permalink = data_get($status, 'permalink_url');
-            } catch (\Throwable $e) {
-                $logWarn('VIDEO simple: status poll skipped', ['err' => $e->getMessage()]);
-            }
-
-            return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $resp->json()];
+        $videoId = data_get($resp->json(), 'id');
+        if (!$videoId) {
+            return ['ok' => false, 'error' => 'Sin video_id en respuesta', 'body' => $resp->json()];
         }
 
-        // b) REANUDABLE
-        $logInfo('VIDEO resumable: START', ['page' => $pageId, 'size' => $size]);
-
-        $start = Http::timeout(120)
-            ->asForm()
-            ->post($videoBase, [
-                'upload_phase' => 'start',
-                'file_size' => $size,
-                'access_token' => $accessToken,
-            ]);
-
-        $logResp('VIDEO resumable: START response', $start);
-
-        if (!$start->ok()) {
-            return ['ok' => false, 'error' => $start->body()];
-        }
-
-        $sessionId = data_get($start->json(), 'upload_session_id');
-        $startOffset = (int) data_get($start->json(), 'start_offset', 0);
-        $endOffset = (int) data_get($start->json(), 'end_offset', 0);
-
-        $fh = @fopen($storedAbs, 'rb');
-        if (!$fh) {
-            return ['ok' => false, 'error' => 'No se pudo abrir el archivo para resumable upload.'];
-        }
-
-        try {
-            while ($startOffset < $endOffset) {
-                $chunkLen = $endOffset - $startOffset;
-                fseek($fh, $startOffset);
-                $chunk = fread($fh, $chunkLen);
-                if ($chunk === false) {
-                    return ['ok' => false, 'error' => 'Error leyendo chunk de video.'];
-                }
-
-                $transfer = Http::timeout(600)
-                    ->asMultipart()
-                    ->attach('video_file_chunk', $chunk, 'chunk.bin')
-                    ->post($videoBase, [
-                        // 👇 clave→valor (no arrays de arrays)
-                        'upload_phase' => 'transfer',
-                        'start_offset' => (string) $startOffset,
-                        'upload_session_id' => $sessionId,
-                        'access_token' => $accessToken,
-                    ]);
-
-                $logResp('VIDEO resumable: TRANSFER response', $transfer);
-
-                if (!$transfer->ok()) {
-                    return ['ok' => false, 'error' => $transfer->body()];
-                }
-
-                $startOffset = (int) data_get($transfer->json(), 'start_offset', 0);
-                $endOffset = (int) data_get($transfer->json(), 'end_offset', 0);
-            }
-        } finally {
-            @fclose($fh);
-        }
-
-        $finish = Http::timeout(300)
-            ->asForm()
-            ->post($videoBase, array_filter([
-                'upload_phase' => 'finish',
-                'upload_session_id' => $sessionId,
-                'description' => $description,
-                'access_token' => $accessToken,
-            ], fn($v) => !is_null($v)));
-
-        $logResp('VIDEO resumable: FINISH response', $finish);
-
-        if (!$finish->ok()) {
-            return ['ok' => false, 'error' => $finish->body()];
-        }
-
-        $videoId = data_get($finish->json(), 'video_id');
-
-        // Poll opcional de estado (2-3 checks cortos)
+        // Poll corto para diagnosticar procesamiento (ready/error)
         $permalink = null;
         try {
-            $status = $this->checkVideoStatusShort($videoId, $accessToken, $logInfo);
-            $permalink = data_get($status, 'permalink_url');
-        } catch (\Throwable $e) {
-            $logWarn('VIDEO resumable: status poll skipped', ['err' => $e->getMessage()]);
-        }
+            $tries = 3;
+            while ($tries-- > 0) {
+                $s = Http::get("https://graph.facebook.com/v23.0/{$videoId}", [
+                    'fields' => 'status,processing_progress,permalink_url',
+                    'access_token' => $pageAccessToken,
+                ])->json();
 
-        // Limpieza del archivo temporal (si era storage)
-        try {
-            if (str_starts_with($storedRel ?? '', 'videos/tmp/')) {
-                \Illuminate\Support\Facades\Storage::delete($storedRel);
+                $state = data_get($s, 'status.video_status');  // ready | processing | error
+                $permalink = data_get($s, 'permalink_url');
+
+                if ($state === 'ready') {
+                    break;
+                }
+                if ($state === 'error') {
+                    $reason = data_get($s, 'status.failure_reason') ?: 'processing_failed';
+                    return ['ok' => false, 'error' => $reason, 'body' => $s];
+                }
+
+                sleep(6);
             }
         } catch (\Throwable $e) {
-            // no-op
+            // si falla el poll, igual devolvemos ok con video_id
         }
 
-        return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $finish->json()];
-    }
-
-    /**
-     * Poll cortico del estado del video (diagnóstico).
-     * Intenta 3 veces cada 6s (ajusta si quieres).
-     */
-    private function checkVideoStatusShort(string $videoId, string $accessToken, \Closure $logInfo): array
-    {
-        $tries = 3;
-        $sleep = 6;
-
-        while ($tries-- > 0) {
-            $resp = Http::get("https://graph.facebook.com/v23.0/{$videoId}", [
-                'fields' => 'status,processing_progress,permalink_url',
-                'access_token' => $accessToken,
-            ]);
-
-            $data = $resp->json() ?? [];
-            $logInfo('VIDEO status check', ['video_id' => $videoId, 'data' => $data]);
-
-            $state = data_get($data, 'status.video_status');
-            if (in_array($state, ['ready', 'error'], true)) {
-                return $data;
-            }
-            sleep($sleep);
-        }
-
-        return []; 
+        return ['ok' => true, 'video_id' => $videoId, 'permalink' => $permalink, 'body' => $resp->json()];
     }
 
     protected function socialite()

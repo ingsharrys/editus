@@ -22,8 +22,11 @@
         @endif
 
         @if (session('error'))
-            <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-3">{{ session('error') }}</div>
+            <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-3">
+                {{ session('error') }}
+            </div>
         @endif
+
 
         @if (session('success'))
             <div class="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-3 mb-3">
