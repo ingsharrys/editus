@@ -457,20 +457,20 @@
 
 
         {{-- Resultados de publicación --}}
-        @if (session('publish_results'))
-            <div class="mt-6 rounded-xl border border-gray-200 bg-white p-4">
-                <h3 class="font-semibold mb-2">Resultados:</h3>
+        {{-- Alertas --}}
+        @if ($errors->any())
+            <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-3">
                 <ul class="list-disc ml-5 space-y-1">
-                    @foreach (session('publish_results') as $r)
-                        <li>
-                            <strong>{{ $r['page'] }}:</strong>
-                            {!! $r['ok'] ? '<span class="text-green-700">OK</span>' : '<span class="text-red-700">Error</span>' !!}
-                            @if (!$r['ok'])
-                                <pre class="text-xs bg-gray-50 border border-gray-200 rounded p-2 mt-1 whitespace-pre-wrap">{{ $r['error'] }}</pre>
-                            @endif
-                        </li>
+                    @foreach ($errors->all() as $e)
+                        <li>{{ $e }}</li>
                     @endforeach
                 </ul>
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-3">
+                {{ session('error') }}
             </div>
         @endif
 
