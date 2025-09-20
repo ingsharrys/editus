@@ -58,5 +58,10 @@ class MetaPage extends Model
             }
         });
     }
+    public function favoritedBy()
+    {
+        return $this->belongsToMany(User::class, 'meta_page_favorites')->withTimestamps();
+    }
+
 
 }

@@ -93,87 +93,12 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->name('informe.pdf'); // << NUEVO
     });
 });
-// GET: formulario simple con CSRF correcto
-Route::get('/diag/upload-form', function () {
-    $token = csrf_token(); // genera el token en PHP
-    return <<<HTML
-<!DOCTYPE html>
-<html>
-<body>
-  <form method="POST" action="/diag/upload-test" enctype="multipart/form-data">
-    <input type="hidden" name="_token" value="{$token}">
-    <input type="file" name="video" />
-    <button type="submit">Subir</button>
-  </form>
-</body>
-</html>
-HTML;
-});
-
-// POST: guarda como hace storeVideoPublicTmp()
-Route::post('/diag/upload-test', function (\Illuminate\Http\Request $req) {
-    if (!$req->hasFile('video')) return response()->json(['ok'=>false,'why'=>'no-file']);
-
-    $f = $req->file('video');
-    $info = [
-        'isValid' => $f->isValid(),
-        'error'   => $f->getError(),
-        'name'    => $f->getClientOriginalName(),
-        'size'    => $f->getSize(),
-        'mime'    => $f->getMimeType(),
-    ];
-
-    if (!$f->isValid()) return response()->json(['ok'=>false,'why'=>'upload-error','info'=>$info]);
-
-    // intenta a public/storage
-    try {
-        \Illuminate\Support\Facades\Storage::disk('public')->exists('.');
-        if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('videos/tmp')) {
-            \Illuminate\Support\Facades\Storage::disk('public')->makeDirectory('videos/tmp');
-        }
-        $name = (string) \Illuminate\Support\Str::uuid().'.mp4';
-        $stream = fopen($f->getRealPath(),'r');
-        $saved = \Illuminate\Support\Facades\Storage::disk('public')->put('videos/tmp/'.$name, $stream);
-        if (is_resource($stream)) fclose($stream);
-
-        if ($saved) {
-            return response()->json([
-                'ok'=>true,
-                'disk'=>'public',
-                'url'=>asset('storage/videos/tmp/'.$name),
-                'info'=>$info
-            ]);
-        }
-    } catch (\Throwable $e) {
-        // fallback
-    }
-
-    // fallback a public/uploads/tmp
-    $dir = public_path('uploads/tmp');
-    if (!is_dir($dir)) @mkdir($dir,0755,true);
-    $name = (string) \Illuminate\Support\Str::uuid().'.mp4';
-    $f->move($dir, $name);
-
-    return response()->json([
-        'ok'=>true,
-        'disk'=>'public/uploads/tmp',
-        'url'=>url('uploads/tmp/'.$name),
-        'info'=>$info
-    ]);
-});
 // routes/web.php
-Route::get('/diag/php-ini-quick', function () {
-    return response()->json([
-        'file_uploads'       => ini_get('file_uploads'),
-        'upload_max_filesize'=> ini_get('upload_max_filesize'),
-        'post_max_size'      => ini_get('post_max_size'),
-        'max_execution_time' => ini_get('max_execution_time'),
-        'max_input_time'     => ini_get('max_input_time'),
-        'memory_limit'       => ini_get('memory_limit'),
-        'upload_tmp_dir'     => ini_get('upload_tmp_dir') ?: 'default',
-        'sapi'               => PHP_SAPI,
-    ]);
-});
+Route::post('/meta/pages/favorites/save', [FacebookPageController::class, 'saveFavorites'])
+    ->name('meta.pages.favorites.save')
+    ->middleware('auth');
+
+
 
 /*
 |--------------------------------------------------------------------------

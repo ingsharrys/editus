@@ -49,20 +49,69 @@ class FacebookPageController extends Controller
                 });
             }
 
-            // 👇 sin paginar
             $pages = $query->latest()->get();
         } else {
             $owners = collect();
-
-            // 👇 si tu tabla/pivot no tiene created_at, usa ->orderByDesc('meta_pages.id')
             $pages = $user->metaPages()
                 ->with('users')
-                ->latest() // o ->orderByDesc('meta_pages.id')
+                ->latest()
                 ->get();
         }
 
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId'));
+        // IDs favoritos del usuario autenticado
+        $favIds = DB::table('meta_page_favorites')
+            ->where('user_id', $user->id)
+            ->pluck('meta_page_id')
+            ->all();
+
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds'));
     }
+    public function saveFavorites(Request $request)
+    {
+        $user = Auth::user();
+
+        $data = $request->validate([
+            'page_ids' => ['array'],
+            'page_ids.*' => [Rule::exists('meta_pages', 'id')],
+        ]);
+
+        $pageIds = $data['page_ids'] ?? [];
+
+        \DB::transaction(function () use ($user, $pageIds) {
+            \DB::table('meta_page_favorites')->where('user_id', $user->id)->delete();
+
+            if (!empty($pageIds)) {
+                $rows = array_map(fn($id) => [
+                    'user_id' => $user->id,
+                    'meta_page_id' => $id,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ], $pageIds);
+                \DB::table('meta_page_favorites')->insert($rows);
+            }
+        });
+
+        return response()->json(['ok' => true, 'fav_ids' => $pageIds]);
+    }
+
+    public function toggleFavorite(Request $request)
+    {
+        $data = $request->validate([
+            'page_id' => ['required', 'exists:meta_pages,id'],
+            'favorite' => ['required', 'boolean'],
+        ]);
+
+        $user = Auth::user();
+
+        if ($data['favorite']) {
+            $user->favoritePages()->syncWithoutDetaching([$data['page_id']]);
+        } else {
+            $user->favoritePages()->detach($data['page_id']);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
 
 
 

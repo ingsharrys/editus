@@ -171,39 +171,24 @@
                     </span>
                 </div>
             </div>
+            {{-- Favoritos (gestión y filtro) --}}
+            <div class="space-y-1">
+                <label class="text-xs font-medium text-white">Favoritos</label>
+                <div class="flex items-center gap-2">
+                    <button id="openFavModal" type="button"
+                        class="inline-flex items-center gap-1 rounded-xl border border-yellow-300 bg-yellow-50 px-3 h-10 text-sm text-yellow-800 hover:bg-yellow-100">
+                        ⭐ Gestionar favoritos
+                    </button>
 
-            {{-- Perfil / Propietario (solo admin) --}}
-            @if (auth()->user()->isAdmin() && isset($owners) && $owners->count())
-                <form method="GET" action="{{ route('meta.pages.index') }}" class="space-y-1">
-                    <label for="ownerSelect" class="text-xs font-medium text-white">Perfil</label>
-                    <div
-                        class="relative rounded-xl border border-gray-200 bg-white/90 shadow-sm hover:border-gray-300 focus-within:ring-2 focus-within:ring-indigo-100">
-                        <select id="ownerSelect" name="owner_id"
-                            class="w-full h-10 appearance-none rounded-xl bg-transparent pl-3 pr-9 text-sm text-gray-800 outline-none"
-                            onchange="this.form.submit()">
-                            <option value="">Todos los perfiles</option>
-                            @foreach ($owners as $o)
-                                <option value="{{ $o->id }}"
-                                    {{ (string) ($ownerId ?? request('owner_id')) === (string) $o->id ? 'selected' : '' }}>
-                                    {{ $o->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                        <span class="pointer-events-none absolute inset-y-0 right-2 flex items-center text-gray-400">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20"
-                                fill="currentColor">
-                                <path
-                                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 10.94l3.71-3.71a.75.75 0 1 1 1.06 1.06l-4.24 4.24a.75.75 0 0 1-1.06 0L5.21 8.29a.75.75 0 0 1 .02-1.08z" />
-                            </svg>
-                        </span>
-                    </div>
+                    <label
+                        class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white/90 px-3 h-10 text-sm text-gray-800">
+                        <input id="onlyFavorites" type="checkbox"
+                            class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200">
+                        <span>Solo favoritos</span>
+                    </label>
+                </div>
+            </div>
 
-                    {{-- conserva otros query params (ej: búsqueda/estado/página) --}}
-                    @foreach (request()->except('owner_id', 'page') as $k => $v)
-                        <input type="hidden" name="{{ $k }}" value="{{ $v }}">
-                    @endforeach
-                </form>
-            @endif
 
         </div>
 
@@ -332,7 +317,7 @@
                     @php
                         $isAdmin = auth()->user()->isAdmin();
 
-                        // Tu pivot
+                        // Tu pivot (usuario actual)
                         $myPivot = optional($p->users->firstWhere('id', auth()->id()))->pivot;
                         $isActiveMine = (bool) $myPivot?->is_active;
                         $hasTokenMine = !empty($myPivot?->page_access_token);
@@ -345,37 +330,41 @@
                         // Estado final de la tarjeta
                         $ok = $isAdmin ? $okForAdmin : $isActiveMine && $hasTokenMine;
 
+                        // ¿Es favorito este page_id para el usuario?
+                        $isFav = in_array($p->id, $favIds ?? []);
+
                         $img = "https://graph.facebook.com/v20.0/{$p->page_id}/picture?type=square&width=96&height=96";
                     @endphp
 
                     <div class="page-card group rounded-xl border {{ $ok ? 'border-gray-200' : 'border-amber-200' }} bg-white p-3 hover:shadow-sm transition"
-                        data-name="{{ Str::lower($p->name . ' ' . $p->page_id) }}"
-                        data-status="{{ $ok ? 'active' : 'inactive' }}">
-
+                        data-id="{{ $p->id }}" data-name="{{ Str::lower($p->name . ' ' . $p->page_id) }}"
+                        data-status="{{ $ok ? 'active' : 'inactive' }}" data-favorite="{{ $isFav ? '1' : '0' }}">
                         <div class="flex items-center gap-3">
                             <img src="{{ $img }}" alt=""
                                 class="w-12 h-12 rounded-full ring-1 ring-gray-200" loading="lazy">
+
                             <div class="min-w-0">
-                                <div class="truncate font-semibold">{{ $p->name }}</div>
+                                <div class="truncate font-semibold flex items-center gap-1">
+                                    {{ $p->name }}
+                                    @if ($isFav)
+                                        <span class="text-yellow-500" title="Favorito">⭐</span>
+                                    @endif
+                                </div>
+                                <div class="text-[11px] text-gray-500 truncate">ID: {{ $p->page_id }}</div>
                             </div>
 
-                            {{-- Estado compacto: puntico + origen --}}
+                            {{-- Estado compacto: punto + (opcional) dueño visible para admin --}}
                             <div class="ml-auto flex flex-col items-end gap-1">
                                 <span
                                     class="inline-block h-2.5 w-2.5 rounded-full {{ $ok ? 'bg-green-500' : 'bg-amber-400' }}"
                                     title="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"
-                                    aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}">
-                                </span>
+                                    aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"></span>
 
                                 @if ($isAdmin && $ownerName)
-                                    <span class="text-[10px] leading-none text-blue-500">
-                                        {{ $ownerName }}</span>
+                                    <span class="text-[10px] leading-none text-blue-500">{{ $ownerName }}</span>
                                 @endif
                             </div>
-
                         </div>
-
-
 
                         <div class="mt-3 flex items-center gap-2">
                             <label class="flex items-center gap-2">
@@ -421,6 +410,7 @@
                     </div>
                 @endforeach
             </div>
+
         </div>
 
         @auth
@@ -473,10 +463,71 @@
                 {{ session('error') }}
             </div>
         @endif
+        <div id="favModal" class="fixed inset-0 z-[100] hidden">
+            <div class="absolute inset-0 bg-black/40"></div>
 
+            <div class="relative mx-auto mt-20 w-full max-w-xl rounded-2xl bg-white shadow-xl">
+                <div class="flex items-center justify-between px-4 py-3 border-b">
+                    <h3 class="font-semibold">Selecciona tus páginas favoritas</h3>
+                    <button id="closeFavModal" class="text-gray-500 hover:text-gray-700">&times;</button>
+                </div>
+
+                <div class="p-4">
+                    {{-- Buscador dentro del modal --}}
+                    <div class="mb-3">
+                        <input id="favSearch" type="search" placeholder="Buscar página por nombre o ID..."
+                            class="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100">
+                    </div>
+
+                    {{-- Lista de páginas (solo nombres + checkbox) --}}
+                    <div id="favList" class="max-h-[50vh] overflow-auto space-y-1">
+                        @foreach ($pages as $p)
+                            @php
+                                $isAdmin = auth()->user()->isAdmin();
+                                $myPivot = optional($p->users->firstWhere('id', auth()->id()))->pivot;
+                                $isActiveMine = (bool) $myPivot?->is_active;
+                                $hasTokenMine = !empty($myPivot?->page_access_token);
+
+                                $activeOwnerUser = $p->users->first(fn($u) => $u->pivot && $u->pivot->is_active);
+                                $okForAdmin = (bool) $activeOwnerUser;
+
+                                $ok = $isAdmin ? $okForAdmin : $isActiveMine && $hasTokenMine;
+                            @endphp
+
+                            <label class="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer"
+                                data-name="{{ Str::lower($p->name . ' ' . $p->page_id) }}">
+                                <input type="checkbox" class="fav-item h-4 w-4" value="{{ $p->id }}"
+                                    {{ in_array($p->id, $favIds ?? []) ? 'checked' : '' }}>
+
+                                <span class="text-sm text-gray-800 truncate">{{ $p->name }}</span>
+
+                                <span class="ml-auto inline-flex items-center"
+                                    title="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"
+                                    aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}">
+                                    <span
+                                        class="inline-block h-2.5 w-2.5 rounded-full {{ $ok ? 'bg-green-500' : 'bg-amber-400' }}"></span>
+                                </span>
+                            </label>
+                        @endforeach
+                    </div>
+
+                </div>
+
+                <div class="flex items-center justify-end gap-2 px-4 py-3 border-t">
+                    <button id="favClearAll" type="button"
+                        class="text-sm rounded-lg px-3 py-2 bg-gray-100 hover:bg-gray-200">
+                        Borrar selección
+                    </button>
+                    <button id="favSave" type="button"
+                        class="text-sm rounded-lg px-3 py-2 bg-blue-600 text-white hover:bg-blue-700">
+                        Guardar
+                    </button>
+                </div>
+            </div>
+        </div>
         <script>
             (function() {
-                // ====== ELEMENTOS ======
+                // ====== ELEMENTOS ORIGINALES ======
                 const searchInput = document.getElementById('searchInput');
                 const statusFilter = document.getElementById('statusFilter');
                 const grid = document.getElementById('pagesGrid');
@@ -497,12 +548,12 @@
                 // Tipo
                 const typeText = document.getElementById('typeText');
                 const typePhoto = document.getElementById('typePhoto');
-                const typeVideo = document.getElementById('typeVideo'); // <-- agregado
+                const typeVideo = document.getElementById('typeVideo');
 
                 // Bloques condicionales
                 const linkWrap = document.getElementById('linkWrap');
                 const photoFilesWrap = document.getElementById('photoFilesWrap');
-                const videoWrap = document.getElementById('videoWrap'); // <-- agregado
+                const videoWrap = document.getElementById('videoWrap');
 
                 // Archivos / preview (fotos)
                 const photoFiles = document.getElementById('photoFiles');
@@ -511,25 +562,47 @@
                 const photoErrors = document.getElementById('photoErrors');
 
                 // Archivo / preview (video)
-                const videoFile = document.getElementById('videoFile'); // <-- agregado
-                const videoPreview = document.getElementById('videoPreview'); // <-- agregado
+                const videoFile = document.getElementById('videoFile');
+                const videoPreview = document.getElementById('videoPreview');
 
-                const MAX_FILES = 50; // ajusta si quieres
+                const MAX_FILES = 50;
                 const MAX_SIZE = 10 * 1024 * 1024; // 10MB
                 let selectedFiles = [];
+
+                // ====== FAVORITOS (NUEVO) ======
+                const onlyFavorites = document.getElementById('onlyFavorites');
+                const favModal = document.getElementById('favModal');
+                const openFavModal = document.getElementById('openFavModal');
+                const closeFavModal = document.getElementById('closeFavModal');
+                const favList = document.getElementById('favList');
+                const favSearch = document.getElementById('favSearch');
+                const favSave = document.getElementById('favSave');
+                const favClearAll = document.getElementById('favClearAll');
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                const saveUrl = "{{ route('meta.pages.favorites.save') }}";
+
+                function getCards() {
+                    return Array.from(grid?.querySelectorAll('.page-card') || []);
+                }
 
                 // ====== FILTROS Y SELECCIÓN ======
                 function applyFilters() {
                     if (!grid) return;
                     const q = (searchInput?.value || '').trim().toLowerCase();
                     const st = statusFilter?.value || 'all';
-                    const cards = Array.from(grid.querySelectorAll('.page-card'));
+                    const onlyFav = !!onlyFavorites?.checked;
+
+                    const cards = getCards();
                     cards.forEach(card => {
                         const name = (card.dataset.name || '').toLowerCase();
                         const status = card.dataset.status || 'inactive';
+                        const isFav = card.dataset.favorite === '1';
+
                         const matchesText = !q || name.includes(q);
                         const matchesStatus = st === 'all' || st === status;
-                        card.style.display = (matchesText && matchesStatus) ? '' : 'none';
+                        const matchesFav = !onlyFav || isFav;
+
+                        card.style.display = (matchesText && matchesStatus && matchesFav) ? '' : 'none';
                     });
                 }
 
@@ -546,12 +619,15 @@
 
                 searchInput && searchInput.addEventListener('input', applyFilters);
                 statusFilter && statusFilter.addEventListener('change', applyFilters);
+                onlyFavorites && onlyFavorites.addEventListener('change', applyFilters);
+
                 selectAll && selectAll.addEventListener('change', () => {
                     checkboxes().forEach(c => {
                         if (!c.disabled) c.checked = selectAll.checked;
                     });
                     updateCounts();
                 });
+
                 document.addEventListener('change', (e) => {
                     if (e.target.classList.contains('page-checkbox')) updateCounts();
                 });
@@ -730,6 +806,61 @@
                     }
                 });
 
+                // ====== FAVORITOS: MODAL & GUARDADO (con reload) ======
+                function openFav() {
+                    // opcional: sincronizar checks con estado actual si manejas Set en el futuro
+                    favModal?.classList.remove('hidden');
+                }
+
+                function closeFav() {
+                    favModal?.classList.add('hidden');
+                }
+                openFavModal && openFavModal.addEventListener('click', openFav);
+                closeFavModal && closeFavModal.addEventListener('click', closeFav);
+                favModal && favModal.addEventListener('click', (e) => {
+                    if (e.target === favModal) closeFav();
+                });
+
+                favSearch && favSearch.addEventListener('input', () => {
+                    const q = (favSearch.value || '').trim().toLowerCase();
+                    favList?.querySelectorAll('[data-name]').forEach(row => {
+                        row.style.display = (!q || row.dataset.name.includes(q)) ? '' : 'none';
+                    });
+                });
+
+                favClearAll && favClearAll.addEventListener('click', () => {
+                    favList?.querySelectorAll('.fav-item').forEach(chk => chk.checked = false);
+                });
+
+                favSave && favSave.addEventListener('click', async () => {
+                    const selected = Array.from(favList?.querySelectorAll('.fav-item:checked') || [])
+                        .map(chk => parseInt(chk.value, 10));
+
+                    try {
+                        const res = await fetch(saveUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken
+                            },
+                            body: JSON.stringify({
+                                page_ids: selected
+                            })
+                        });
+
+                        if (!res.ok) {
+                            const txt = await res.text();
+                            alert('No se pudo guardar favoritos.\n' + txt);
+                            return;
+                        }
+
+                        // Refresca para ver ⭐ y data-favorite actualizados
+                        window.location.reload();
+                    } catch (e) {
+                        alert('Error guardando favoritos: ' + (e?.message || e));
+                    }
+                });
+
                 // ====== INIT ======
                 applyFilters();
                 updateCounts();
@@ -738,7 +869,5 @@
                 refreshUI();
             })();
         </script>
-
-
     </div>
 @endsection

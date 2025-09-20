@@ -69,4 +69,9 @@ class User extends Authenticatable
             ->withPivot(['page_access_token', 'social_account_id', 'expires_at', 'is_active'])
             ->withTimestamps();
     }
+    public function favoritePages()
+    {
+        return $this->belongsToMany(MetaPage::class, 'meta_page_favorites')->withTimestamps();
+    }
+
 }
