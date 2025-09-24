@@ -41,18 +41,20 @@
         @endphp
 
         <div class="mb-5 rounded-xl border border-gray-100 bg-white p-4">
-            <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 sm:gap-6">
 
-                {{-- Lado izquierdo: branding + estado --}}
-                <div class="flex items-start gap-3">
-                    <div class="shrink-0 rounded-full bg-indigo-50 p-2 ring-1 ring-indigo-100">
+                <!-- Lado izquierdo: branding + estado -->
+                <div class="flex items-center sm:items-start gap-3 sm:gap-3">
+                    <div class="shrink-0 rounded-full bg-indigo-50 p-1.5 sm:p-2 ring-1 ring-indigo-100">
                         <img src="https://cdn.pixabay.com/photo/2021/11/01/15/20/meta-logo-6760788_1280.png" alt="Meta"
-                            class="h-10 w-10">
+                            class="h-8 w-8 sm:h-10 sm:w-10">
                     </div>
-                    <div>
-                        <div class="font-semibold">Meta / Facebook</div>
-                        <div class="text-xs text-gray-500">Gestiona y publica en tus páginas.</div>
-                        <div class="mt-2 inline-flex items-center gap-2">
+
+                    <div class="min-w-0">
+                        <div class="font-semibold text-sm sm:text-base">Meta / Facebook</div>
+                        <div class="hidden sm:block text-xs text-gray-500">Gestiona y publica en tus páginas.</div>
+
+                        <div class="mt-1 sm:mt-2 inline-flex items-center gap-2">
                             <span
                                 class="inline-block h-2.5 w-2.5 rounded-full {{ $hasFb ? 'bg-green-500' : 'bg-gray-300' }}"></span>
                             <span class="text-xs {{ $hasFb ? 'text-green-700' : 'text-gray-600' }}">
@@ -62,14 +64,16 @@
                     </div>
                 </div>
 
-                {{-- Lado derecho: selector de perfil + acciones apiladas --}}
-                <div class="flex flex-col items-end gap-2">
+                <!-- Lado derecho: selector + acciones -->
+                <div
+                    class="flex flex-col gap-2 sm:items-end w-full sm:w-auto sm:pt-0 pt-2 border-t sm:border-0 border-gray-100">
 
                     @if (auth()->user()->isAdmin() && isset($owners))
-                        <form method="GET" action="{{ route('meta.pages.index') }}" class="w-44">
-                            <select name="owner_id"
-                                class="w-full text-xs rounded-md border border-gray-200 bg-white px-2.5 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                                onchange="this.form.submit()">
+                        <form method="GET" action="{{ route('meta.pages.index') }}" class="w-full sm:w-44">
+                            <label for="owner_id" class="sr-only">Perfil</label>
+                            <select id="owner_id" name="owner_id"
+                                class="w-full text-xs rounded-md border border-gray-200 bg-white px-2.5 py-2
+                 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500">
                                 <option value="">Todos los perfiles</option>
                                 @foreach ($owners as $o)
                                     <option value="{{ $o->id }}"
@@ -83,25 +87,28 @@
 
                     @if (!$hasFb)
                         <a href="{{ route('facebook.redirect') }}"
-                            class="w-44 text-xs inline-flex items-center justify-center gap-2 px-3 py-2 rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50">
+                            class="w-full sm:w-44 text-xs inline-flex items-center justify-center gap-2 px-3 py-2
+                rounded-md border border-indigo-200 text-indigo-700 hover:bg-indigo-50">
                             Conectar
                         </a>
                     @endif
 
-                    <form method="POST" action="{{ route('meta.pages.sync') }}">
+                    <form method="POST" action="{{ route('meta.pages.sync') }}" class="w-full sm:w-44">
                         @csrf
                         <button
-                            class="w-44 text-xs px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700 {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
+                            class="w-full text-xs px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700
+               {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
                             {{ $hasFb ? '' : 'disabled' }}>
                             Sincronizar
                         </button>
                     </form>
 
-                    <form method="POST" action="{{ route('facebook.unlink') }}"
+                    <form method="POST" action="{{ route('facebook.unlink') }}" class="w-full sm:w-44"
                         onsubmit="return confirm('¿Desvincular Facebook de tu cuenta? Se limpiarán todos los tokens.');">
                         @csrf @method('DELETE')
                         <button
-                            class="w-44 text-xs px-3 py-2 rounded-md border border-red-200 text-red-700 hover:bg-red-50 {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
+                            class="w-full text-xs px-3 py-2 rounded-md border border-red-200 text-red-700 hover:bg-red-50
+               {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
                             {{ $hasFb ? '' : 'disabled' }}>
                             Desvincular
                         </button>
@@ -109,6 +116,7 @@
 
                 </div>
             </div>
+
         </div>
 
 
