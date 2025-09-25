@@ -150,7 +150,7 @@ class MetaPost extends Model
 
         if ($r1Complete && !$r2Complete) {
             if ($reopenAt && now()->lt($reopenAt)) {
-                return 'Ronda 2 reabre el ' . $reopenAt->timezone($tz)->format('d/m/Y H:i');
+                return 'Se habilitará el ' . $reopenAt->timezone($tz)->format('d/m/Y H:i');
             }
             return 'Disponible (Ronda 2)';
         }

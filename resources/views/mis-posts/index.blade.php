@@ -65,12 +65,13 @@
                         $round = $post->metrics_next_round; // 1, 2 o null
                         $r1Complete = $post->first_metric?->is_complete ?? false;
                         $r2Complete = $post->second_metric?->is_complete ?? false;
+                        $permalink = $post->fb_permalink_url ?: $post->link; // fallback si aplica
                     @endphp
 
                     <div
                         class="border rounded-2xl p-4 bg-white shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition flex flex-col justify-between">
 
-                        {{-- Header: Avatar + Info página  +  Dots R1/R2 a la derecha --}}
+                        {{-- Header: Avatar + Info página  +  Link "Ver publicación" + Dots R1/R2 --}}
                         <div class="flex items-start justify-between mb-3">
                             <div class="flex items-center gap-3">
                                 <img src="{{ $post->page?->picture_small_url ?? '' }}" onerror="this.style.display='none'"
@@ -86,22 +87,41 @@
                                 </div>
                             </div>
 
-                            {{-- Puntos de estado de rondas --}}
-                            <div class="flex items-center gap-4 text-xs text-gray-500">
-                                <span class="inline-flex items-center gap-1.5"
-                                    title="Ronda 1: {{ $r1Complete ? 'completada' : 'sin registrar' }}">
-                                    <span
-                                        class="w-2.5 h-2.5 rounded-full ring-1 ring-black/5 {{ $r1Complete ? 'bg-green-500' : 'bg-gray-300' }}"></span>
-                                    <span></span>
-                                </span>
+                            <div class="flex flex-col items-end gap-1 text-xs">
+                                {{-- Fila de punticos R1/R2 --}}
+                                <div class="flex items-center gap-4">
+                                    <span class="inline-flex items-center gap-1.5"
+                                        title="Ronda 1: {{ $r1Complete ? 'completada' : 'sin registrar' }}">
+                                        <span
+                                            class="w-2.5 h-2.5 rounded-full ring-1 ring-black/5 {{ $r1Complete ? 'bg-green-500' : 'bg-gray-300' }}"></span>
+                                        <span class="sr-only">R1</span>
+                                    </span>
 
-                                <span class="inline-flex items-center gap-1.5"
-                                    title="Ronda 2: {{ $r2Complete ? 'completada' : 'sin registrar' }}">
-                                    <span
-                                        class="w-2.5 h-2.5 rounded-full ring-1 ring-black/5 {{ $r2Complete ? 'bg-green-500' : 'bg-gray-300' }}"></span>
-                                    <span></span>
-                                </span>
+                                    <span class="inline-flex items-center gap-1.5"
+                                        title="Ronda 2: {{ $r2Complete ? 'completada' : 'sin registrar' }}">
+                                        <span
+                                            class="w-2.5 h-2.5 rounded-full ring-1 ring-black/5 {{ $r2Complete ? 'bg-green-500' : 'bg-gray-300' }}"></span>
+                                        <span class="sr-only">R2</span>
+                                    </span>
+                                </div>
+
+                                {{-- Link debajo de los círculos --}}
+                                @php $permalink = $post->fb_permalink_url ?: $post->link; @endphp
+                                @if ($permalink)
+                                    <a href="{{ $permalink }}" target="_blank" rel="noopener noreferrer"
+                                        class="mt-1 inline-flex items-center gap-1.5 text-indigo-600 hover:underline"
+                                        title="Ver publicación">
+                                        Ver publicación
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24"
+                                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                            stroke-linejoin="round">
+                                            <path d="M7 17L17 7"></path>
+                                            <path d="M7 7h10v10"></path>
+                                        </svg>
+                                    </a>
+                                @endif
                             </div>
+
                         </div>
 
                         {{-- Contenido del post --}}
@@ -109,26 +129,15 @@
                             {{ $post->message ?: '— sin texto —' }}
                         </p>
 
-                        {{-- Estado + Fecha publicación --}}
-                        <div class="flex items-center justify-between text-xs mb-3">
-                            @php
-                                $color = match ($post->status) {
-                                    'published' => 'bg-green-100 text-green-700',
-                                    'scheduled' => 'bg-yellow-100 text-yellow-700',
-                                    'failed' => 'bg-red-100 text-red-700',
-                                    'processing', 'queued' => 'bg-blue-100 text-blue-700',
-                                    default => 'bg-gray-100 text-gray-700',
-                                };
-                            @endphp
-
+                       
+                        {{-- <div class="flex items-center justify-between text-xs mb-3">
                             <span class="px-2 py-1 rounded bg-gray-100">
                                 Fecha publicación
                             </span>
-
                             <span class="text-gray-500">
                                 {{ $pubAt?->timezone(config('app.timezone'))?->format('d/m/Y H:i') ?? '—' }}
                             </span>
-                        </div>
+                        </div> --}}
 
                         {{-- CTA --}}
                         @if ($post->can_register_metrics)
@@ -145,8 +154,8 @@
                         @endif
                     </div>
                 @endforeach
-
             </div>
+
             <div class="mt-6">
                 {{ $posts->links() }}
             </div>
