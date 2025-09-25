@@ -24,9 +24,12 @@ class MyPostsController extends Controller
 
         $pageId = $request->query('page_id');
 
-        $posts = MetaPost::with(['page:id,name,page_id'])
+        $posts = MetaPost::with([
+            'page:id,name,page_id',
+            'metrics',
+        ])
             ->forUserPages($user->id, true)
-            ->where('status', 'success')                 // ← SOLO aprobados
+            ->where('status', 'success')
             ->when($pageId, fn($q) => $q->where('meta_page_id', $pageId))
             ->orderByRaw('COALESCE(published_at, created_at) DESC')
             ->paginate(12)
@@ -36,6 +39,7 @@ class MyPostsController extends Controller
     }
 
 
+
     public function show(MetaPost $post)
     {
         $this->authorize('view', $post);
@@ -43,16 +47,31 @@ class MyPostsController extends Controller
         return view('mis-posts.show', compact('post'));
     }
 
+    // App/Http/Controllers/MyPostsController.php
+
     public function update(Request $request, MetaPost $post)
     {
         $this->authorize('view', $post);
 
-        // Eliminar evidencia ya guardada (si el user presiona "Quitar actual")
+        // Ronda enviada o calculada automáticamente
+        $round = (int) $request->input('round', $post->metrics_next_round ?? 0);
+
+        // Guardias de ventana/ronda válida
+        if (!in_array($round, [1, 2], true) || !$post->metrics_next_round || $post->metrics_next_round !== $round) {
+            return back()
+                ->withErrors(['metrics' => 'No puedes editar métricas ahora. ' . $post->metrics_state_message])
+                ->withInput();
+        }
+
+        // Métrica destino (crea si no existe)
+        $metric = $post->metrics()->firstOrCreate(['round' => $round]);
+
+        // Quitar evidencia si el usuario lo pidió
         if ($request->boolean('remove_evidencia')) {
-            if ($post->evidencia_path) {
-                Storage::disk('public')->delete($post->evidencia_path);
+            if ($metric->evidencia_path) {
+                Storage::disk('public')->delete($metric->evidencia_path);
             }
-            $post->evidencia_path = null;
+            $metric->evidencia_path = null;
         }
 
         $data = $request->validate([
@@ -64,19 +83,21 @@ class MyPostsController extends Controller
 
         // Reemplazar evidencia si suben una nueva
         if ($request->hasFile('evidencia')) {
-            if ($post->evidencia_path) {
-                Storage::disk('public')->delete($post->evidencia_path);
+            if ($metric->evidencia_path) {
+                Storage::disk('public')->delete($metric->evidencia_path);
             }
-            $path = $request->file('evidencia')->store('meta_posts/evidencias', 'public');
-            $post->evidencia_path = $path;
+            $path = $request->file('evidencia')->store("meta_posts/{$post->id}/metrics/round-{$round}", 'public');
+            $metric->evidencia_path = $path;
         }
 
-        $post->fill([
-            'alcance' => $data['alcance'] ?? $post->alcance,
-            'visualizaciones' => $data['visualizaciones'] ?? $post->visualizaciones,
-            'interacciones' => $data['interacciones'] ?? $post->interacciones,
+        $metric->fill([
+            'alcance' => $data['alcance'] ?? $metric->alcance,
+            'visualizaciones' => $data['visualizaciones'] ?? $metric->visualizaciones,
+            'interacciones' => $data['interacciones'] ?? $metric->interacciones,
         ])->save();
 
-        return back()->with('ok', '¡Guardado correctamente!');
+        return back()->with('ok', "¡Métrica de la ronda {$round} guardada!");
     }
+
+
 }
