@@ -7,14 +7,34 @@
 
         <div class="flex items-center justify-between mb-6 mt-10">
             <h1 class="text-2xl text-white md:text-3xl font-bold">Detalle de publicación</h1>
+
+            @php
+                $roundSel = $summary['round'] ?? null;
+                $pdfUrl = $roundSel ? route('informe.pdf', $key) . '?round=' . $roundSel : route('informe.pdf', $key);
+
+                $showUrl = function ($r) use ($key) {
+                    return $r ? route('informe.show', $key) . '?round=' . $r : route('informe.show', $key);
+                };
+            @endphp
+
             <div class="flex items-center gap-3">
-                <a href="{{ route('informe.pdf', $key) }}" target="_blank"
+                <form method="GET" action="{{ route('informe.show', $key) }}" class="flex items-center gap-2">
+                    <label class="text-sm text-white/90">Round</label>
+                    <select name="round" class="text-sm px-2 py-1 rounded" onchange="this.form.submit()">
+                        <option value="" {{ empty($roundSel) ? 'selected' : '' }}>Último</option>
+                        <option value="1" {{ (int) $roundSel === 1 ? 'selected' : '' }}>Round 1</option>
+                        <option value="2" {{ (int) $roundSel === 2 ? 'selected' : '' }}>Round 2</option>
+                    </select>
+                </form>
+
+                <a href="{{ $pdfUrl }}" target="_blank"
                     class="text-sm px-3 py-2 rounded-lg border bg-white/90 hover:bg-white">
                     Descargar PDF
                 </a>
                 <a href="{{ route('informe.index') }}" class="text-sm underline text-white">← Volver</a>
             </div>
         </div>
+
 
         {{-- Panel de gráfica (solo barra) --}}
         <div class="rounded-2xl border bg-white p-6 shadow-sm mb-6">
@@ -83,18 +103,37 @@
                     </thead>
                     <tbody>
                         @foreach ($byPage as $p)
+                            @php
+                                // Escoger la métrica: si hay round seleccionado, esa; si no, el último round disponible
+                                $metric = !empty($roundSel)
+                                    ? $p->metrics->firstWhere('round', (int) $roundSel)
+                                    : $p->metrics->sortByDesc('round')->first();
+
+                                $alc = (int) ($metric->alcance ?? 0);
+                                $vis = (int) ($metric->visualizaciones ?? 0);
+                                $int = (int) ($metric->interacciones ?? 0);
+
+                                $eviSrc = null;
+                                if (!empty($metric?->evidencia_path)) {
+                                    // muestra directamente la imagen del storage público (debes tener storage:link)
+                                    $eviSrc = Storage::url($metric->evidencia_path);
+                                }
+                            @endphp
+
                             <tr class="border-b last:border-0">
                                 <td class="py-2 pr-4 font-medium">{{ $p->page?->name ?? '—' }}</td>
-                                <td class="py-2 pr-4">{{ number_format((int) ($p->alcance ?? 0)) }}</td>
-                                <td class="py-2 pr-4">{{ number_format((int) ($p->visualizaciones ?? 0)) }}</td>
-                                <td class="py-2 pr-4">{{ number_format((int) ($p->interacciones ?? 0)) }}</td>
 
+                                {{-- MÉTRICAS DESDE MetaPostMetric --}}
+                                <td class="py-2 pr-4">{{ number_format($alc) }}</td>
+                                <td class="py-2 pr-4">{{ number_format($vis) }}</td>
+                                <td class="py-2 pr-4">{{ number_format($int) }}</td>
+
+                                {{-- EVIDENCIA DESDE MetaPostMetric --}}
                                 <td class="py-2 pr-4">
-                                    @if ($p->evidencia_path)
-                                        @php $src = Storage::url($p->evidencia_path); @endphp
-                                        <button type="button" @click="open(@js($src))"
+                                    @if ($eviSrc)
+                                        <button type="button" @click="open(@js($eviSrc))"
                                             class="group inline-flex items-center gap-2">
-                                            <img src="{{ $src }}" alt="Evidencia"
+                                            <img src="{{ $eviSrc }}" alt="Evidencia"
                                                 class="h-10 w-10 rounded object-cover border">
                                             <span
                                                 class="text-indigo-600 underline opacity-0 group-hover:opacity-100 text-xs">Ver</span>
@@ -120,6 +159,7 @@
                                 </td>
                             </tr>
                         @endforeach
+
                     </tbody>
                     <tfoot>
                         <tr class="font-semibold">
@@ -173,17 +213,46 @@
 
     </div>
 @endsection
+@php
+    $labels = $byPage->map(fn($p) => $p->page?->name ?? '—')->values();
+
+    $alcanceData = $byPage->map(function ($p) use ($summary) {
+        $roundSel = $summary['round'] ?? null;
+        $m = !empty($roundSel)
+            ? $p->metrics->firstWhere('round', (int)$roundSel)
+            : $p->metrics->sortByDesc('round')->first();
+        return (int) ($m->alcance ?? 0);
+    })->values();
+
+    $visData = $byPage->map(function ($p) use ($summary) {
+        $roundSel = $summary['round'] ?? null;
+        $m = !empty($roundSel)
+            ? $p->metrics->firstWhere('round', (int)$roundSel)
+            : $p->metrics->sortByDesc('round')->first();
+        return (int) ($m->visualizaciones ?? 0);
+    })->values();
+
+    $intData = $byPage->map(function ($p) use ($summary) {
+        $roundSel = $summary['round'] ?? null;
+        $m = !empty($roundSel)
+            ? $p->metrics->firstWhere('round', (int)$roundSel)
+            : $p->metrics->sortByDesc('round')->first();
+        return (int) ($m->interacciones ?? 0);
+    })->values();
+@endphp
+
 
 @section('scripts')
     {{-- Chart.js (CDN) --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        (function() {
-            const labels = @json($byPage->map(fn($p) => $p->page?->name ?? '—')->values());
+        (function () {
+            // ⬇️ USAR LOS ARRAYS PRECALCULADOS EN PHP
+            const labels = @json($labels);
             const datasets = {
-                alcance: @json($byPage->map(fn($p) => (int) ($p->alcance ?? 0))->values()),
-                visualizaciones: @json($byPage->map(fn($p) => (int) ($p->visualizaciones ?? 0))->values()),
-                interacciones: @json($byPage->map(fn($p) => (int) ($p->interacciones ?? 0))->values()),
+                alcance: @json($alcanceData),
+                visualizaciones: @json($visData),
+                interacciones: @json($intData),
             };
 
             const fmt = (n) => (n ?? 0).toLocaleString();
@@ -200,19 +269,10 @@
                 noDataBox.style.display = 'none';
                 extremesBox.style.display = 'block';
 
-                let maxV = -Infinity,
-                    minV = Infinity,
-                    maxI = 0,
-                    minI = 0;
+                let maxV = -Infinity, minV = Infinity, maxI = 0, minI = 0;
                 data.forEach((v, i) => {
-                    if (v > maxV) {
-                        maxV = v;
-                        maxI = i;
-                    }
-                    if (v < minV) {
-                        minV = v;
-                        minI = i;
-                    }
+                    if (v > maxV) { maxV = v; maxI = i; }
+                    if (v < minV) { minV = v; minI = i; }
                 });
                 document.getElementById('maxName').textContent = labels[maxI] ?? '—';
                 document.getElementById('maxValue').textContent = fmt(maxV);
@@ -220,23 +280,23 @@
                 document.getElementById('minValue').textContent = fmt(minV);
             }
 
-            document.addEventListener('DOMContentLoaded', function() {
+            document.addEventListener('DOMContentLoaded', function () {
                 const select = document.getElementById('metricSelect');
                 const canvas = document.getElementById('summaryChart');
 
-                // Si Vite HMR reinyecta, destruye instancia previa
+                // Evitar instancias duplicadas (Vite HMR)
                 const existing = Chart.getChart(canvas);
                 if (existing) existing.destroy();
 
                 const initialMetric = select.value || 'alcance';
                 const ctx = canvas.getContext('2d');
+
                 const chart = new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: initialMetric.charAt(0).toUpperCase() + initialMetric.slice(
-                                1),
+                            label: initialMetric.charAt(0).toUpperCase() + initialMetric.slice(1),
                             data: datasets[initialMetric],
                             borderWidth: 1
                         }]
@@ -244,9 +304,7 @@
                     options: {
                         responsive: true,
                         plugins: {
-                            legend: {
-                                display: false
-                            },
+                            legend: { display: false },
                             tooltip: {
                                 callbacks: {
                                     label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}`
@@ -256,9 +314,7 @@
                         scales: {
                             y: {
                                 beginAtZero: true,
-                                ticks: {
-                                    callback: v => fmt(v)
-                                }
+                                ticks: { callback: v => fmt(v) }
                             }
                         }
                     }
@@ -266,15 +322,13 @@
 
                 computeMinMax(datasets[initialMetric]);
 
-                select.addEventListener('change', function() {
+                select.addEventListener('change', function () {
                     const metric = this.value;
                     chart.data.datasets[0].label = metric.charAt(0).toUpperCase() + metric.slice(1);
                     chart.data.datasets[0].data = datasets[metric];
                     chart.update();
                     computeMinMax(datasets[metric]);
-                }, {
-                    passive: true
-                });
+                }, { passive: true });
             });
         })();
     </script>

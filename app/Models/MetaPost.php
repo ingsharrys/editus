@@ -8,8 +8,8 @@ use Carbon\Carbon;
 
 class MetaPost extends Model
 {
-     /** Ventanas de disponibilidad de métricas */
-    public const METRICS_OPEN_HOURS  = 36; // abre R1 a las 36h
+    /** Ventanas de disponibilidad de métricas */
+    public const METRICS_OPEN_HOURS = 36; // abre R1 a las 36h
     public const METRICS_REOPEN_DAYS = 30; // abre R2 a los 30 días
 
     protected $fillable = [
@@ -36,14 +36,14 @@ class MetaPost extends Model
     ];
 
     protected $casts = [
-        'local_media'     => 'array',
-        'fb_media_ids'    => 'array',
-        'published_at'    => 'datetime',
+        'local_media' => 'array',
+        'fb_media_ids' => 'array',
+        'published_at' => 'datetime',
 
         // Estos casts quedan por compatibilidad si aún existen columnas:
-        'alcance'         => 'integer',
+        'alcance' => 'integer',
         'visualizaciones' => 'integer',
-        'interacciones'   => 'integer',
+        'interacciones' => 'integer',
     ];
 
     /** Relaciones */
@@ -111,16 +111,20 @@ class MetaPost extends Model
      */
     public function getMetricsNextRoundAttribute(): ?int
     {
-        $openAt   = $this->metrics_open_at;   // 36h
+        $openAt = $this->metrics_open_at;   // 36h
         $reopenAt = $this->metrics_reopen_at; // 30d
-        if (!$openAt || now()->lt($openAt)) return null;
+        if (!$openAt || now()->lt($openAt))
+            return null;
 
         $r1Complete = $this->first_metric?->is_complete ?? false;
         $r2Complete = $this->second_metric?->is_complete ?? false;
 
-        if (!$r1Complete) return 1;
-        if ($r1Complete && now()->lt($reopenAt)) return null;
-        if (!$r2Complete) return 2;
+        if (!$r1Complete)
+            return 1;
+        if ($r1Complete && now()->lt($reopenAt))
+            return null;
+        if (!$r2Complete)
+            return 2;
         return null;
     }
 
@@ -134,7 +138,7 @@ class MetaPost extends Model
     public function getMetricsStateMessageAttribute(): string
     {
         $tz = config('app.timezone');
-        $openAt   = $this->metrics_open_at;
+        $openAt = $this->metrics_open_at;
         $reopenAt = $this->metrics_reopen_at;
 
         if ($openAt && now()->lt($openAt)) {
@@ -172,4 +176,10 @@ class MetaPost extends Model
             }
         });
     }
+
+    public function metricLatest()
+    {
+        return $this->hasOne(MetaPostMetric::class, 'meta_post_id')->latestOfMany('round');
+    }
+
 }
