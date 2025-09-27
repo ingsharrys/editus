@@ -26,7 +26,7 @@ Schedule::call(fn() => Log::info('[probe] schedule tick', ['at' => now()->toDate
  */
 Schedule::command('meta:collect-metrics-simple --limit=500 --only-missing')
     ->everyFiveMinutes()
-    ->between('16:00', '17:00')
+    ->between('17:00', '17:15')
     ->timezone(config('app.timezone', 'America/Bogota')) // fuerza TZ de Colombia
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/metrics.log'));
