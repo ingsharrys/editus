@@ -7,8 +7,9 @@ use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
 
 class Kernel extends ConsoleKernel
 {
+
     /**
-     * Si quieres forzar la zona horaria del scheduler.
+     * Forzar la zona horaria del scheduler (usa la de config/app.php).
      */
     protected function scheduleTimezone(): string
     {
@@ -20,33 +21,33 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Actualiza automáticamente alcance / visualizaciones / interacciones en meta_posts
-        $schedule->command('meta:collect-metrics-simple --limit=500')
-            ->everyFifteenMinutes()
-            ->withoutOverlapping()   // evita solapamientos si la anterior sigue corriendo
-            ->onOneServer()          // si tienes varios workers/servidores
-            ->runInBackground()      // no bloquea el scheduler si hay más tareas
-            ->appendOutputTo(storage_path('logs/schedule.log')); // guarda salida en log
+        // Actualiza métricas de meta_posts SOLO entre 4:00 y 5:00 pm (hora Colombia),
+        // ejecutándose cada 5 minutos en esa ventana.
+        $schedule->command('meta:collect-metrics-simple --limit=500 --only-missing')
+            ->everyFiveMinutes()
+            ->between('16:00', '17:00')          // ventana 4–5 pm
+            ->withoutOverlapping()               // evita solapamientos
+            ->onOneServer()                      // si hay varios servidores
+            ->runInBackground()                  // no bloquea si hay más tareas
+            ->appendOutputTo(storage_path('logs/metrics.log')); // log dedicado
     }
 
     /**
-     * Registra tus Artisan commands.
-     * - Si usas autodiscovery, igual deja esto para cargar routes/console.php.
+     * Registro de comandos Artisan.
      */
     protected function commands(): void
     {
         // Autocarga todos los comandos en app/Console/Commands
         $this->load(__DIR__ . '/Commands');
 
-        // (Opcional) también puedes requerir rutas de consola si las usas
+        // (Opcional) rutas de consola
         if (file_exists(base_path('routes/console.php'))) {
             require base_path('routes/console.php');
         }
     }
 
     /**
-     * Si NO usas autodiscovery de comandos,
-     * puedes declararlos explícitamente aquí.
+     * Si no usas autodiscovery, declara aquí tus comandos.
      */
     protected $commands = [
         \App\Console\Commands\CollectSimpleMetaInsights::class,
