@@ -24,12 +24,13 @@ class Kernel extends ConsoleKernel
         // Actualiza métricas de meta_posts SOLO entre 4:00 y 5:00 pm (hora Colombia),
         // ejecutándose cada 5 minutos en esa ventana.
         $schedule->command('meta:collect-metrics-simple --limit=500 --only-missing')
-            ->everyFiveMinutes()
-            ->between('16:00', '17:00')          // ventana 4–5 pm
-            ->withoutOverlapping()               // evita solapamientos
-            ->onOneServer()                      // si hay varios servidores
-            ->runInBackground()                  // no bloquea si hay más tareas
-            ->appendOutputTo(storage_path('logs/metrics.log')); // log dedicado
+            ->everyMinute()                 // ← temporal: cada minuto
+            //->between('16:00', '17:00')   // ← temporal: comenta esta línea
+            ->withoutOverlapping()
+            ->onOneServer()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/metrics.log'));
+
     }
 
     /**
