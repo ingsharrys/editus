@@ -1,4 +1,5 @@
 <?php
+if (file_exists(storage_path('app/disable-scheduler'))) { return; }
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
