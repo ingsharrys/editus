@@ -35,11 +35,12 @@ return [
         ],
     ],
     'facebook' => [
-        'client_id'     => env('FACEBOOK_CLIENT_ID'),
+        'client_id' => env('FACEBOOK_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
-        'redirect'      => env('FACEBOOK_LOGIN_REDIRECT_URI'),
+        'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
-        'scopes'        => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
+        'scopes' => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
+        'version' => env('FB_GRAPH_VERSION', 'v23.0'),
     ],
 
 
