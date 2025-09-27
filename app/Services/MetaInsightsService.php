@@ -157,6 +157,11 @@ class MetaInsightsService
      */
     public function updatePostMetrics(MetaPost $post): bool
     {
+        // KILL SWITCH
+    if (file_exists(storage_path('app/disable-metrics'))) {
+        Log::warning('[metrics] service.disabled', ['post_id' => $post->id ?? null]);
+        return false;
+    }
         if (!$post->fb_post_id)
             return false;
 

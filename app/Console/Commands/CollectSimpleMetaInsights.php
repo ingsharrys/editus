@@ -16,6 +16,12 @@ class CollectSimpleMetaInsights extends Command
 
     public function handle(MetaInsightsService $svc): int
     {
+        // KILL SWITCH
+    if (file_exists(storage_path('app/disable-metrics'))) {
+        $this->info('Metrics command is DISABLED (flag file present).');
+        Log::warning('[metrics] command.disabled');
+        return self::SUCCESS;
+    }
         $limit = (int) $this->option('limit');
         $onlyMissing = (bool) $this->option('only-missing');
 
