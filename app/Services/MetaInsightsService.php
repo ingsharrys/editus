@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\MetaPost;
+use App\Support\FacebookGraph;
 use App\Support\FacebookGraph as FG;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -29,26 +30,42 @@ class MetaInsightsService
             ->where('is_active', 1)
             ->value('page_access_token');
     }
+    private function safeGet(string $path, array $params, string $label, bool $video = false, ?array &$err = null): ?array
+    {
+        try {
+            $resp = Http::acceptJson()
+                ->connectTimeout(15)   // ↑
+                ->timeout(60)         // ↑
+                ->retry(3, 300)       // reintentos
+                ->get(FacebookGraph::url($path, $video), $params);
+
+            if (!$resp->ok()) {
+                $err = $this->extractError($resp);
+                $this->logGraphError($label, $resp);
+                return null;
+            }
+            return $resp->json();
+        } catch (\Throwable $e) {
+            $err = ['message' => $e->getMessage()];
+            Log::warning("[FB][$label].exception", ['error' => $e->getMessage()]);
+            return null;
+        }
+    }
 
     /** --------- INSIGHTS (POST) --------- */
     public function fetchPostInsights(string $postId, string $pageToken, ?array &$err = null): ?array
     {
-        $resp = Http::asForm()
-            ->connectTimeout(10)->timeout(60)->retry(2, 200)
-            ->get(FG::url("{$postId}/insights"), [
-                'metric' => 'post_impressions,post_impressions_unique,post_engaged_users',
-                'period' => 'lifetime',
-                'access_token' => $pageToken,
-            ]);
+        $json = $this->safeGet("{$postId}/insights", [
+            'metric' => 'post_impressions,post_impressions_unique,post_engaged_users',
+            'period' => 'lifetime',
+            'access_token' => $pageToken,
+        ], 'post_insights', false, $err);
 
-        if (!$resp->ok()) {
-            $this->logGraphError('post_insights', $resp);
-            $err = $this->extractError($resp);
+        if (!$json)
             return null;
-        }
 
         $out = [];
-        foreach ($resp->json('data', []) as $m) {
+        foreach ($json['data'] ?? [] as $m) {
             $out[$m['name']] = (int) ($m['values'][0]['value'] ?? 0);
         }
         return $out;
@@ -57,25 +74,34 @@ class MetaInsightsService
     /** --------- INSIGHTS (VIDEO) --------- */
     public function fetchVideoInsights(string $videoId, string $pageToken, ?array &$err = null): ?array
     {
-        $resp = Http::asForm()
-            ->connectTimeout(10)->timeout(60)->retry(2, 200)
-            ->get(FG::url("{$videoId}/video_insights", true), [
-                'metric' => 'total_video_views,total_video_impressions',
-                'period' => 'lifetime',
-                'access_token' => $pageToken,
-            ]);
+        $json = $this->safeGet("{$videoId}/video_insights", [
+            'metric' => 'total_video_views,total_video_impressions',
+            'period' => 'lifetime',
+            'access_token' => $pageToken,
+        ], 'video_insights', true, $err);
 
-        if (!$resp->ok()) {
-            $this->logGraphError('video_insights', $resp);
-            $err = $this->extractError($resp);
+        if (!$json)
             return null;
-        }
 
         $out = [];
-        foreach ($resp->json('data', []) as $m) {
+        foreach ($json['data'] ?? [] as $m) {
             $out[$m['name']] = (int) ($m['values'][0]['value'] ?? 0);
         }
         return $out;
+    }
+    public function resolveVideoIdFromPost(string $postId, string $pageToken, ?array &$err = null): ?string
+    {
+        $json = $this->safeGet($postId, [
+            'fields' => 'object_id,attachments{target,id,type}',
+            'access_token' => $pageToken,
+        ], 'resolve_video_id', false, $err);
+
+        if (!$json)
+            return null;
+
+        $obj = $json['object_id'] ?? null;
+        $att = $json['attachments']['data'][0] ?? null;
+        return $obj ?: ($att['target']['id'] ?? null);
     }
 
     /**
@@ -88,7 +114,6 @@ class MetaInsightsService
         if (!$pageId)
             return null;
 
-        // Ventana de búsqueda (±3 días)
         $since = $publishedAtIso ? date('U', strtotime($publishedAtIso . ' -3 days')) : null;
         $until = $publishedAtIso ? date('U', strtotime($publishedAtIso . ' +3 days')) : null;
 
@@ -102,30 +127,27 @@ class MetaInsightsService
         if ($until)
             $params['until'] = $until;
 
-        // Paginar hasta encontrarlo o agotar
-        while (true) {
-            $resp = Http::connectTimeout(10)->timeout(60)->retry(2, 200)
-                ->get(FG::url("{$pageId}/posts"), $params);
+        $after = null;
+        do {
+            if ($after)
+                $params['after'] = $after;
 
-            if (!$resp->ok()) {
-                $this->logGraphError('page_posts_lookup', $resp);
+            $err = null;
+            $json = $this->safeGet("{$pageId}/posts", $params, 'page_posts_lookup', false, $err);
+            if (!$json)
                 return null;
-            }
 
-            foreach ($resp->json('data', []) as $row) {
+            foreach ($json['data'] ?? [] as $row) {
                 if (($row['object_id'] ?? null) === $videoId) {
-                    return $row['id'] ?? null; // ← post-id real
+                    return $row['id'] ?? null;
                 }
             }
-
-            $after = data_get($resp->json(), 'paging.cursors.after');
-            if (!$after)
-                break;
-            $params['after'] = $after;
-        }
+            $after = data_get($json, 'paging.cursors.after');
+        } while ($after);
 
         return null;
     }
+
 
     /**
      * Orquesta todo: maneja casos donde fb_post_id en realidad es video-id.
@@ -165,7 +187,6 @@ class MetaInsightsService
             'post_insights' => false,
             'video_insights' => false,
             'resolved_post_id' => null,
-            'resolved_video_id' => null, // por si luego cachéas el video-id
         ];
 
         // 1) Intentar como POST
@@ -184,7 +205,7 @@ class MetaInsightsService
             $interacciones = $postIns['post_engaged_users'] ?? $interacciones;
 
         } else {
-            // 2) Si falló como POST por "Video" o "metric inválida", tratamos como VIDEO
+            // 2) Si falló, ¿parece error de Video?
             if ($this->looksLikeVideoError($postErr)) {
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
@@ -194,37 +215,36 @@ class MetaInsightsService
                         'total_video_views' => $vidIns['total_video_views'] ?? null,
                         'total_video_impressions' => $vidIns['total_video_impressions'] ?? null,
                     ]);
-
-                    // Mapeo video:
+                    // video → views & impresiones
                     $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
                     $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                 } else {
                     Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
                 }
 
-                // b) (opcional) intenta hallar el post-id real para completar alcance/interacciones
+                // Intentar localizar el post-id real para completar alcance/interacciones
                 $postId = $this->resolvePostIdFromVideo(
                     $post->fb_post_id,
                     $post->meta_page_id,
                     optional($post->published_at)->toIso8601String(),
                     $pageToken
                 );
-
                 if ($postId) {
                     $sources['resolved_post_id'] = $postId;
-                    $postIns2 = $this->fetchPostInsights($postId, $pageToken, $tmp);
+                    $tmpErr = null;
+                    $postIns2 = $this->fetchPostInsights($postId, $pageToken, $tmpErr);
                     if ($postIns2) {
                         Log::info('[metrics] post_insights.from_resolved_post_id.ok', $ctx + [
                             'resolved_post_id' => $postId,
                             'post_impressions_unique' => $postIns2['post_impressions_unique'] ?? null,
                             'post_engaged_users' => $postIns2['post_engaged_users'] ?? null,
                         ]);
-
                         $alcance = $postIns2['post_impressions_unique'] ?? $alcance;
                         $interacciones = $postIns2['post_engaged_users'] ?? $interacciones;
                     } else {
                         Log::warning('[metrics] post_insights.from_resolved_post_id.fail', $ctx + [
                             'resolved_post_id' => $postId,
+                            'error' => $tmpErr
                         ]);
                     }
                 } else {
@@ -232,11 +252,12 @@ class MetaInsightsService
                 }
 
             } else {
+                // No parece video; loguea el error y sal
                 Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
             }
         }
 
-        // 3) Persistir si hay cambios
+        // 3) Guardar si cambió algo
         $dirty = false;
         if ($post->alcance !== $alcance && !is_null($alcance)) {
             $post->alcance = $alcance;
@@ -262,7 +283,6 @@ class MetaInsightsService
                 'visualizaciones_after' => $post->visualizaciones,
                 'interacciones_after' => $post->interacciones,
             ];
-
             Log::info('[metrics] updated', $ctx + $before + $after + ['sources' => $sources]);
 
         } else {

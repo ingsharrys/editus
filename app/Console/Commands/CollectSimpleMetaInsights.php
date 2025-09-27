@@ -52,8 +52,7 @@ class CollectSimpleMetaInsights extends Command
 
                 if ($updated) {
                     $ok++;
-                    $msg = "✓ Post #{$post->id} → alc={$post->alcance} vis={$post->visualizaciones} int={$post->interacciones}";
-                    $this->line($msg);
+                    $this->line("✓ Post #{$post->id} → alc={$post->alcance} vis={$post->visualizaciones} int={$post->interacciones}");
                     Log::info('[metrics] command.updated', [
                         'post_id' => $post->id,
                         'alcance' => $post->alcance,
@@ -62,8 +61,7 @@ class CollectSimpleMetaInsights extends Command
                     ]);
                 } else {
                     $empty++;
-                    $msg = "· Sin cambios #{$post->id}";
-                    $this->line($msg);
+                    $this->line("· Sin cambios #{$post->id}");
                     Log::info('[metrics] command.no-change', ['post_id' => $post->id]);
                 }
 
@@ -72,10 +70,10 @@ class CollectSimpleMetaInsights extends Command
                 Log::error('[metrics] command.error', [
                     'post_id' => $post->id,
                     'err' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ]);
             }
         }
+
 
         $this->info("Listo. Actualizados: {$ok} | Sin cambios: {$empty}");
         return self::SUCCESS;
