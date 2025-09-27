@@ -17,16 +17,18 @@ Schedule::command('inspire')
     ->everyMinute()
     ->appendOutputTo(storage_path('logs/_probe.log'));
 
-Schedule::call(fn() => Log::info('[probe] schedule tick', ['at' => now()->toDateTimeString()]))
+Schedule::call(fn () => Log::info('[probe] schedule tick', ['at' => now()->toDateTimeString()]))
     ->everyMinute();
+
 
 /**
  * ───── TU TAREA DE MÉTRICAS ─────
- * Modo producción: cada 5 minutos solo entre 4 y 5 pm (Colombia)
+ * Producción: ajusta la ventana a lo que necesites.
+ * (Ejemplo: solo entre 17:00 y 17:15 COL, cada 5 minutos)
  */
 Schedule::command('meta:collect-metrics-simple --limit=500 --only-missing')
     ->everyFiveMinutes()
-    ->between('17:00', '17:15')
-    ->timezone(config('app.timezone', 'America/Bogota')) // fuerza TZ de Colombia
+    ->between('17:15', '17:30')   // ← cambia a ('16:00','17:00') para tu ventana real
+    ->timezone(config('app.timezone', 'America/Bogota'))
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/metrics.log'));

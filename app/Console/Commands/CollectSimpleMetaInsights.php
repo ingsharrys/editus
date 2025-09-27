@@ -5,7 +5,7 @@ namespace App\Console\Commands;
 use App\Models\MetaPost;
 use App\Services\MetaInsightsService;
 use Illuminate\Console\Command;
-
+use Illuminate\Support\Facades\Log;
 class CollectSimpleMetaInsights extends Command
 {
     protected $signature = 'meta:collect-metrics-simple 
@@ -27,8 +27,8 @@ class CollectSimpleMetaInsights extends Command
         if ($onlyMissing) {
             $q->where(function ($w) {
                 $w->whereNull('alcance')
-                  ->orWhereNull('visualizaciones')
-                  ->orWhereNull('interacciones');
+                    ->orWhereNull('visualizaciones')
+                    ->orWhereNull('interacciones');
             });
         }
 
@@ -38,19 +38,42 @@ class CollectSimpleMetaInsights extends Command
             return self::SUCCESS;
         }
 
-        $ok = 0; $empty = 0;
+        $ok = 0;
+        $empty = 0;
         foreach ($posts as $post) {
             try {
+                Log::info('[metrics] processing', [
+                    'post_id' => $post->id,
+                    'meta_page_id' => $post->meta_page_id,
+                    'fb_post_id' => $post->fb_post_id,
+                ]);
+
                 $updated = $svc->updatePostMetrics($post);
+
                 if ($updated) {
                     $ok++;
-                    $this->line("✓ Post #{$post->id} → alc={$post->alcance} vis={$post->visualizaciones} int={$post->interacciones}");
+                    $msg = "✓ Post #{$post->id} → alc={$post->alcance} vis={$post->visualizaciones} int={$post->interacciones}";
+                    $this->line($msg);
+                    Log::info('[metrics] command.updated', [
+                        'post_id' => $post->id,
+                        'alcance' => $post->alcance,
+                        'visualizaciones' => $post->visualizaciones,
+                        'interacciones' => $post->interacciones,
+                    ]);
                 } else {
                     $empty++;
-                    $this->line("· Sin cambios #{$post->id}");
+                    $msg = "· Sin cambios #{$post->id}";
+                    $this->line($msg);
+                    Log::info('[metrics] command.no-change', ['post_id' => $post->id]);
                 }
+
             } catch (\Throwable $e) {
-                $this->error("ERROR #{$post->id}: ".$e->getMessage());
+                $this->error("ERROR #{$post->id}: " . $e->getMessage());
+                Log::error('[metrics] command.error', [
+                    'post_id' => $post->id,
+                    'err' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ]);
             }
         }
 
