@@ -9,9 +9,7 @@ use Illuminate\Support\Facades\Log;
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
-/**
- * PROBES: borrar cuando confirmes
- */
+// PROBES
 Schedule::command('inspire')
     ->everyMinute()
     ->appendOutputTo(storage_path('logs/_probe.log'));
@@ -19,13 +17,10 @@ Schedule::command('inspire')
 Schedule::call(fn () => Log::info('[probe] schedule tick', ['at' => now()->toDateTimeString()]))
     ->everyMinute();
 
-/**
- * MÉTRICAS: producción
- * - Ajusta la ventana (ej. '16:00','17:00')
- * - Para probar YA: usa everyMinute() y comenta between()
- */
+// MÉTRICAS — MODO PRUEBA: cada minuto, SIN withoutOverlapping ni ventana:
 Schedule::command('meta:collect-metrics-simple --limit=500 --only-missing')
-    ->everyFiveMinutes()
+    ->everyMinute()
+    //->between('16:00', '17:00')   // ← comentar en prueba
+    //->withoutOverlapping()        // ← comentar en prueba (evita atascarse por mutex)
     ->timezone(config('app.timezone', 'America/Bogota'))
-    ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/metrics.log'));
