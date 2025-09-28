@@ -211,16 +211,14 @@ class MetaInsightsService
      */
     public function resolvePageToken(int $metaPageId, int $userId): ?string
     {
-        // 1) Token desde la pivote meta_page_user (tu caso)
+        // 1) Intentar token de página desde la pivote (tu caso principal)
         $pivot = DB::table('meta_page_user')
             ->where('meta_page_id', $metaPageId)
             ->where('user_id', $userId)
-            ->where('is_active', 1)
             ->orderByDesc('id')
-            ->first(['page_access_token', 'expires_at']);
+            ->first(['page_access_token', 'expires_at', 'social_account_id']);
 
         if ($pivot && !empty($pivot->page_access_token)) {
-            // si expires_at existe y está vigente, úsalo; si no existe igual lo intentamos
             if (empty($pivot->expires_at) || now()->lt($pivot->expires_at)) {
                 return $pivot->page_access_token;
             }
@@ -230,46 +228,25 @@ class MetaInsightsService
             ]);
         }
 
-        // 2) (Opcional) Si tuvieras meta_pages.page_access_token lo usamos; si no, ignoramos
-        $cols = ['page_id'];
-        if (Schema::hasColumn('meta_pages', 'page_access_token')) {
-            $cols[] = 'page_access_token';
-        }
-
-        $pageRow = DB::table('meta_pages')
-            ->where('id', $metaPageId)
-            ->first($cols);
-
-        if (!$pageRow) {
+        // 2) Necesitamos el page_id para pedir /me/accounts
+        $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
+        if (!$pageId) {
             Log::warning('[FB] meta_page no encontrada', ['meta_page_id' => $metaPageId]);
             return null;
         }
 
-        if (isset($pageRow->page_access_token) && $pageRow->page_access_token) {
-            return $pageRow->page_access_token;
-        }
-
-        // 3) Refrescar desde /me/accounts con el access_token del usuario
-        $sa = DB::table('social_accounts')
-            ->where('user_id', $userId)
-            ->where(function ($q) {
-                $q->where('provider', 'facebook')
-                    ->orWhere('provider', 'meta');
-            })
-            ->orderByDesc('id')
-            ->first(['access_token', 'token', 'oauth_token']);
-
-        $userToken = $sa->access_token ?? $sa->token ?? $sa->oauth_token ?? null;
+        // 3) Access token del usuario (solo columna access_token)
+        $userToken = $this->getUserAccessToken($userId, $pivot->social_account_id ?? null);
         if (!$userToken) {
             Log::warning('[FB] user token no encontrado para refrescar page token', ['user_id' => $userId]);
             return null;
         }
 
-        $helper = new FacebookGraph();
-        $data = $helper->getPageDataFromMeAccounts($userToken, (string) $pageRow->page_id);
+        // 4) Buscar el token de la página en /me/accounts y guardarlo en la pivote
+        $helper = new \App\Support\FacebookGraph();
+        $data = $helper->getPageDataFromMeAccounts($userToken, (string) $pageId);
         $pageToken = $data['access_token'] ?? null;
 
-        // 4) Si lo obtuvimos, lo guardamos en la pivote para la próxima (y lo devolvemos)
         if ($pageToken) {
             DB::table('meta_page_user')->updateOrInsert(
                 ['meta_page_id' => $metaPageId, 'user_id' => $userId],
@@ -289,6 +266,30 @@ class MetaInsightsService
         return null;
     }
 
+    private function getUserAccessToken(int $userId, ?int $socialAccountId): ?string
+    {
+        if ($socialAccountId) {
+            $token = DB::table('social_accounts')->where('id', $socialAccountId)->value('access_token');
+            if ($token)
+                return $token;
+        }
+
+        // Preferir facebook/meta
+        $token = DB::table('social_accounts')
+            ->where('user_id', $userId)
+            ->where(function ($q) {
+                $q->where('provider', 'facebook')->orWhere('provider', 'meta'); })
+            ->orderByDesc('id')
+            ->value('access_token');
+        if ($token)
+            return $token;
+
+        // Último recurso: cualquier provider más reciente
+        return DB::table('social_accounts')
+            ->where('user_id', $userId)
+            ->orderByDesc('id')
+            ->value('access_token');
+    }
     /**
      * Insights de POST: /{post-id}/insights?metric=...&period=lifetime
      * Retorna array ['post_impressions'=>..,'post_impressions_unique'=>..,'post_engaged_users'=>..] o null.
