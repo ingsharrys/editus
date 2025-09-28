@@ -437,10 +437,17 @@ class MetaInsightsService
         if (!$err)
             return false;
         $e = strtolower($err);
-        return str_contains($e, 'node type (video)') ||
-            str_contains($e, 'video_insights') ||
-            str_contains($e, 'invalid insights metric') ||
-            str_contains($e, 'must be a valid insights metric');
+
+        // Señales claras de que el ID es video (o que el flujo correcto es de video)
+        if (str_contains($e, 'node type (video)'))
+            return true;          // "insights on node type (Video)"
+        if (str_contains($e, 'video_insights'))
+            return true;             // menciona video_insights
+        if (preg_match('/\bobject_id\b/', $e))
+            return true;              // hints de object_id de video
+
+        // OJO: NO tratamos (#100) "The value must be a valid insights metric" como video
+        return false;
     }
 
     private function logGraphError(string $where, $resp): void
