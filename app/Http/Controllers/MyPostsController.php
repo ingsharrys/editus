@@ -25,8 +25,8 @@ class MyPostsController extends Controller
         $pageId = $request->query('page_id');
 
         $posts = MetaPost::with([
-            'page:id,name,page_id',
-            'metrics',
+            // No limitar columnas aquí para permitir accessors como picture_small_url
+            'page',
         ])
             ->forUserPages($user->id, true)
             ->where('status', 'success')

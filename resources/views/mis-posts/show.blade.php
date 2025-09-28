@@ -1,19 +1,8 @@
 @extends('layouts.app')
 
 @section('content')
-    <div class="max-w-3xl mx-auto px-4 py-8 mt-10" x-data="{
-        previewUrl: null,
-        showToast: {{ session('ok') ? 'true' : 'false' }},
-        init() { if (this.showToast) setTimeout(() => this.showToast = false, 2500); },
-        onFileChange(e) {
-            const f = e.target.files?.[0];
-            this.previewUrl = f ? URL.createObjectURL(f) : null;
-        },
-        clearSelected() {
-            this.previewUrl = null;
-            $refs.fileInput.value = '';
-        }
-    }">
+    <div class="max-w-6xl mx-auto px-4 py-8 mt-10" x-data="{ showToast: {{ session('ok') ? 'true' : 'false' }} }" x-init="if (showToast) setTimeout(() => showToast = false, 2500)">
+
         {{-- Toast éxito --}}
         <div class="fixed top-4 right-4 z-50" x-show="showToast" x-transition.opacity.duration.250ms>
             <div class="flex items-center gap-3 bg-green-600 text-white px-4 py-3 rounded-xl shadow-lg">
@@ -26,163 +15,191 @@
             </div>
         </div>
 
-        <div class="flex justify-end mb-6">
-            <a href="{{ route('mis-posts.index') }}"
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl md:text-3xl font-bold text-white tracking-tight">
+                Informe del grupo
+                <span class="ml-2 text-gray-300 text-base align-middle px-2 py-1 rounded-xl bg-white/10">
+                    {{ $key }}
+                </span>
+            </h1>
+
+            <a href="{{ route('informe.index') }}"
                 class="bg-white border border-gray-200 shadow-sm px-4 py-2 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
                 ← Volver
             </a>
         </div>
 
+        {{-- Resumen --}}
         @php
-            $allowedRound = $post->metrics_next_round; // 1, 2 o null
-            $requestedRound = (int) request('round', $allowedRound ?: 1);
-            $round = in_array($requestedRound, [1, 2]) ? $requestedRound : 1;
-            $metric = $post->metricRound($round);
-            $canEdit = $post->metrics_next_round === $round; // solo edita la ronda abierta
-            $r1Complete = $post->first_metric?->is_complete ?? false;
-            $r2Complete = $post->second_metric?->is_complete ?? false;
-
-            // Etiqueta del header según ronda abierta
-            $roundLabel = $allowedRound === 1 ? '36 horas' : ($allowedRound === 2 ? '30 días' : null);
+            $eff = $summary['effective_at']
+                ? \Carbon\Carbon::parse($summary['effective_at'])->timezone(config('app.timezone'))->format('d/m/Y H:i')
+                : '—';
         @endphp
-
-        <div class="border rounded-2xl bg-white shadow-sm p-6">
-            <div class="flex items-center justify-between mb-6">
-                <h1 class="text-xl font-semibold">
-                    Editar métricas
-                    @if ($roundLabel)
-                        <span class="text-gray-400 font-normal">— {{ $roundLabel }}</span>
-                    @endif
-                </h1>
-
-                <div class="flex items-center gap-2 text-xs text-gray-600">
-                    @if ($allowedRound === 1)
-                        <a href="{{ request()->url() }}?round=1"
-                            class="px-3 py-1 rounded-lg border bg-indigo-600 text-white border-indigo-600">
-                            36 horas
-                        </a>
-                    @elseif ($allowedRound === 2)
-                        <a href="{{ request()->url() }}?round=2"
-                            class="px-3 py-1 rounded-lg border bg-indigo-600 text-white border-indigo-600">
-                            30 días
-                        </a>
-                    @else
-                        <span class="px-3 py-1 rounded-lg border bg-gray-100 text-gray-500 cursor-not-allowed"
-                            title="{{ $post->metrics_state_message }}">
-                            {{ $post->metrics_state_message }}
-                        </span>
-                    @endif
-                </div>
+        <div class="grid sm:grid-cols-5 gap-4 mb-6">
+            <div class="rounded-2xl bg-white p-4 border shadow-sm">
+                <div class="text-xs text-gray-500">Publicaciones</div>
+                <div class="text-xl font-bold">{{ number_format((int) ($summary['total_posts'] ?? 0)) }}</div>
             </div>
-
-            @if (!$canEdit)
-                <div class="mb-4 text-sm text-gray-600 italic">
-                    {{ $post->metrics_state_message }}
-                </div>
-            @endif
-
-            <div class="flex items-center justify-between mb-4 text-xs text-gray-500">
-                <span>Publicación:
-                    {{ $post->effective_at?->timezone(config('app.timezone'))?->format('d/m/Y H:i') ?? '—' }}</span>
-
+            <div class="rounded-2xl bg-white p-4 border shadow-sm">
+                <div class="text-xs text-gray-500">Alcance total</div>
+                <div class="text-xl font-bold">{{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}</div>
             </div>
-
-            <form method="POST" action="{{ route('mis-posts.update', $post) }}" enctype="multipart/form-data"
-                class="space-y-6">
-                @csrf
-                @method('PUT')
-                <input type="hidden" name="round" value="{{ $round }}" />
-
-                {{-- Grid 2x2 --}}
-                <div class="grid md:grid-cols-2 gap-5">
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Alcance</label>
-                        <input type="number" name="alcance" min="0" value="{{ old('alcance', $metric?->alcance) }}"
-                            class="w-full border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                            {{ $canEdit ? '' : 'disabled' }}>
-                        @error('alcance')
-                            <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                        @enderror
-                    </div>
-
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Visualizaciones</label>
-                        <input type="number" name="visualizaciones" min="0"
-                            value="{{ old('visualizaciones', $metric?->visualizaciones) }}"
-                            class="w-full border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                            {{ $canEdit ? '' : 'disabled' }}>
-                        @error('visualizaciones')
-                            <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                        @enderror
-                    </div>
-
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Interacciones</label>
-                        <input type="number" name="interacciones" min="0"
-                            value="{{ old('interacciones', $metric?->interacciones) }}"
-                            class="w-full border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                            {{ $canEdit ? '' : 'disabled' }}>
-                        @error('interacciones')
-                            <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                        @enderror
-                    </div>
-
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Pantallazo (imagen)</label>
-                        <input x-ref="fileInput" type="file" name="evidencia" accept="image/*"
-                            @change="onFileChange($event)"
-                            class="w-full border rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-                            {{ $canEdit ? '' : 'disabled' }}>
-                        @error('evidencia')
-                            <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                        @enderror
-
-                        {{-- Preview antes de guardar --}}
-                        <template x-if="previewUrl">
-                            <div class="mt-3">
-                                <img :src="previewUrl" alt="Preview"
-                                    class="rounded-lg border max-h-48 w-auto object-contain">
-                                <div class="mt-2">
-                                    <button type="button" @click="clearSelected()"
-                                        class="text-xs px-3 py-1 rounded-lg border hover:bg-gray-50">
-                                        Quitar seleccionada
-                                    </button>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-
-                {{-- Imagen guardada (si existe) con botón para quitar --}}
-                @if ($metric?->evidencia_path)
-                    <div class="pt-2 border-t">
-                        <p class="text-sm text-gray-600 mb-2">Pantallazo guardado:</p>
-                        <div class="flex items-start gap-4">
-                            <img src="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($metric->evidencia_path) }}"
-                                alt="Pantallazo" class="rounded-lg border max-h-48 w-auto object-contain">
-                            @if ($canEdit)
-                                <button type="submit" name="remove_evidencia" value="1"
-                                    class="text-xs px-3 py-1 rounded-lg border hover:bg-gray-50">
-                                    Quitar actual
-                                </button>
-                            @endif
-                        </div>
-                    </div>
-                @endif
-
-                <div class="pt-2">
-                    @if ($canEdit)
-                        <button class="bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition">
-                            Guardar
-                        </button>
-                    @else
-                        <button type="button" disabled
-                            class="bg-gray-200 text-gray-600 px-4 py-2 rounded-xl cursor-not-allowed">
-                            {{ $post->metrics_state_message }}
-                        </button>
-                    @endif
-                </div>
-            </form>
+            <div class="rounded-2xl bg-white p-4 border shadow-sm">
+                <div class="text-xs text-gray-500">Visualizaciones totales</div>
+                <div class="text-xl font-bold">{{ number_format((int) ($summary['visualizaciones_sum'] ?? 0)) }}</div>
+            </div>
+            <div class="rounded-2xl bg-white p-4 border shadow-sm">
+                <div class="text-xs text-gray-500">Interacciones totales</div>
+                <div class="text-xl font-bold">{{ number_format((int) ($summary['interacciones_sum'] ?? 0)) }}</div>
+            </div>
+            <div class="rounded-2xl bg-white p-4 border shadow-sm">
+                <div class="text-xs text-gray-500">Última publicación</div>
+                <div class="text-xl font-bold">{{ $eff }}</div>
+            </div>
         </div>
+
+        {{-- Gráficas --}}
+        <div class="grid lg:grid-cols-2 gap-6">
+            <div class="rounded-2xl bg-white border p-4 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-sm text-gray-600">Suma por página</div>
+                </div>
+                <div class="h-72">
+                    <canvas id="chartByPage"></canvas>
+                </div>
+            </div>
+
+            <div class="rounded-2xl bg-white border p-4 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-sm text-gray-600">Suma por publicación</div>
+                </div>
+                <div class="h-72">
+                    <canvas id="chartByPost"></canvas>
+                </div>
+            </div>
+        </div>
+
+        {{-- Detalle de publicaciones --}}
+        <div class="mt-8 rounded-2xl bg-white border shadow-sm overflow-hidden">
+            <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                <div class="text-sm text-gray-700">Detalle de publicaciones ({{ number_format($posts->count()) }})</div>
+                @if (!empty($summary['any_permalink']))
+                    <a href="{{ $summary['any_permalink'] }}" target="_blank" rel="noopener noreferrer"
+                        class="text-indigo-600 text-sm hover:underline">Ver un ejemplo</a>
+                @endif
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-gray-600">
+                        <tr>
+                            <th class="text-left px-4 py-3">Fecha</th>
+                            <th class="text-left px-4 py-3">Página</th>
+                            <th class="text-left px-4 py-3">Tipo</th>
+                            <th class="text-right px-4 py-3">Alcance</th>
+                            <th class="text-right px-4 py-3">Vistas</th>
+                            <th class="text-right px-4 py-3">Interacciones</th>
+                            <th class="text-center px-4 py-3">Enlace</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                        @foreach ($pageSummary as $p)
+                            <tr>
+                                <td class="px-4 py-2">{{ $p->page_name }}</td>
+                                <td class="px-4 py-2 text-right">{{ number_format($p->posts_count) }}</td>
+                                <td class="px-4 py-2 text-right">{{ number_format($p->alcance) }}</td>
+                                <td class="px-4 py-2 text-right">{{ number_format($p->visualizaciones) }}</td>
+                                <td class="px-4 py-2 text-right">{{ number_format($p->interacciones) }}</td>
+                                <td class="px-4 py-2 text-center">
+                                    @if ($p->any_permalink)
+                                        <a href="{{ $p->any_permalink }}" target="_blank" rel="noopener noreferrer"
+                                            class="text-indigo-600 hover:underline">Ver</a>
+                                    @else
+                                        <span class="text-gray-400">—</span>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                    {{-- Totales del grupo al pie --}}
+                    <tfoot class="bg-gray-50">
+                        <tr>
+                            <td colspan="3" class="px-4 py-3 text-right font-semibold text-gray-700">Totales del grupo
+                            </td>
+                            <td class="px-4 py-3 text-right font-bold">
+                                {{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}</td>
+                            <td class="px-4 py-3 text-right font-bold">
+                                {{ number_format((int) ($summary['visualizaciones_sum'] ?? 0)) }}</td>
+                            <td class="px-4 py-3 text-right font-bold">
+                                {{ number_format((int) ($summary['interacciones_sum'] ?? 0)) }}</td>
+                            <td class="px-4 py-3"></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+
     </div>
+
+    {{-- Chart.js --}}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Datos desde el controlador
+        const byPage = @json($chartByPage);
+        const byPost = @json($chartByPost);
+
+        // Helper para crear datasets sin fijar colores manuales
+        const makeDatasets = (datasetsObj) =>
+            Object.entries(datasetsObj).map(([label, data]) => ({
+                label,
+                data,
+                borderWidth: 1
+            }));
+
+        // Chart por página
+        new Chart(document.getElementById('chartByPage').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: byPage.labels,
+                datasets: makeDatasets(byPage.datasets),
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Chart por publicación
+        new Chart(document.getElementById('chartByPost').getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: byPost.labels,
+                datasets: makeDatasets(byPost.datasets),
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
 @endsection
