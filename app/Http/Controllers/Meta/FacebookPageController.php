@@ -784,13 +784,14 @@ class FacebookPageController extends Controller
 
     private function performSync(User $user, SocialAccount $social): int
     {
+        // Usa v23.0 para ser consistente con el resto
         $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
 
         $resp = Http::withToken($social->access_token)
-            ->get('https://graph.facebook.com/v20.0/me/accounts', ['fields' => $fields]);
+            ->get('https://graph.facebook.com/v23.0/me/accounts', ['fields' => $fields]);
 
         if (!$resp->ok()) {
-            Log::error('FB /me/accounts error', [
+           Log::error('FB /me/accounts error', [
                 'status' => $resp->status(),
                 'body' => $resp->body()
             ]);
@@ -800,8 +801,8 @@ class FacebookPageController extends Controller
         $pages = data_get($resp->json(), 'data', []);
         if (empty($pages)) {
             throw new \RuntimeException("No se encontraron páginas.
-            - Acepta los permisos requeridos.
-            - Verifica que la cuenta administre al menos una página.");
+- Acepta los permisos requeridos (pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement).
+- Verifica que la cuenta administre al menos una página.");
         }
 
         DB::transaction(function () use ($pages, $user, $social) {
@@ -809,12 +810,30 @@ class FacebookPageController extends Controller
                 $pageId = (string) data_get($page, 'id');
                 $name = data_get($page, 'name');
                 $category = data_get($page, 'category');
-                $picture = "https://graph.facebook.com/v20.0/{$pageId}/picture?type=normal";
+                $picture = "https://graph.facebook.com/v23.0/{$pageId}/picture?type=normal";
 
-                $tasks = data_get($page, 'tasks', []);
-                if (!is_array($tasks)) {
-                    $tasks = $tasks ? [$tasks] : [];
+                // Toma el Page Access Token desde /me/accounts
+                $pageAccessToken = data_get($page, 'access_token');
+
+                // Si no vino (a veces pasa), intenta /{page-id}?fields=access_token (requiere pages_manage_metadata)
+                if (!$pageAccessToken) {
+                    $try = Http::withToken($social->access_token)
+                        ->get("https://graph.facebook.com/v23.0/{$pageId}", ['fields' => 'access_token']);
+                    if ($try->ok()) {
+                        $pageAccessToken = data_get($try->json(), 'access_token');
+                    }
                 }
+
+                if (!$pageAccessToken) {
+                    // Si aún no hay token, registra y sigue con la otra página
+                    Log::warning('No page_access_token for page', ['page_id' => $pageId]);
+                    continue;
+                }
+
+                // Normaliza tasks
+                $tasks = data_get($page, 'tasks', []);
+                if (!is_array($tasks))
+                    $tasks = $tasks ? [$tasks] : [];
 
                 $metaPage = MetaPage::updateOrCreate(
                     ['page_id' => $pageId],
@@ -827,9 +846,10 @@ class FacebookPageController extends Controller
                     ]
                 );
 
+                // Guarda Page Access Token en el pivot (¡este es el que necesitas para insights/fields!)
                 $user->metaPages()->syncWithoutDetaching([
                     $metaPage->id => [
-                        'page_access_token' => data_get($page, 'access_token'),
+                        'page_access_token' => $pageAccessToken,
                         'social_account_id' => $social->id,
                         'expires_at' => null,
                         'is_active' => true,
@@ -840,6 +860,7 @@ class FacebookPageController extends Controller
 
         return count($pages);
     }
+
     public function unlinkAccount()
     {
         $user = Auth::user();

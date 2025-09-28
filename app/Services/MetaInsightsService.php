@@ -16,31 +16,39 @@ class MetaInsightsService
     * 1) Usa meta_page_user.page_access_token (si existe y no ha expirado).
     * 2) Si falta, usa social_accounts.access_token del usuario para llamar /me/accounts y guardar el token de página en la pivote.
     */
-    public function resolvePageToken(int $metaPageId, ?int $userId = null): ?string
+    public function resolvePageToken(int $metaPageId, int $userId): ?string
     {
-        // 1) Intentar token del MISMO usuario (si existe)
-        if ($userId) {
-            $tok = DB::table('meta_page_user')
-                ->where('meta_page_id', $metaPageId)
-                ->where('user_id', $userId)
-                ->where('is_active', 1)
-                ->whereNotNull('page_access_token')
-                ->orderByDesc('updated_at')
-                ->value('page_access_token');
+        // 1) Pivot user<->meta_page
+        $pivot = DB::table('meta_page_user')
+            ->where('user_id', $userId)
+            ->where('meta_page_id', $metaPageId)
+            ->orderByDesc('id')
+            ->first();
 
-            if ($tok) {
-                return $tok;
-            }
+        if ($pivot && !empty($pivot->page_access_token)) {
+            return $pivot->page_access_token; // <- Page Access Token (¡este!)
         }
 
-        // 2) Fallback: tomar CUALQUIER pivote ACTIVA de la misma página
-        return DB::table('meta_page_user')
+        // 2) Fallback: busca cualquiera activo para esa página
+        $pvt = DB::table('meta_page_user')
             ->where('meta_page_id', $metaPageId)
             ->where('is_active', 1)
-            ->whereNotNull('page_access_token')
-            ->orderByDesc('updated_at')
-            ->value('page_access_token');
+            ->orderByDesc('id')
+            ->first();
+
+        if ($pvt && !empty($pvt->page_access_token)) {
+            return $pvt->page_access_token;
+        }
+
+        // 3) Último recurso: user token (no recomendado para fields)
+        $social = \App\Models\SocialAccount::where('user_id', $userId)
+            ->where('provider', 'facebook')
+            ->latest('id')
+            ->first();
+
+        return $social?->access_token ?? null;
     }
+
 
     /**
      * Devuelve social_accounts.access_token.
@@ -318,7 +326,7 @@ class MetaInsightsService
         $err = null;
 
         $params = [
-            'metric' => 'post_impressions,post_impressions_unique,post_engaged_users',
+            'metric' => 'post_impressions,post_impressions_unique',
             'period' => 'lifetime',
         ];
 
