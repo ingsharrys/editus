@@ -16,58 +16,30 @@ class MetaInsightsService
     * 1) Usa meta_page_user.page_access_token (si existe y no ha expirado).
     * 2) Si falta, usa social_accounts.access_token del usuario para llamar /me/accounts y guardar el token de página en la pivote.
     */
-    public function resolvePageToken(int $metaPageId, int $userId): ?string
+    public function resolvePageToken(int $metaPageId, ?int $userId = null): ?string
     {
-        // A) Intentar con la pivote
-        [$pivot, $origin] = $this->pickPivotForPage($metaPageId, $userId);
-        if ($pivot) {
-            Log::info('[FB] using pivot token', [
-                'meta_page_id' => $metaPageId,
-                'origin' => $origin,
-                'pivot_user_id' => $pivot->user_id ?? null,
-            ]);
-            return $pivot->page_access_token;
+        // 1) Intentar token del MISMO usuario (si existe)
+        if ($userId) {
+            $tok = DB::table('meta_page_user')
+                ->where('meta_page_id', $metaPageId)
+                ->where('user_id', $userId)
+                ->where('is_active', 1)
+                ->whereNotNull('page_access_token')
+                ->orderByDesc('updated_at')
+                ->value('page_access_token');
+
+            if ($tok) {
+                return $tok;
+            }
         }
 
-        // B) Refrescar con /me/accounts DEL USUARIO ORIGINAL
-        $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
-        if (!$pageId) {
-            Log::warning('[FB] meta_page no encontrada', ['meta_page_id' => $metaPageId]);
-            return null;
-        }
-
-        // access_token del usuario original (solo access_token)
-        $userToken = $this->getUserAccessToken($userId, null);
-        if (!$userToken) {
-            Log::warning('[FB] user token no encontrado para refrescar page token', ['user_id' => $userId]);
-            return null;
-        }
-
-        $helper = new \App\Support\FacebookGraph();
-        $data = $helper->getPageDataFromMeAccounts($userToken, (string) $pageId);
-        $pageToken = $data['access_token'] ?? null;
-
-        if ($pageToken) {
-            DB::table('meta_page_user')->updateOrInsert(
-                ['meta_page_id' => $metaPageId, 'user_id' => $userId],
-                [
-                    'page_access_token' => $pageToken,
-                    'is_active' => 1,
-                    'updated_at' => now(),
-                ]
-            );
-            Log::info('[FB] pivot token refreshed via /me/accounts', [
-                'meta_page_id' => $metaPageId,
-                'user_id' => $userId,
-            ]);
-            return $pageToken;
-        }
-
-        Log::warning('[FB] no se pudo resolver page token', [
-            'meta_page_id' => $metaPageId,
-            'user_id' => $userId,
-        ]);
-        return null;
+        // 2) Fallback: tomar CUALQUIER pivote ACTIVA de la misma página
+        return DB::table('meta_page_user')
+            ->where('meta_page_id', $metaPageId)
+            ->where('is_active', 1)
+            ->whereNotNull('page_access_token')
+            ->orderByDesc('updated_at')
+            ->value('page_access_token');
     }
 
     /**
@@ -104,24 +76,45 @@ class MetaInsightsService
      * Actualiza alcance / visualizaciones / interacciones para un post.
      * Aplica estrategia: post_insights → video_insights (mismo id) → resolve post desde video → object_id (video_id) desde post.
      */
-    public function updatePostMetrics(MetaPost $post): bool
+    public function updatePostMetrics(\App\Models\MetaPost $post): bool
     {
-        if (!$post->fb_post_id)
-            return false;
-
-        $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
-        if (!$pageToken) {
-            Log::warning('[metrics] no-page-token', ['post_id' => $post->id, 'meta_page_id' => $post->meta_page_id]);
+        if (empty($post->fb_post_id)) {
             return false;
         }
 
+        // Contexto base para logs
         $ctx = [
             'post_id' => $post->id,
             'meta_page_id' => $post->meta_page_id,
             'fb_post_id' => $post->fb_post_id,
-            'published_at' => optional($post->published_at)->toIso8601String() ?? $post->created_at?->toIso8601String(),
+            'published_at' => optional($post->published_at)->toIso8601String()
+                ?? $post->created_at?->toIso8601String(),
         ];
 
+        // 1) Resolver token de página (con fallback a cualquier pivote activa)
+        $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
+        if (!$pageToken) {
+            Log::warning('[metrics] no-page-token', $ctx + ['user_id' => $post->user_id]);
+            return false;
+        }
+
+        // 1.b) Log si usamos fallback (autor no tiene token propio en la pivote)
+        if (!empty($post->user_id)) {
+            $authorHasToken = DB::table('meta_page_user')
+                ->where('meta_page_id', $post->meta_page_id)
+                ->where('user_id', $post->user_id)
+                ->where('is_active', 1)
+                ->whereNotNull('page_access_token')
+                ->exists();
+
+            if (!$authorHasToken) {
+                Log::info('[metrics] fallback_token_used', $ctx + [
+                    'author_user_id' => $post->user_id,
+                ]);
+            }
+        }
+
+        // Valores actuales (para comparar y loguear)
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
@@ -138,10 +131,11 @@ class MetaInsightsService
             'resolved_post_id' => null,
         ];
 
-        // 1) Intento como POST
+        // 2) Intento como POST (insights de publicación)
         $postErr = null;
         $postIns = $this->fetchPostInsights($post->fb_post_id, $pageToken, $postErr);
-        if ($postIns) {
+
+        if (is_array($postIns)) {
             $alcance = $postIns['post_impressions_unique'] ?? $alcance;
             $visualizaciones = $postIns['post_impressions'] ?? $visualizaciones;
             $interacciones = $postIns['post_engaged_users'] ?? $interacciones;
@@ -153,25 +147,26 @@ class MetaInsightsService
                 'int' => $interacciones,
             ]);
         } else {
-            // ¿Parece “es video” o “métrica inválida”?
+            // 3) Si parece error típico de video, probamos flujo de video
             if ($this->looksLikeVideoError($postErr)) {
-                // 2.a) ¿El fb_post_id ya es video_id?
+                // 3.a) ¿fb_post_id ya es video_id? (video_insights directo)
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
-                if ($vidIns) {
+                if (is_array($vidIns)) {
+                    // mapear: visualizaciones = total_video_views, alcance ≈ total_video_impressions
                     $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
                     $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                     $sources['video_insights'] = true;
 
                     Log::info('[metrics] video_insights.ok', $ctx + [
                         'alc' => $alcance,
-                        'vis' => $visualizaciones
+                        'vis' => $visualizaciones,
                     ]);
                 } else {
                     Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
                 }
 
-                // 2.b) Resolver el post real desde el video (feed de la página cerca de published_at)
+                // 3.b) Tratar de resolver el post-id real a partir del video
                 $postId = $this->resolvePostIdFromVideo(
                     $post->fb_post_id,
                     $post->meta_page_id,
@@ -184,7 +179,7 @@ class MetaInsightsService
 
                     $tmpErr = null;
                     $postIns2 = $this->fetchPostInsights($postId, $pageToken, $tmpErr);
-                    if ($postIns2) {
+                    if (is_array($postIns2)) {
                         $alcance = $postIns2['post_impressions_unique'] ?? $alcance;
                         $interacciones = $postIns2['post_engaged_users'] ?? $interacciones;
 
@@ -196,17 +191,17 @@ class MetaInsightsService
                     } else {
                         Log::warning('[metrics] post_from_video.fail', $ctx + [
                             'resolved_post_id' => $postId,
-                            'error' => $tmpErr
+                            'error' => $tmpErr,
                         ]);
                     }
                 } else {
-                    // 2.c) Último intento: si fb_post_id era post con video, saca object_id (video_id) y pide video_insights
+                    // 3.c) Último intento: sacar object_id (video_id) desde el post y pedir video_insights
                     $objErr = null;
                     $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
                     if ($objectId) {
                         $vidErr2 = null;
                         $vidIns2 = $this->fetchVideoInsights($objectId, $pageToken, $vidErr2);
-                        if ($vidIns2) {
+                        if (is_array($vidIns2)) {
                             $visualizaciones = $vidIns2['total_video_views'] ?? $visualizaciones;
                             $alcance = $vidIns2['total_video_impressions'] ?? $alcance;
                             $sources['video_insights'] = true;
@@ -220,42 +215,45 @@ class MetaInsightsService
                     }
                 }
             } else {
+                // 4) Error de post-insights no relacionado con video: lo registramos
                 Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
-                // Intento extra: tal vez es post con video pero sin mensaje de video explícito
+
+                // Intento extra: quizá es post con video pero el error no lo indicó
                 $objErr = null;
                 $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
                 if ($objectId) {
-                    $vidErr = null;
-                    $vidIns = $this->fetchVideoInsights($objectId, $pageToken, $vidErr);
-                    if ($vidIns) {
-                        $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
-                        $alcance = $vidIns['total_video_impressions'] ?? $alcance;
+                    $vidErrX = null;
+                    $vidInsX = $this->fetchVideoInsights($objectId, $pageToken, $vidErrX);
+                    if (is_array($vidInsX)) {
+                        $visualizaciones = $vidInsX['total_video_views'] ?? $visualizaciones;
+                        $alcance = $vidInsX['total_video_impressions'] ?? $alcance;
                         $sources['video_insights'] = true;
+
                         Log::info('[metrics] video_from_post.ok', $ctx + ['video_id' => $objectId]);
                     } else {
-                        Log::warning('[metrics] video_from_post.fail', $ctx + ['error' => $vidErr]);
+                        Log::warning('[metrics] video_from_post.fail', $ctx + ['error' => $vidErrX]);
                     }
                 }
             }
         }
 
-        // 3) Persistir si hay cambios
+        // 5) Persistir cambios si los hubo
         $changed = false;
-        if (!is_null($alcance) && $alcance !== $post->alcance) {
+        if ($alcance !== null && $alcance !== $post->alcance) {
             $post->alcance = $alcance;
             $changed = true;
         }
-        if (!is_null($visualizaciones) && $visualizaciones !== $post->visualizaciones) {
+        if ($visualizaciones !== null && $visualizaciones !== $post->visualizaciones) {
             $post->visualizaciones = $visualizaciones;
             $changed = true;
         }
-        if (!is_null($interacciones) && $interacciones !== $post->interacciones) {
+        if ($interacciones !== null && $interacciones !== $post->interacciones) {
             $post->interacciones = $interacciones;
             $changed = true;
         }
 
         if ($changed) {
-            if (\Illuminate\Support\Facades\Schema::hasColumn('meta_posts', 'last_insights_at')) {
+            if (Schema::hasColumn('meta_posts', 'last_insights_at')) {
                 $post->last_insights_at = now();
             }
             $post->saveQuietly();
@@ -277,6 +275,7 @@ class MetaInsightsService
 
         return $changed;
     }
+
 
     /** ===== Helpers de Graph ===== */
 
