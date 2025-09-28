@@ -76,13 +76,12 @@ class MetaInsightsService
      * Actualiza alcance / visualizaciones / interacciones para un post.
      * Aplica estrategia: post_insights → video_insights (mismo id) → resolve post desde video → object_id (video_id) desde post.
      */
-    public function updatePostMetrics(\App\Models\MetaPost $post): bool
+    public function updatePostMetrics(MetaPost $post): bool
     {
         if (empty($post->fb_post_id)) {
             return false;
         }
 
-        // Contexto base para logs
         $ctx = [
             'post_id' => $post->id,
             'meta_page_id' => $post->meta_page_id,
@@ -91,14 +90,14 @@ class MetaInsightsService
                 ?? $post->created_at?->toIso8601String(),
         ];
 
-        // 1) Resolver token de página (con fallback a cualquier pivote activa)
+        // 1) Token de página (con fallback a cualquier pivote activa)
         $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
         if (!$pageToken) {
             Log::warning('[metrics] no-page-token', $ctx + ['user_id' => $post->user_id]);
             return false;
         }
 
-        // 1.b) Log si usamos fallback (autor no tiene token propio en la pivote)
+        // Log si usamos fallback (autor sin token en esa página)
         if (!empty($post->user_id)) {
             $authorHasToken = DB::table('meta_page_user')
                 ->where('meta_page_id', $post->meta_page_id)
@@ -108,19 +107,16 @@ class MetaInsightsService
                 ->exists();
 
             if (!$authorHasToken) {
-                Log::info('[metrics] fallback_token_used', $ctx + [
-                    'author_user_id' => $post->user_id,
-                ]);
+                Log::info('[metrics] fallback_token_used', $ctx + ['author_user_id' => $post->user_id]);
             }
         }
 
-        // Valores actuales (para comparar y loguear)
+        // Valores iniciales
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
             'interacciones_before' => $post->interacciones,
         ];
-
         $alcance = $post->alcance;
         $visualizaciones = $post->visualizaciones;
         $interacciones = $post->interacciones;
@@ -131,7 +127,7 @@ class MetaInsightsService
             'resolved_post_id' => null,
         ];
 
-        // 2) Intento como POST (insights de publicación)
+        // 2) Intento como POST
         $postErr = null;
         $postIns = $this->fetchPostInsights($post->fb_post_id, $pageToken, $postErr);
 
@@ -147,26 +143,28 @@ class MetaInsightsService
                 'int' => $interacciones,
             ]);
         } else {
-            // 3) Si parece error típico de video, probamos flujo de video
-            if ($this->looksLikeVideoError($postErr)) {
-                // 3.a) ¿fb_post_id ya es video_id? (video_insights directo)
+            // 3) ¿Tiene pinta de video?
+            $isVideoType = strtolower((string) $post->type) === 'video';
+            $videoishError = $this->looksLikeVideoError($postErr);
+
+            if (!($isVideoType || $videoishError)) {
+                // Post normal (texto/foto/enlace) con error que NO indica "es video".
+                Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
+            } else {
+                // 3.a) Probar video_insights asumiendo que fb_post_id ya es video_id
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
                 if (is_array($vidIns)) {
-                    // mapear: visualizaciones = total_video_views, alcance ≈ total_video_impressions
                     $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
                     $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                     $sources['video_insights'] = true;
 
-                    Log::info('[metrics] video_insights.ok', $ctx + [
-                        'alc' => $alcance,
-                        'vis' => $visualizaciones,
-                    ]);
+                    Log::info('[metrics] video_insights.ok', $ctx + ['alc' => $alcance, 'vis' => $visualizaciones]);
                 } else {
                     Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
                 }
 
-                // 3.b) Tratar de resolver el post-id real a partir del video
+                // 3.b) Intentar resolver post_id desde el feed (si fue publicado como post de página con video)
                 $postId = $this->resolvePostIdFromVideo(
                     $post->fb_post_id,
                     $post->meta_page_id,
@@ -194,8 +192,8 @@ class MetaInsightsService
                             'error' => $tmpErr,
                         ]);
                     }
-                } else {
-                    // 3.c) Último intento: sacar object_id (video_id) desde el post y pedir video_insights
+                } elseif ($isVideoType) {
+                    // 3.c) Solo si el post ES de tipo video, último intento: leer object_id y consultar video_insights ahí
                     $objErr = null;
                     $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
                     if ($objectId) {
@@ -214,30 +212,10 @@ class MetaInsightsService
                         Log::info('[metrics] post_id.not_found_from_video', $ctx);
                     }
                 }
-            } else {
-                // 4) Error de post-insights no relacionado con video: lo registramos
-                Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
-
-                // Intento extra: quizá es post con video pero el error no lo indicó
-                $objErr = null;
-                $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
-                if ($objectId) {
-                    $vidErrX = null;
-                    $vidInsX = $this->fetchVideoInsights($objectId, $pageToken, $vidErrX);
-                    if (is_array($vidInsX)) {
-                        $visualizaciones = $vidInsX['total_video_views'] ?? $visualizaciones;
-                        $alcance = $vidInsX['total_video_impressions'] ?? $alcance;
-                        $sources['video_insights'] = true;
-
-                        Log::info('[metrics] video_from_post.ok', $ctx + ['video_id' => $objectId]);
-                    } else {
-                        Log::warning('[metrics] video_from_post.fail', $ctx + ['error' => $vidErrX]);
-                    }
-                }
             }
         }
 
-        // 5) Persistir cambios si los hubo
+        // 4) Persistir si cambió algo
         $changed = false;
         if ($alcance !== null && $alcance !== $post->alcance) {
             $post->alcance = $alcance;
@@ -275,6 +253,7 @@ class MetaInsightsService
 
         return $changed;
     }
+
 
 
     /** ===== Helpers de Graph ===== */
