@@ -11,270 +11,151 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 class MetaInsightsService
-{
-    public function resolvePageToken(int $metaPageId, int $userId): ?string
-    {
-        // 1) token del dueño
-        $token = DB::table('meta_page_user')
-            ->where('meta_page_id', $metaPageId)
-            ->where('user_id', $userId)
-            ->where('is_active', 1)
-            ->value('page_access_token');
+{  /** ---- MÉTRICAS ---- */
+    private const POST_METRICS = [
+        'post_impressions',          // impresiones totales (visualizaciones)
+        'post_impressions_unique',   // alcance (usuarios únicos)
+        'post_engaged_users',        // personas que interactuaron
+    ];
 
-        if ($token)
-            return $token;
+    private const VIDEO_METRICS = [
+        'total_video_impressions',   // "alcance" aproximado del video (impresiones)
+        'total_video_views',         // visualizaciones del video
+    ];
 
-        // 2) cualquiera activo
-        return DB::table('meta_page_user')
-            ->where('meta_page_id', $metaPageId)
-            ->where('is_active', 1)
-            ->value('page_access_token');
-    }
-    private function safeGet(string $path, array $params, string $label, bool $video = false, ?array &$err = null): ?array
-    {
-        try {
-            $resp = Http::acceptJson()
-                ->connectTimeout(15)   // ↑
-                ->timeout(60)         // ↑
-                ->retry(3, 300)       // reintentos
-                ->get(FacebookGraph::url($path, $video), $params);
-
-            if (!$resp->ok()) {
-                $err = $this->extractError($resp);
-                $this->logGraphError($label, $resp);
-                return null;
-            }
-            return $resp->json();
-        } catch (\Throwable $e) {
-            $err = ['message' => $e->getMessage()];
-            Log::warning("[FB][$label].exception", ['error' => $e->getMessage()]);
-            return null;
-        }
-    }
-
-    /** --------- INSIGHTS (POST) --------- */
-    public function fetchPostInsights(string $postId, string $pageToken, ?array &$err = null): ?array
-    {
-        $json = $this->safeGet("{$postId}/insights", [
-            'metric' => 'post_impressions,post_impressions_unique,post_engaged_users',
-            'period' => 'lifetime',
-            'access_token' => $pageToken,
-        ], 'post_insights', false, $err);
-
-        if (!$json)
-            return null;
-
-        $out = [];
-        foreach ($json['data'] ?? [] as $m) {
-            $out[$m['name']] = (int) ($m['values'][0]['value'] ?? 0);
-        }
-        return $out;
-    }
-
-    /** --------- INSIGHTS (VIDEO) --------- */
-    public function fetchVideoInsights(string $videoId, string $pageToken, ?array &$err = null): ?array
-    {
-        $json = $this->safeGet("{$videoId}/video_insights", [
-            'metric' => 'total_video_views,total_video_impressions',
-            'period' => 'lifetime',
-            'access_token' => $pageToken,
-        ], 'video_insights', true, $err);
-
-        if (!$json)
-            return null;
-
-        $out = [];
-        foreach ($json['data'] ?? [] as $m) {
-            $out[$m['name']] = (int) ($m['values'][0]['value'] ?? 0);
-        }
-        return $out;
-    }
-    public function resolveVideoIdFromPost(string $postId, string $pageToken, ?array &$err = null): ?string
-    {
-        $json = $this->safeGet($postId, [
-            'fields' => 'object_id,attachments{target,id,type}',
-            'access_token' => $pageToken,
-        ], 'resolve_video_id', false, $err);
-
-        if (!$json)
-            return null;
-
-        $obj = $json['object_id'] ?? null;
-        $att = $json['attachments']['data'][0] ?? null;
-        return $obj ?: ($att['target']['id'] ?? null);
-    }
+    /** ---- HTTP options ---- */
+    private const TIMEOUT = 60;  // seg
+    private const RETRIES = 3;
+    private const RETRY_MS = 300;
 
     /**
-     * Intenta deducir el post-id desde un video-id buscando en el feed de la página
-     * por un post cuyo object_id == videoId (ventana alrededor de published_at).
-     */
-    public function resolvePostIdFromVideo(string $videoId, int $metaPageId, ?string $publishedAtIso, string $pageToken): ?string
-    {
-        $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
-        if (!$pageId)
-            return null;
-
-        $since = $publishedAtIso ? date('U', strtotime($publishedAtIso . ' -3 days')) : null;
-        $until = $publishedAtIso ? date('U', strtotime($publishedAtIso . ' +3 days')) : null;
-
-        $params = [
-            'fields' => 'id,object_id,created_time',
-            'limit' => 100,
-            'access_token' => $pageToken,
-        ];
-        if ($since)
-            $params['since'] = $since;
-        if ($until)
-            $params['until'] = $until;
-
-        $after = null;
-        do {
-            if ($after)
-                $params['after'] = $after;
-
-            $err = null;
-            $json = $this->safeGet("{$pageId}/posts", $params, 'page_posts_lookup', false, $err);
-            if (!$json)
-                return null;
-
-            foreach ($json['data'] ?? [] as $row) {
-                if (($row['object_id'] ?? null) === $videoId) {
-                    return $row['id'] ?? null;
-                }
-            }
-            $after = data_get($json, 'paging.cursors.after');
-        } while ($after);
-
-        return null;
-    }
-
-
-    /**
-     * Orquesta todo: maneja casos donde fb_post_id en realidad es video-id.
-     * - Si es Post normal → usa post_insights.
-     * - Si parece Video → usa video_insights; y si logra resolver el post-id,
-     *   completa alcance/interacciones desde post_insights.
+     * Intenta actualizar alcance / visualizaciones / interacciones del post.
+     * - Primero como POST
+     * - Si falla por "es video", intenta como VIDEO
+     * - Si puede, resuelve el post real asociado al video y completa con métricas de post
      */
     public function updatePostMetrics(MetaPost $post): bool
     {
-        // KILL SWITCH
-    if (file_exists(storage_path('app/disable-metrics'))) {
-        Log::warning('[metrics] service.disabled', ['post_id' => $post->id ?? null]);
-        return false;
-    }
-        if (!$post->fb_post_id)
+        // Kill-switch opcional (si lo usas)
+        if (file_exists(storage_path('app/disable-metrics'))) {
+            Log::warning('[metrics] service.disabled', ['post_id' => $post->id ?? null, 'pid' => getmypid()]);
             return false;
+        }
+
+        if (!$post->fb_post_id) {
+            Log::warning('[metrics] fb_post_id.missing', ['post_id' => $post->id]);
+            return false;
+        }
 
         $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
         if (!$pageToken) {
-            Log::warning('[metrics] no-page-token', ['post_id' => $post->id, 'meta_page_id' => $post->meta_page_id]);
+            Log::warning('[FB] missing.page_token', [
+                'post_id'      => $post->id,
+                'meta_page_id' => $post->meta_page_id,
+            ]);
             return false;
         }
 
-        $ctx = [
-            'post_id' => $post->id,
-            'meta_page_id' => $post->meta_page_id,
-            'fb_post_id' => $post->fb_post_id,
-            'published_at' => optional($post->published_at)->toIso8601String() ?? $post->created_at?->toIso8601String(),
+        $original = [
+            'alcance'        => $post->alcance,
+            'visualizaciones'=> $post->visualizaciones,
+            'interacciones'  => $post->interacciones,
         ];
 
-        $before = [
-            'alcance_before' => $post->alcance,
-            'visualizaciones_before' => $post->visualizaciones,
-            'interacciones_before' => $post->interacciones,
-        ];
+        $alcance        = $original['alcance'];
+        $visualizaciones= $original['visualizaciones'];
+        $interacciones  = $original['interacciones'];
 
-        $alcance = $post->alcance;
-        $visualizaciones = $post->visualizaciones;
-        $interacciones = $post->interacciones;
-
-        $sources = [
-            'post_insights' => false,
-            'video_insights' => false,
-            'resolved_post_id' => null,
-        ];
-
-        // 1) Intentar como POST
+        // 1) POST insights
         $postErr = null;
         $postIns = $this->fetchPostInsights($post->fb_post_id, $pageToken, $postErr);
         if ($postIns) {
-            $sources['post_insights'] = true;
-            Log::info('[metrics] post_insights.ok', $ctx + [
-                'post_impressions' => $postIns['post_impressions'] ?? null,
-                'post_impressions_unique' => $postIns['post_impressions_unique'] ?? null,
-                'post_engaged_users' => $postIns['post_engaged_users'] ?? null,
+            $alcance         = $postIns['post_impressions_unique'] ?? $alcance;
+            $visualizaciones = $postIns['post_impressions']       ?? $visualizaciones;
+            $interacciones   = $postIns['post_engaged_users']     ?? $interacciones;
+
+            Log::info('[metrics] post_insights.ok', [
+                'post_id' => $post->id,
+                'alc' => $alcance, 'vis' => $visualizaciones, 'int' => $interacciones,
             ]);
-
-            $alcance = $postIns['post_impressions_unique'] ?? $alcance;
-            $visualizaciones = $postIns['post_impressions'] ?? $visualizaciones;
-            $interacciones = $postIns['post_engaged_users'] ?? $interacciones;
-
         } else {
-            // 2) Si falló, ¿parece error de Video?
+            // 2) ¿Parece error de "es un video" o métrica inválida?
             if ($this->looksLikeVideoError($postErr)) {
+                // 2.a) VIDEO insights
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
                 if ($vidIns) {
-                    $sources['video_insights'] = true;
-                    Log::info('[metrics] video_insights.ok', $ctx + [
-                        'total_video_views' => $vidIns['total_video_views'] ?? null,
-                        'total_video_impressions' => $vidIns['total_video_impressions'] ?? null,
+                    // Mapeo para video:
+                    // - Visualizaciones → total_video_views
+                    // - Alcance (aprox) → total_video_impressions
+                    $visualizaciones = $vidIns['total_video_views']        ?? $visualizaciones;
+                    $alcance         = $vidIns['total_video_impressions']  ?? $alcance;
+
+                    Log::info('[metrics] video_insights.ok', [
+                        'post_id' => $post->id,
+                        'alc' => $alcance, 'vis' => $visualizaciones,
                     ]);
-                    // video → views & impresiones
-                    $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
-                    $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                 } else {
-                    Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
+                    Log::warning('[metrics] video_insights.fail', [
+                        'post_id' => $post->id,
+                        'error'   => $vidErr,
+                    ]);
                 }
 
-                // Intentar localizar el post-id real para completar alcance/interacciones
-                $postId = $this->resolvePostIdFromVideo(
-                    $post->fb_post_id,
-                    $post->meta_page_id,
-                    optional($post->published_at)->toIso8601String(),
+                // 2.b) Si podemos, resolvemos el post real asociado a ese video
+                $resolved = $this->resolvePostIdFromVideo(
+                    $post->fb_post_id,                                 // videoId
+                    $post->meta_page_id,                               // metaPageId
+                    optional($post->published_at)->toIso8601String(),  // fecha aprox
                     $pageToken
                 );
-                if ($postId) {
-                    $sources['resolved_post_id'] = $postId;
-                    $tmpErr = null;
-                    $postIns2 = $this->fetchPostInsights($postId, $pageToken, $tmpErr);
+
+                if ($resolved) {
+                    $tmpErr  = null;
+                    $postIns2 = $this->fetchPostInsights($resolved, $pageToken, $tmpErr);
                     if ($postIns2) {
-                        Log::info('[metrics] post_insights.from_resolved_post_id.ok', $ctx + [
-                            'resolved_post_id' => $postId,
-                            'post_impressions_unique' => $postIns2['post_impressions_unique'] ?? null,
-                            'post_engaged_users' => $postIns2['post_engaged_users'] ?? null,
+                        $alcance       = $postIns2['post_impressions_unique'] ?? $alcance;
+                        $interacciones = $postIns2['post_engaged_users']     ?? $interacciones;
+
+                        Log::info('[metrics] post_from_video.ok', [
+                            'post_id' => $post->id,
+                            'resolved_post_id' => $resolved,
+                            'alc' => $alcance, 'int' => $interacciones,
                         ]);
-                        $alcance = $postIns2['post_impressions_unique'] ?? $alcance;
-                        $interacciones = $postIns2['post_engaged_users'] ?? $interacciones;
+                        // Si quieres, podrías actualizar $post->fb_post_id = $resolved; (yo no lo toco por ahora)
                     } else {
-                        Log::warning('[metrics] post_insights.from_resolved_post_id.fail', $ctx + [
-                            'resolved_post_id' => $postId,
-                            'error' => $tmpErr
+                        Log::info('[metrics] post_from_video.fail', [
+                            'post_id' => $post->id,
+                            'resolved_post_id' => $resolved,
+                            'error' => $tmpErr,
                         ]);
                     }
                 } else {
-                    Log::info('[metrics] post_id.not_found_from_video', $ctx);
+                    Log::info('[metrics] post_id.not_found_from_video', [
+                        'post_id'       => $post->id,
+                        'meta_page_id'  => $post->meta_page_id,
+                        'fb_post_id'    => $post->fb_post_id,
+                        'published_at'  => optional($post->published_at)->toIso8601String(),
+                    ]);
                 }
-
             } else {
-                // No parece video; loguea el error y sal
-                Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
+                Log::warning('[metrics] post_insights.fail', [
+                    'post_id' => $post->id,
+                    'error'   => $postErr,
+                ]);
             }
         }
 
-        // 3) Guardar si cambió algo
+        // 3) Persistir cambios si hay
         $dirty = false;
         if ($post->alcance !== $alcance && !is_null($alcance)) {
-            $post->alcance = $alcance;
-            $dirty = true;
+            $post->alcance = (int) $alcance; $dirty = true;
         }
         if ($post->visualizaciones !== $visualizaciones && !is_null($visualizaciones)) {
-            $post->visualizaciones = $visualizaciones;
-            $dirty = true;
+            $post->visualizaciones = (int) $visualizaciones; $dirty = true;
         }
         if ($post->interacciones !== $interacciones && !is_null($interacciones)) {
-            $post->interacciones = $interacciones;
-            $dirty = true;
+            $post->interacciones = (int) $interacciones; $dirty = true;
         }
 
         if ($dirty) {
@@ -283,53 +164,210 @@ class MetaInsightsService
             }
             $post->saveQuietly();
 
-            $after = [
-                'alcance_after' => $post->alcance,
-                'visualizaciones_after' => $post->visualizaciones,
-                'interacciones_after' => $post->interacciones,
-            ];
-            Log::info('[metrics] updated', $ctx + $before + $after + ['sources' => $sources]);
-
+            Log::info('[metrics] updated', [
+                'post_id' => $post->id,
+                'before' => $original,
+                'after'  => [
+                    'alcance'        => $post->alcance,
+                    'visualizaciones'=> $post->visualizaciones,
+                    'interacciones'  => $post->interacciones,
+                ],
+            ]);
         } else {
-            Log::info('[metrics] no-change', $ctx + $before + [
+            Log::info('[metrics] no-change', [
+                'post_id' => $post->id,
+                'fb_post_id' => $post->fb_post_id,
+                'published_at' => optional($post->published_at)->toIso8601String(),
+                'alcance_before' => $original['alcance'],
+                'visualizaciones_before' => $original['visualizaciones'],
+                'interacciones_before' => $original['interacciones'],
                 'alcance_after' => $alcance,
                 'visualizaciones_after' => $visualizaciones,
                 'interacciones_after' => $interacciones,
-                'sources' => $sources,
+                'sources' => [
+                    'post_insights'   => (bool) $postIns,
+                    'video_insights'  => (bool) ($vidIns ?? null),
+                    'resolved_post_id'=> $resolved ?? null,
+                ],
             ]);
         }
 
         return $dirty;
     }
 
-    /** --------- Helpers --------- */
-    private function looksLikeVideoError(?array $err): bool
+    /** ------------------------ HELPERS ------------------------ */
+
+    /**
+     * Resuelve el Page Access Token para la meta_page y user dados.
+     * 1) Si meta_pages.page_access_token existe, úsalo.
+     * 2) Si no, usa el token del usuario (social_accounts) y recorre /me/accounts para hallar el de la página.
+     */
+    public function resolvePageToken(int $metaPageId, int $userId): ?string
     {
-        if (!$err)
-            return false;
-        $msg = strtolower($err['message'] ?? '');
-        return str_contains($msg, 'node type (video)') || str_contains($msg, 'valid insights metric');
+        $pageRow = DB::table('meta_pages')
+            ->where('id', $metaPageId)
+            ->first(['id','page_id','page_access_token']);
+
+        if (!$pageRow) return null;
+
+        if (!empty($pageRow->page_access_token)) {
+            return $pageRow->page_access_token;
+        }
+
+        // token del usuario (social_accounts)
+        $sa = DB::table('social_accounts')
+            ->where('user_id', $userId)
+            ->where(function($q) {
+                $q->where('provider', 'facebook')
+                  ->orWhere('provider', 'meta');
+            })
+            ->orderByDesc('id')
+            ->first(['access_token','token']);
+
+        $userToken = $sa->access_token ?? $sa->token ?? null;
+        if (!$userToken) return null;
+
+        // recorre /me/accounts para encontrar la página y su token
+        $helper = new \App\Support\FacebookGraph();
+        $data = $helper->getPageDataFromMeAccounts($userToken, (string) $pageRow->page_id);
+        return $data['access_token'] ?? null;
     }
 
-    private function extractError($resp): array
+    /**
+     * Insights de POST: /{post-id}/insights?metric=...&period=lifetime
+     * Retorna array ['post_impressions'=>..,'post_impressions_unique'=>..,'post_engaged_users'=>..] o null.
+     */
+    public function fetchPostInsights(string $postId, string $pageToken, ?string &$err = null): ?array
     {
-        try {
-            return $resp->json('error') ?? [];
-        } catch (\Throwable) {
-            return ['message' => (string) $resp->body()];
+        $err = null;
+        $metric = implode(',', self::POST_METRICS);
+        $params = ['metric' => $metric, 'period' => 'lifetime'];
+
+        $url  = FG::url("{$postId}/insights");
+        $json = $this->safeGet($url, $params, $pageToken, $err);
+        if (!$json) return null;
+
+        $out = [];
+        foreach (($json['data'] ?? []) as $row) {
+            $name = $row['name'] ?? null;
+            $value = $row['values'][0]['value'] ?? null;
+            if ($name !== null) $out[$name] = is_numeric($value) ? (int) $value : $value;
         }
+        return $out ?: null;
     }
 
-    private function logGraphError(string $where, $resp): void
+    /**
+     * Insights de VIDEO: /{video-id}/video_insights?metric=...
+     * Retorna array ['total_video_impressions'=>..,'total_video_views'=>..] o null.
+     */
+    public function fetchVideoInsights(string $videoId, string $pageToken, ?string &$err = null): ?array
     {
-        try {
-            $body = $resp->json();
-        } catch (\Throwable) {
-            $body = $resp->body();
+        $err = null;
+        $metric = implode(',', self::VIDEO_METRICS);
+        $params = ['metric' => $metric];
+
+        $url  = FG::url("{$videoId}/video_insights"); // insights de video
+        $json = $this->safeGet($url, $params, $pageToken, $err);
+        if (!$json) return null;
+
+        $out = [];
+        foreach (($json['data'] ?? []) as $row) {
+            $name  = $row['name'] ?? null;
+            $value = $row['values'][0]['value'] ?? null;
+            if ($name !== null) $out[$name] = is_numeric($value) ? (int) $value : $value;
         }
-        Log::warning("[FB][$where] {$resp->status()}", [
-            'body' => $body,
-            'trace-id' => $resp->header('x-fb-trace-id'),
-        ]);
+        return $out ?: null;
+    }
+
+    /**
+     * Dado un VIDEO ID, intenta encontrar el POST real en el feed de la página (comparando object_id).
+     * Usa una ventana +/- 36h alrededor de published_at si está disponible.
+     * Retorna post-id (pageId_postId) o null.
+     */
+    public function resolvePostIdFromVideo(
+        string $videoId,
+        int $metaPageId,
+        ?string $publishedAtIso,
+        string $pageToken
+    ): ?string {
+        $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
+        if (!$pageId) return null;
+
+        $since = $publishedAtIso ? strtotime($publishedAtIso) - 36 * 3600 : null;
+        $until = $publishedAtIso ? strtotime($publishedAtIso) + 36 * 3600 : null;
+
+        $params = [
+            'fields' => 'id,object_id,created_time',
+            'limit'  => 100,
+        ];
+        if ($since) $params['since'] = $since;
+        if ($until) $params['until'] = $until;
+
+        $url = FG::url("{$pageId}/feed");
+        while (true) {
+            $err = null;
+            $json = $this->safeGet($url, $params, $pageToken, $err);
+            if (!$json) {
+                Log::warning('[FB][resolve_post_from_video].fail', ['error' => $err]);
+                return null;
+            }
+
+            foreach (($json['data'] ?? []) as $row) {
+                if (!empty($row['object_id']) && (string) $row['object_id'] === (string) $videoId) {
+                    return $row['id'] ?? null; // ← ESTE es el post-id real
+                }
+            }
+
+            $next = data_get($json, 'paging.next');
+            if (!$next) break;
+            $url = $next;   // la siguiente URL ya trae query params
+            $params = [];   // reset (para no duplicar)
+        }
+
+        return null;
+    }
+
+    /**
+     * Heurística para decidir si el error de POST sugiere que es un VIDEO.
+     */
+    private function looksLikeVideoError(?string $err): bool
+    {
+        if (!$err) return false;
+        $e = strtolower($err);
+        return str_contains($e, 'node type (video)') ||
+               str_contains($e, 'video_insights')   ||
+               str_contains($e, 'invalid insights metric');
+    }
+
+    /**
+     * GET con retry/timeout que no lanza excepción. Devuelve json array o null y setea $err.
+     */
+    private function safeGet(string $url, array $params, string $token, ?string &$err = null): ?array
+    {
+        $err = null;
+        try {
+            $resp = Http::withToken($token)
+                ->timeout(self::TIMEOUT)
+                ->retry(self::RETRIES, self::RETRY_MS)
+                ->get($url, $params);
+
+            if (!$resp->ok()) {
+                $err = "HTTP {$resp->status()}: " . $resp->body();
+                Log::warning('[FB][GET].fail', ['url' => $url, 'status' => $resp->status(), 'body' => $resp->body()]);
+                return null;
+            }
+
+            $json = $resp->json();
+            if (!is_array($json)) {
+                $err = 'Invalid JSON';
+                Log::warning('[FB][GET].invalid_json', ['url' => $url]);
+                return null;
+            }
+            return $json;
+        } catch (\Throwable $e) {
+            $err = $e->getMessage();
+            Log::warning('[FB][GET].exception', ['url' => $url, 'error' => $err]);
+            return null;
+        }
     }
 }
