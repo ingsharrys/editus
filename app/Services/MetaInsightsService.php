@@ -50,33 +50,35 @@ class MetaInsightsService
         $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
         if (!$pageToken) {
             Log::warning('[FB] missing.page_token', [
-                'post_id'      => $post->id,
+                'post_id' => $post->id,
                 'meta_page_id' => $post->meta_page_id,
             ]);
             return false;
         }
 
         $original = [
-            'alcance'        => $post->alcance,
-            'visualizaciones'=> $post->visualizaciones,
-            'interacciones'  => $post->interacciones,
+            'alcance' => $post->alcance,
+            'visualizaciones' => $post->visualizaciones,
+            'interacciones' => $post->interacciones,
         ];
 
-        $alcance        = $original['alcance'];
-        $visualizaciones= $original['visualizaciones'];
-        $interacciones  = $original['interacciones'];
+        $alcance = $original['alcance'];
+        $visualizaciones = $original['visualizaciones'];
+        $interacciones = $original['interacciones'];
 
         // 1) POST insights
         $postErr = null;
         $postIns = $this->fetchPostInsights($post->fb_post_id, $pageToken, $postErr);
         if ($postIns) {
-            $alcance         = $postIns['post_impressions_unique'] ?? $alcance;
-            $visualizaciones = $postIns['post_impressions']       ?? $visualizaciones;
-            $interacciones   = $postIns['post_engaged_users']     ?? $interacciones;
+            $alcance = $postIns['post_impressions_unique'] ?? $alcance;
+            $visualizaciones = $postIns['post_impressions'] ?? $visualizaciones;
+            $interacciones = $postIns['post_engaged_users'] ?? $interacciones;
 
             Log::info('[metrics] post_insights.ok', [
                 'post_id' => $post->id,
-                'alc' => $alcance, 'vis' => $visualizaciones, 'int' => $interacciones,
+                'alc' => $alcance,
+                'vis' => $visualizaciones,
+                'int' => $interacciones,
             ]);
         } else {
             // 2) ¿Parece error de "es un video" o métrica inválida?
@@ -88,17 +90,18 @@ class MetaInsightsService
                     // Mapeo para video:
                     // - Visualizaciones → total_video_views
                     // - Alcance (aprox) → total_video_impressions
-                    $visualizaciones = $vidIns['total_video_views']        ?? $visualizaciones;
-                    $alcance         = $vidIns['total_video_impressions']  ?? $alcance;
+                    $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
+                    $alcance = $vidIns['total_video_impressions'] ?? $alcance;
 
                     Log::info('[metrics] video_insights.ok', [
                         'post_id' => $post->id,
-                        'alc' => $alcance, 'vis' => $visualizaciones,
+                        'alc' => $alcance,
+                        'vis' => $visualizaciones,
                     ]);
                 } else {
                     Log::warning('[metrics] video_insights.fail', [
                         'post_id' => $post->id,
-                        'error'   => $vidErr,
+                        'error' => $vidErr,
                     ]);
                 }
 
@@ -111,16 +114,17 @@ class MetaInsightsService
                 );
 
                 if ($resolved) {
-                    $tmpErr  = null;
+                    $tmpErr = null;
                     $postIns2 = $this->fetchPostInsights($resolved, $pageToken, $tmpErr);
                     if ($postIns2) {
-                        $alcance       = $postIns2['post_impressions_unique'] ?? $alcance;
-                        $interacciones = $postIns2['post_engaged_users']     ?? $interacciones;
+                        $alcance = $postIns2['post_impressions_unique'] ?? $alcance;
+                        $interacciones = $postIns2['post_engaged_users'] ?? $interacciones;
 
                         Log::info('[metrics] post_from_video.ok', [
                             'post_id' => $post->id,
                             'resolved_post_id' => $resolved,
-                            'alc' => $alcance, 'int' => $interacciones,
+                            'alc' => $alcance,
+                            'int' => $interacciones,
                         ]);
                         // Si quieres, podrías actualizar $post->fb_post_id = $resolved; (yo no lo toco por ahora)
                     } else {
@@ -132,16 +136,16 @@ class MetaInsightsService
                     }
                 } else {
                     Log::info('[metrics] post_id.not_found_from_video', [
-                        'post_id'       => $post->id,
-                        'meta_page_id'  => $post->meta_page_id,
-                        'fb_post_id'    => $post->fb_post_id,
-                        'published_at'  => optional($post->published_at)->toIso8601String(),
+                        'post_id' => $post->id,
+                        'meta_page_id' => $post->meta_page_id,
+                        'fb_post_id' => $post->fb_post_id,
+                        'published_at' => optional($post->published_at)->toIso8601String(),
                     ]);
                 }
             } else {
                 Log::warning('[metrics] post_insights.fail', [
                     'post_id' => $post->id,
-                    'error'   => $postErr,
+                    'error' => $postErr,
                 ]);
             }
         }
@@ -149,13 +153,16 @@ class MetaInsightsService
         // 3) Persistir cambios si hay
         $dirty = false;
         if ($post->alcance !== $alcance && !is_null($alcance)) {
-            $post->alcance = (int) $alcance; $dirty = true;
+            $post->alcance = (int) $alcance;
+            $dirty = true;
         }
         if ($post->visualizaciones !== $visualizaciones && !is_null($visualizaciones)) {
-            $post->visualizaciones = (int) $visualizaciones; $dirty = true;
+            $post->visualizaciones = (int) $visualizaciones;
+            $dirty = true;
         }
         if ($post->interacciones !== $interacciones && !is_null($interacciones)) {
-            $post->interacciones = (int) $interacciones; $dirty = true;
+            $post->interacciones = (int) $interacciones;
+            $dirty = true;
         }
 
         if ($dirty) {
@@ -167,10 +174,10 @@ class MetaInsightsService
             Log::info('[metrics] updated', [
                 'post_id' => $post->id,
                 'before' => $original,
-                'after'  => [
-                    'alcance'        => $post->alcance,
-                    'visualizaciones'=> $post->visualizaciones,
-                    'interacciones'  => $post->interacciones,
+                'after' => [
+                    'alcance' => $post->alcance,
+                    'visualizaciones' => $post->visualizaciones,
+                    'interacciones' => $post->interacciones,
                 ],
             ]);
         } else {
@@ -185,9 +192,9 @@ class MetaInsightsService
                 'visualizaciones_after' => $visualizaciones,
                 'interacciones_after' => $interacciones,
                 'sources' => [
-                    'post_insights'   => (bool) $postIns,
-                    'video_insights'  => (bool) ($vidIns ?? null),
-                    'resolved_post_id'=> $resolved ?? null,
+                    'post_insights' => (bool) $postIns,
+                    'video_insights' => (bool) ($vidIns ?? null),
+                    'resolved_post_id' => $resolved ?? null,
                 ],
             ]);
         }
@@ -204,33 +211,82 @@ class MetaInsightsService
      */
     public function resolvePageToken(int $metaPageId, int $userId): ?string
     {
+        // 1) Token desde la pivote meta_page_user (tu caso)
+        $pivot = DB::table('meta_page_user')
+            ->where('meta_page_id', $metaPageId)
+            ->where('user_id', $userId)
+            ->where('is_active', 1)
+            ->orderByDesc('id')
+            ->first(['page_access_token', 'expires_at']);
+
+        if ($pivot && !empty($pivot->page_access_token)) {
+            // si expires_at existe y está vigente, úsalo; si no existe igual lo intentamos
+            if (empty($pivot->expires_at) || now()->lt($pivot->expires_at)) {
+                return $pivot->page_access_token;
+            }
+            Log::info('[FB] pivot token expirado, se intentará refrescar', [
+                'meta_page_id' => $metaPageId,
+                'user_id' => $userId,
+            ]);
+        }
+
+        // 2) (Opcional) Si tuvieras meta_pages.page_access_token lo usamos; si no, ignoramos
+        $cols = ['page_id'];
+        if (Schema::hasColumn('meta_pages', 'page_access_token')) {
+            $cols[] = 'page_access_token';
+        }
+
         $pageRow = DB::table('meta_pages')
             ->where('id', $metaPageId)
-            ->first(['id','page_id','page_access_token']);
+            ->first($cols);
 
-        if (!$pageRow) return null;
+        if (!$pageRow) {
+            Log::warning('[FB] meta_page no encontrada', ['meta_page_id' => $metaPageId]);
+            return null;
+        }
 
-        if (!empty($pageRow->page_access_token)) {
+        if (isset($pageRow->page_access_token) && $pageRow->page_access_token) {
             return $pageRow->page_access_token;
         }
 
-        // token del usuario (social_accounts)
+        // 3) Refrescar desde /me/accounts con el access_token del usuario
         $sa = DB::table('social_accounts')
             ->where('user_id', $userId)
-            ->where(function($q) {
+            ->where(function ($q) {
                 $q->where('provider', 'facebook')
-                  ->orWhere('provider', 'meta');
+                    ->orWhere('provider', 'meta');
             })
             ->orderByDesc('id')
-            ->first(['access_token','token']);
+            ->first(['access_token', 'token', 'oauth_token']);
 
-        $userToken = $sa->access_token ?? $sa->token ?? null;
-        if (!$userToken) return null;
+        $userToken = $sa->access_token ?? $sa->token ?? $sa->oauth_token ?? null;
+        if (!$userToken) {
+            Log::warning('[FB] user token no encontrado para refrescar page token', ['user_id' => $userId]);
+            return null;
+        }
 
-        // recorre /me/accounts para encontrar la página y su token
-        $helper = new \App\Support\FacebookGraph();
+        $helper = new FacebookGraph();
         $data = $helper->getPageDataFromMeAccounts($userToken, (string) $pageRow->page_id);
-        return $data['access_token'] ?? null;
+        $pageToken = $data['access_token'] ?? null;
+
+        // 4) Si lo obtuvimos, lo guardamos en la pivote para la próxima (y lo devolvemos)
+        if ($pageToken) {
+            DB::table('meta_page_user')->updateOrInsert(
+                ['meta_page_id' => $metaPageId, 'user_id' => $userId],
+                [
+                    'page_access_token' => $pageToken,
+                    'is_active' => 1,
+                    'updated_at' => now(),
+                ]
+            );
+            return $pageToken;
+        }
+
+        Log::warning('[FB] no se pudo resolver page token', [
+            'meta_page_id' => $metaPageId,
+            'user_id' => $userId,
+        ]);
+        return null;
     }
 
     /**
@@ -243,15 +299,17 @@ class MetaInsightsService
         $metric = implode(',', self::POST_METRICS);
         $params = ['metric' => $metric, 'period' => 'lifetime'];
 
-        $url  = FG::url("{$postId}/insights");
+        $url = FG::url("{$postId}/insights");
         $json = $this->safeGet($url, $params, $pageToken, $err);
-        if (!$json) return null;
+        if (!$json)
+            return null;
 
         $out = [];
         foreach (($json['data'] ?? []) as $row) {
             $name = $row['name'] ?? null;
             $value = $row['values'][0]['value'] ?? null;
-            if ($name !== null) $out[$name] = is_numeric($value) ? (int) $value : $value;
+            if ($name !== null)
+                $out[$name] = is_numeric($value) ? (int) $value : $value;
         }
         return $out ?: null;
     }
@@ -266,15 +324,17 @@ class MetaInsightsService
         $metric = implode(',', self::VIDEO_METRICS);
         $params = ['metric' => $metric];
 
-        $url  = FG::url("{$videoId}/video_insights"); // insights de video
+        $url = FG::url("{$videoId}/video_insights"); // insights de video
         $json = $this->safeGet($url, $params, $pageToken, $err);
-        if (!$json) return null;
+        if (!$json)
+            return null;
 
         $out = [];
         foreach (($json['data'] ?? []) as $row) {
-            $name  = $row['name'] ?? null;
+            $name = $row['name'] ?? null;
             $value = $row['values'][0]['value'] ?? null;
-            if ($name !== null) $out[$name] = is_numeric($value) ? (int) $value : $value;
+            if ($name !== null)
+                $out[$name] = is_numeric($value) ? (int) $value : $value;
         }
         return $out ?: null;
     }
@@ -291,17 +351,20 @@ class MetaInsightsService
         string $pageToken
     ): ?string {
         $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
-        if (!$pageId) return null;
+        if (!$pageId)
+            return null;
 
         $since = $publishedAtIso ? strtotime($publishedAtIso) - 36 * 3600 : null;
         $until = $publishedAtIso ? strtotime($publishedAtIso) + 36 * 3600 : null;
 
         $params = [
             'fields' => 'id,object_id,created_time',
-            'limit'  => 100,
+            'limit' => 100,
         ];
-        if ($since) $params['since'] = $since;
-        if ($until) $params['until'] = $until;
+        if ($since)
+            $params['since'] = $since;
+        if ($until)
+            $params['until'] = $until;
 
         $url = FG::url("{$pageId}/feed");
         while (true) {
@@ -319,7 +382,8 @@ class MetaInsightsService
             }
 
             $next = data_get($json, 'paging.next');
-            if (!$next) break;
+            if (!$next)
+                break;
             $url = $next;   // la siguiente URL ya trae query params
             $params = [];   // reset (para no duplicar)
         }
@@ -332,11 +396,12 @@ class MetaInsightsService
      */
     private function looksLikeVideoError(?string $err): bool
     {
-        if (!$err) return false;
+        if (!$err)
+            return false;
         $e = strtolower($err);
         return str_contains($e, 'node type (video)') ||
-               str_contains($e, 'video_insights')   ||
-               str_contains($e, 'invalid insights metric');
+            str_contains($e, 'video_insights') ||
+            str_contains($e, 'invalid insights metric');
     }
 
     /**

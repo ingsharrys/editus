@@ -40,8 +40,9 @@ return [
         'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
         'scopes' => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
-        'version' => env('FB_GRAPH_VERSION', 'v23.0'),
+        'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
     ],
+
 
 
 
