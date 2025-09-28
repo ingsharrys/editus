@@ -42,7 +42,11 @@ return [
         'scopes' => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
     ],
-
+    'metrics' => [
+        // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.
+        // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).
+        'enabled' => env('METRICS_ENABLED', false),
+    ],
 
 
 
