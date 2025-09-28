@@ -76,12 +76,13 @@ class MetaInsightsService
      * Actualiza alcance / visualizaciones / interacciones para un post.
      * Aplica estrategia: post_insights → video_insights (mismo id) → resolve post desde video → object_id (video_id) desde post.
      */
-    public function updatePostMetrics(MetaPost $post): bool
+    public function updatePostMetrics(\App\Models\MetaPost $post): bool
     {
         if (empty($post->fb_post_id)) {
             return false;
         }
 
+        // Contexto base para logs
         $ctx = [
             'post_id' => $post->id,
             'meta_page_id' => $post->meta_page_id,
@@ -97,7 +98,7 @@ class MetaInsightsService
             return false;
         }
 
-        // Log si usamos fallback (autor sin token en esa página)
+        // Log si el autor NO tiene token propio y usamos el de otra pivote
         if (!empty($post->user_id)) {
             $authorHasToken = DB::table('meta_page_user')
                 ->where('meta_page_id', $post->meta_page_id)
@@ -111,7 +112,7 @@ class MetaInsightsService
             }
         }
 
-        // Valores iniciales
+        // Valores actuales
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
@@ -142,29 +143,35 @@ class MetaInsightsService
                 'vis' => $visualizaciones,
                 'int' => $interacciones,
             ]);
+
         } else {
             // 3) ¿Tiene pinta de video?
             $isVideoType = strtolower((string) $post->type) === 'video';
-            $videoishError = $this->looksLikeVideoError($postErr);
+            $videoishErr = $this->looksLikeVideoError($postErr);
 
-            if (!($isVideoType || $videoishError)) {
+            if (!($isVideoType || $videoishErr)) {
                 // Post normal (texto/foto/enlace) con error que NO indica "es video".
                 Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
+
             } else {
-                // 3.a) Probar video_insights asumiendo que fb_post_id ya es video_id
+                // 3.a) Intento directo: asumir que fb_post_id es un video_id
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
                 if (is_array($vidIns)) {
+                    // Mapeo video → métricas locales
                     $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
                     $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                     $sources['video_insights'] = true;
 
-                    Log::info('[metrics] video_insights.ok', $ctx + ['alc' => $alcance, 'vis' => $visualizaciones]);
+                    Log::info('[metrics] video_insights.ok', $ctx + [
+                        'alc' => $alcance,
+                        'vis' => $visualizaciones,
+                    ]);
                 } else {
                     Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
                 }
 
-                // 3.b) Intentar resolver post_id desde el feed (si fue publicado como post de página con video)
+                // 3.b) Intentar resolver el post_id del feed de la página (si fue post con video)
                 $postId = $this->resolvePostIdFromVideo(
                     $post->fb_post_id,
                     $post->meta_page_id,
@@ -192,8 +199,9 @@ class MetaInsightsService
                             'error' => $tmpErr,
                         ]);
                     }
+
                 } elseif ($isVideoType) {
-                    // 3.c) Solo si el post ES de tipo video, último intento: leer object_id y consultar video_insights ahí
+                    // 3.c) SOLO si realmente es video: sacar object_id y pedir video_insights ahí
                     $objErr = null;
                     $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
                     if ($objectId) {
@@ -254,6 +262,27 @@ class MetaInsightsService
         return $changed;
     }
 
+    /**
+     * Señales CLARAS de que el error es “objeto Video”.
+     * NO tratamos (#100) "The value must be a valid insights metric" como video.
+     */
+    private function looksLikeVideoError(?string $err): bool
+    {
+        if (!$err)
+            return false;
+        $e = strtolower($err);
+
+        if (str_contains($e, 'node type (video)'))
+            return true;
+        if (str_contains($e, 'video_insights'))
+            return true;
+        if (preg_match('/\bobject_id\b/', $e))
+            return true;
+
+        return false;
+    }
+
+
 
 
     /** ===== Helpers de Graph ===== */
@@ -287,24 +316,41 @@ class MetaInsightsService
     public function fetchPostInsights(string $postId, string $pageToken, ?string &$err = null): ?array
     {
         $err = null;
+
         $params = [
             'metric' => 'post_impressions,post_impressions_unique,post_engaged_users',
             'period' => 'lifetime',
         ];
+
         $json = $this->safeGet("{$postId}/insights", $params, $pageToken, $err, false);
-        if (!$json)
+        if (!$json || empty($json['data']) || !is_array($json['data'])) {
             return null;
+        }
 
         $out = [];
-        foreach ($json['data'] ?? [] as $row) {
+        foreach ($json['data'] as $row) {
             $name = $row['name'] ?? null;
             $value = $row['values'][0]['value'] ?? null;
-            if ($name && $value !== null) {
+
+            // Asegura que value sea escalar numérico (int o string numérica)
+            if ($name && (is_int($value) || (is_string($value) && is_numeric($value)))) {
                 $out[$name] = (int) $value;
             }
         }
-        return $out ?: null;
+
+        // Normaliza: si no hay nada útil, vuelve null
+        if (empty($out)) {
+            return null;
+        }
+
+        // Solo regresa las claves que te interesan (por si Meta devuelve extras)
+        return array_intersect_key($out, array_flip([
+            'post_impressions',
+            'post_impressions_unique',
+            'post_engaged_users',
+        ])) ?: null;
     }
+
 
     /** VIDEO insights (total_video_impressions, total_video_views) */
     public function fetchVideoInsights(string $videoId, string $pageToken, ?string &$err = null): ?array
@@ -432,23 +478,6 @@ class MetaInsightsService
     }
 
     /** Heurística para decidir si el error de post_insights sugiere que es un video. */
-    private function looksLikeVideoError(?string $err): bool
-    {
-        if (!$err)
-            return false;
-        $e = strtolower($err);
-
-        // Señales claras de que el ID es video (o que el flujo correcto es de video)
-        if (str_contains($e, 'node type (video)'))
-            return true;          // "insights on node type (Video)"
-        if (str_contains($e, 'video_insights'))
-            return true;             // menciona video_insights
-        if (preg_match('/\bobject_id\b/', $e))
-            return true;              // hints de object_id de video
-
-        // OJO: NO tratamos (#100) "The value must be a valid insights metric" como video
-        return false;
-    }
 
     private function logGraphError(string $where, $resp): void
     {
