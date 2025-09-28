@@ -7,6 +7,8 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -18,9 +20,9 @@ class PublishPhotosToFacebook implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Reintentos / backoff / timeout */
-    public $tries = 5;
-    public $backoff = [5, 15, 30, 60, 120];
+    /** Más tolerante a redes lentas / intermitentes */
+    public $tries = 6;
+    public $backoff = [5, 15, 30, 60, 120, 180];
     public $timeout = 600; // 10 min
 
     /** Payload: meta_post_id, page_id, page_name, page_token, photo_urls[], cleanup_rel[], cleanup_abs[], caption */
@@ -38,17 +40,23 @@ class PublishPhotosToFacebook implements ShouldQueue
 
         $metaPost = MetaPost::find($this->payload['meta_post_id'] ?? null);
         if (!$metaPost) {
-            Log::warning('[FB][photos][job] MetaPost no encontrado', ['trace' => $trace, 'id' => $this->payload['meta_post_id'] ?? null]);
+            Log::warning('[FB][photos][job] MetaPost no encontrado', [
+                'trace' => $trace,
+                'id' => $this->payload['meta_post_id'] ?? null,
+            ]);
             return;
         }
 
-        // Mantener status 'pending' (tu enum es: pending|success|fail)
-        $pageId = $this->payload['page_id'];
-        $pageToken = $this->payload['page_token'];
+        $pageId = (string) $this->payload['page_id'];
+        $pageToken = (string) $this->payload['page_token'];
         $caption = $this->payload['caption'] ?? null;
         $urls = (array) ($this->payload['photo_urls'] ?? []);
 
-        Log::info('[FB][photos][start]', ['trace' => $trace, 'meta_post' => $metaPost->id, 'count' => count($urls)]);
+        Log::info('[FB][photos][start]', [
+            'trace' => $trace,
+            'meta_post' => $metaPost->id,
+            'count' => count($urls),
+        ]);
 
         if (empty($urls)) {
             $metaPost->update(['status' => 'fail', 'error' => 'No llegaron URLs de fotos']);
@@ -56,44 +64,85 @@ class PublishPhotosToFacebook implements ShouldQueue
             return;
         }
 
-        // 1) Subir fotos como unpublished (url param)
+        // 1) Subir cada foto como "unpublished" para luego adjuntarlas al feed
         $media = [];
-        foreach ($urls as $u) {
-            $r = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
-                'published' => false,
-                'url' => $u,
-                'access_token' => $pageToken,
-            ]);
+        foreach ($urls as $idx => $u) {
+            try {
+                $r = $this->http()
+                    ->asForm()
+                    ->post("https://graph.facebook.com/v23.0/{$pageId}/photos", [
+                        'published' => false,
+                        'url' => $u,
+                        'access_token' => $pageToken,
+                    ]);
 
-            if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
-                $media[] = ['media_fbid' => $id];
-            } else {
-                Log::warning('[FB][photos][create:fail]', [
+                if ($r->ok() && ($id = data_get($r->json(), 'id'))) {
+                    $media[] = ['media_fbid' => $id];
+                } else {
+                    Log::warning('[FB][photos][create:fail]', [
+                        'trace' => $trace,
+                        'idx' => $idx,
+                        'url' => $u,
+                        'status' => $r->status(),
+                        'raw' => $r->json() ?? $r->body(),
+                    ]);
+                }
+            } catch (ConnectionException $e) {
+                Log::warning('[FB][photos][create:timeout]', [
                     'trace' => $trace,
+                    'idx' => $idx,
                     'url' => $u,
-                    'raw' => $r->json() ?? $r->body(),
+                    'err' => $e->getMessage(),
+                ]);
+            } catch (Throwable $e) {
+                Log::warning('[FB][photos][create:error]', [
+                    'trace' => $trace,
+                    'idx' => $idx,
+                    'url' => $u,
+                    'err' => $e->getMessage(),
                 ]);
             }
+
+            // Pequeño respiro para no saturar
+            usleep(200 * 1000); // 200ms
         }
 
         if (empty($media)) {
-            $metaPost->update(['status' => 'fail', 'error' => 'Ninguna imagen se pudo subir a Meta.']);
+            $metaPost->update(['status' => 'fail', 'error' => 'Ninguna imagen se pudo subir a Meta (timeouts / errores).']);
             $this->cleanupTemp();
             return;
         }
 
-        // 2) Crear el post en /feed con attached_media
+        // 2) Crear el post en /feed con attached_media[*]
         $payload = ['access_token' => $pageToken];
-        if ($caption)
+        if (!empty($caption)) {
             $payload['message'] = $caption;
+        }
         foreach ($media as $i => $m) {
             $payload["attached_media[$i]"] = json_encode($m);
         }
 
-        $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
-        if (!$resp->ok()) {
-            $metaPost->update(['status' => 'fail', 'error' => (data_get($resp->json(), 'error.message') ?: $resp->body())]);
-            Log::warning('[FB][photos][feed:fail]', ['trace' => $trace, 'raw' => $resp->json() ?? $resp->body()]);
+        try {
+            $resp = $this->http()
+                ->asForm()
+                ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+
+            if (!$resp->ok()) {
+                $metaPost->update([
+                    'status' => 'fail',
+                    'error' => (data_get($resp->json(), 'error.message') ?: $resp->body()) ?: 'Graph error',
+                ]);
+                Log::warning('[FB][photos][feed:fail]', [
+                    'trace' => $trace,
+                    'status' => $resp->status(),
+                    'raw' => $resp->json() ?? $resp->body(),
+                ]);
+                $this->cleanupTemp();
+                return;
+            }
+        } catch (Throwable $e) {
+            $metaPost->update(['status' => 'fail', 'error' => 'Excepción al publicar en feed: ' . $e->getMessage()]);
+            Log::warning('[FB][photos][feed:exception]', ['trace' => $trace, 'err' => $e->getMessage()]);
             $this->cleanupTemp();
             return;
         }
@@ -111,7 +160,7 @@ class PublishPhotosToFacebook implements ShouldQueue
             'error' => null,
         ]);
 
-        // refresco diferido del permalink (por si Graph aún no lo tenía)
+        // refresco diferido del permalink (por si el link aún no estuviera listo)
         RefreshMetaPermalink::dispatch([
             'meta_post_id' => $metaPost->id,
             'page_token' => $pageToken,
@@ -119,10 +168,14 @@ class PublishPhotosToFacebook implements ShouldQueue
 
         $this->cleanupTemp();
 
-        Log::info('[FB][photos][done]', ['trace' => $trace, 'post_id' => $postId, 'permalink' => $permalink]);
+        Log::info('[FB][photos][done]', [
+            'trace' => $trace,
+            'post_id' => $postId,
+            'permalink' => $permalink,
+        ]);
     }
 
-    /** Si falla definitivamente */
+    /** Se ejecuta cuando el Job se agota sin éxito (tras reintentos) */
     public function failed(Throwable $e): void
     {
         try {
@@ -148,7 +201,6 @@ class PublishPhotosToFacebook implements ShouldQueue
 
     protected function cleanupTemp(): void
     {
-        // Puede venir como arrays
         $rels = (array) ($this->payload['cleanup_rel'] ?? []);
         $abss = (array) ($this->payload['cleanup_abs'] ?? []);
 
@@ -157,6 +209,7 @@ class PublishPhotosToFacebook implements ShouldQueue
                 if ($r)
                     Storage::delete($r);
             } catch (Throwable $e) {
+                // noop
             }
         }
         foreach ($abss as $a) {
@@ -169,14 +222,48 @@ class PublishPhotosToFacebook implements ShouldQueue
     {
         if (!$postId)
             return null;
+
         try {
-            $r = Http::get("https://graph.facebook.com/v23.0/{$postId}", [
-                'fields' => 'permalink_url',
-                'access_token' => $token,
-            ]);
+            $r = $this->http(30, 10, 2, 800) // un poco más corto para GET
+                ->get("https://graph.facebook.com/v23.0/{$postId}", [
+                    'fields' => 'permalink_url',
+                    'access_token' => $token,
+                ]);
+
             return $r->ok() ? (data_get($r->json(), 'permalink_url') ?: null) : null;
         } catch (Throwable $e) {
+            Log::debug('[FB][photos][permalink:exception]', ['err' => $e->getMessage()]);
             return null;
         }
+    }
+
+    /**
+     * Factory para requests HTTP “blindados” (IPv4, timeout y retries).
+     *
+     * @param int $timeout         segundos de timeout total (por request)
+     * @param int $connectTimeout  segundos de timeout de conexión
+     * @param int $retries         cantidad de reintentos
+     * @param int $sleepMs         milisegundos entre reintentos
+     */
+    private function http(int $timeout = 60, int $connectTimeout = 10, int $retries = 3, int $sleepMs = 1500)
+    {
+        return Http::timeout($timeout)
+            ->connectTimeout($connectTimeout)
+            ->retry($retries, $sleepMs, function ($exception, $request) {
+                // Reintentar solo por condiciones recuperables
+                if ($exception instanceof ConnectionException)
+                    return true; // timeouts, DNS, handshake
+                if ($exception instanceof RequestException) {
+                    $resp = $exception->response;
+                    $status = $resp ? $resp->status() : null;
+                    return in_array($status, [408, 425, 429], true) || ($status !== null && $status >= 500);
+                }
+                return false;
+            })
+            ->withHeaders([
+                'User-Agent' => 'EditusBot/1.0 (+https://app.editus.online)',
+            ])
+            // Fuerza IPv4 (evita timeouts típicos por IPv6 roto en algunos hosts)
+            ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]]);
     }
 }
