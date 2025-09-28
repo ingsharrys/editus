@@ -356,8 +356,14 @@ class MetaInsightsService
         $json = $this->safeGet($postId, ['fields' => 'object_id,created_time'], $pageToken, $err, false);
         if (!$json)
             return null;
-        return $json['object_id'] ?? null;
+
+        $obj = $json['object_id'] ?? null;
+        if ($obj) {
+            Log::info('[metrics] post.object_id', ['post_id' => $postId, 'object_id' => $obj]);
+        }
+        return $obj;
     }
+
 
     /**
      * Dado un video y una página, buscar el post (id) que lo contiene
@@ -369,7 +375,7 @@ class MetaInsightsService
         if (!$pageId)
             return null;
 
-        // ventana ±24h por si acaso; si no hay fecha, cae a 7 días
+        // Ventana de tiempo
         if ($publishedAtIso) {
             $ts = strtotime($publishedAtIso);
             $since = $ts - 24 * 3600;
@@ -387,7 +393,7 @@ class MetaInsightsService
         ];
 
         $after = null;
-        for ($i = 0; $i < 10; $i++) { // límite de 10 páginas
+        for ($i = 0; $i < 10; $i++) {
             if ($after)
                 $params['after'] = $after;
 
@@ -397,19 +403,23 @@ class MetaInsightsService
                 break;
 
             foreach ($json['data'] ?? [] as $row) {
-                // coincide si el object_id coincide con el video
                 if (!empty($row['object_id']) && (string) $row['object_id'] === (string) $videoId) {
-                    return $row['id'] ?? null;
+                    $postId = $row['id'] ?? null;
+                    if ($postId) {
+                        Log::info('[metrics] feed.match', ['video_id' => $videoId, 'resolved_post_id' => $postId]);
+                    }
+                    return $postId;
                 }
             }
 
-            $after = $json['paging']['cursors']['after'] ?? null;
+            $after = data_get($json, 'paging.cursors.after');
             if (!$after)
                 break;
         }
 
         return null;
     }
+
     private function pickPivotForPage(int $metaPageId, int $userId): array
     {
         // 1) Pivote del MISMO usuario
