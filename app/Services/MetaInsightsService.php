@@ -84,13 +84,57 @@ class MetaInsightsService
      * Actualiza alcance / visualizaciones / interacciones para un post.
      * Aplica estrategia: post_insights → video_insights (mismo id) → resolve post desde video → object_id (video_id) desde post.
      */
+
+    private function fetchEngagementCounts(string $postId, string $pageToken): ?int
+    {
+        try {
+            // 1er intento: summary(true)
+            $r = \Illuminate\Support\Facades\Http::timeout(30)->connectTimeout(10)->retry(2, 800)
+                ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                ->get("https://graph.facebook.com/v23.0/{$postId}", [
+                    'fields' => 'reactions.limit(0).summary(true),comments.limit(0).summary(true),shares',
+                    'access_token' => $pageToken,
+                ]);
+
+            $j = $r->json();
+            if ($r->ok() && is_array($j) && empty($j['error'])) {
+                $reac = (int) (\Illuminate\Support\Arr::get($j, 'reactions.summary.total_count') ?? 0);
+                $comms = (int) (\Illuminate\Support\Arr::get($j, 'comments.summary.total_count') ?? 0);
+                $shares = (int) (\Illuminate\Support\Arr::get($j, 'shares.count') ?? 0);
+                return $reac + $comms + $shares;
+            }
+
+            // 2do intento (algunas apps usan este formato): summary(total_count)
+            $r2 = Http::timeout(30)->connectTimeout(10)->retry(2, 800)
+                ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                ->get("https://graph.facebook.com/v23.0/{$postId}", [
+                    'fields' => 'reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares',
+                    'access_token' => $pageToken,
+                ]);
+
+            $j2 = $r2->json();
+            if ($r2->ok() && is_array($j2) && empty($j2['error'])) {
+                $reac = (int) (\Illuminate\Support\Arr::get($j2, 'reactions.summary.total_count') ?? 0);
+                $comms = (int) (\Illuminate\Support\Arr::get($j2, 'comments.summary.total_count') ?? 0);
+                $shares = (int) (\Illuminate\Support\Arr::get($j2, 'shares.count') ?? 0);
+                return $reac + $comms + $shares;
+            }
+
+            // Si llega error (p.ej. code 10), regresa null para que puedas loguearlo arriba
+            return null;
+        } catch (\Throwable $e) {
+            Log::debug('[metrics][engagement:error]', ['err' => $e->getMessage(), 'post' => $postId]);
+            return null;
+        }
+    }
+
+
     public function updatePostMetrics(\App\Models\MetaPost $post): bool
     {
         if (empty($post->fb_post_id)) {
             return false;
         }
 
-        // Contexto base para logs
         $ctx = [
             'post_id' => $post->id,
             'meta_page_id' => $post->meta_page_id,
@@ -99,14 +143,14 @@ class MetaInsightsService
                 ?? $post->created_at?->toIso8601String(),
         ];
 
-        // 1) Token de página (con fallback a cualquier pivote activa)
+        // 1) Page Access Token (pivot), con fallback
         $pageToken = $this->resolvePageToken($post->meta_page_id, $post->user_id);
         if (!$pageToken) {
             Log::warning('[metrics] no-page-token', $ctx + ['user_id' => $post->user_id]);
             return false;
         }
 
-        // Log si el autor NO tiene token propio y usamos el de otra pivote
+        // Log si el autor NO tiene token propio (usamos otro del pivot)
         if (!empty($post->user_id)) {
             $authorHasToken = DB::table('meta_page_user')
                 ->where('meta_page_id', $post->meta_page_id)
@@ -120,7 +164,7 @@ class MetaInsightsService
             }
         }
 
-        // Valores actuales
+        // Valores base (para comparar)
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
@@ -134,39 +178,98 @@ class MetaInsightsService
             'post_insights' => false,
             'video_insights' => false,
             'resolved_post_id' => null,
+            'engagement_from' => null, // fb_post_id o resolved_post_id
         ];
 
-        // 2) Intento como POST
+        /**
+         * Cierre local para traer engagement (reactions+comments+shares)
+         * con timeouts, retries e IPv4 forzado.
+         */
+        $getEngagement = function (string $postId) use ($pageToken, $ctx): ?int {
+            try {
+                // Formato 1: summary(true)
+                $r = \Illuminate\Support\Facades\Http::timeout(30)->connectTimeout(10)->retry(2, 800)
+                    ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                    ->get("https://graph.facebook.com/v23.0/{$postId}", [
+                        'fields' => 'reactions.limit(0).summary(true),comments.limit(0).summary(true),shares',
+                        'access_token' => $pageToken,
+                    ]);
+                $j = $r->json();
+
+                if ($r->ok() && empty($j['error'])) {
+                    $reac = (int) (data_get($j, 'reactions.summary.total_count') ?? 0);
+                    $comms = (int) (data_get($j, 'comments.summary.total_count') ?? 0);
+                    $shares = (int) (data_get($j, 'shares.count') ?? 0);
+                    return $reac + $comms + $shares;
+                }
+
+                // Formato 2: summary(total_count)
+                $r2 = \Illuminate\Support\Facades\Http::timeout(30)->connectTimeout(10)->retry(2, 800)
+                    ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                    ->get("https://graph.facebook.com/v23.0/{$postId}", [
+                        'fields' => 'reactions.summary(total_count).limit(0),comments.summary(total_count).limit(0),shares',
+                        'access_token' => $pageToken,
+                    ]);
+                $j2 = $r2->json();
+
+                if ($r2->ok() && empty($j2['error'])) {
+                    $reac = (int) (data_get($j2, 'reactions.summary.total_count') ?? 0);
+                    $comms = (int) (data_get($j2, 'comments.summary.total_count') ?? 0);
+                    $shares = (int) (data_get($j2, 'shares.count') ?? 0);
+                    return $reac + $comms + $shares;
+                }
+
+                Log::warning('[metrics] engagement.fields.fail', $ctx + [
+                    'status_1' => $r->status(),
+                    'status_2' => $r2->status(),
+                    'raw_1' => is_array($j) ? $j : ($r->body() ?? null),
+                    'raw_2' => is_array($j2) ? $j2 : ($r2->body() ?? null),
+                ]);
+                return null;
+            } catch (\Throwable $e) {
+                Log::debug('[metrics][engagement:error]', $ctx + ['err' => $e->getMessage()]);
+                return null;
+            }
+        };
+
+        // 2) Intento como POST (texto/foto/enlace): post_impressions / post_impressions_unique
         $postErr = null;
         $postIns = $this->fetchPostInsights($post->fb_post_id, $pageToken, $postErr);
 
         if (is_array($postIns)) {
             $alcance = $postIns['post_impressions_unique'] ?? $alcance;
             $visualizaciones = $postIns['post_impressions'] ?? $visualizaciones;
-            $interacciones = $postIns['post_engaged_users'] ?? $interacciones;
             $sources['post_insights'] = true;
 
             Log::info('[metrics] post_insights.ok', $ctx + [
                 'alc' => $alcance,
                 'vis' => $visualizaciones,
-                'int' => $interacciones,
             ]);
 
+            // Engagement desde el propio post del feed
+            $eng = $getEngagement($post->fb_post_id);
+            if (!is_null($eng)) {
+                $interacciones = $eng;
+                $sources['engagement_from'] = $post->fb_post_id;
+                Log::info('[metrics] engagement.ok', $ctx + ['from' => 'fb_post_id', 'val' => $eng]);
+            } else {
+                Log::warning('[metrics] engagement.missing', $ctx + ['from' => 'fb_post_id']);
+            }
+
         } else {
-            // 3) ¿Tiene pinta de video?
+            // 3) ¿Podría ser video?
             $isVideoType = strtolower((string) $post->type) === 'video';
             $videoishErr = $this->looksLikeVideoError($postErr);
 
             if (!($isVideoType || $videoishErr)) {
-                // Post normal (texto/foto/enlace) con error que NO indica "es video".
+                // Post normal con error que NO sugiere video
                 Log::warning('[metrics] post_insights.fail', $ctx + ['error' => $postErr]);
-
             } else {
-                // 3.a) Intento directo: asumir que fb_post_id es un video_id
+                // 3.a) Intentar como VIDEO (video_id == fb_post_id)
                 $vidErr = null;
                 $vidIns = $this->fetchVideoInsights($post->fb_post_id, $pageToken, $vidErr);
                 if (is_array($vidIns)) {
-                    // Mapeo video → métricas locales
+                    // Mapea video → métricas locales
                     $visualizaciones = $vidIns['total_video_views'] ?? $visualizaciones;
                     $alcance = $vidIns['total_video_impressions'] ?? $alcance;
                     $sources['video_insights'] = true;
@@ -179,7 +282,7 @@ class MetaInsightsService
                     Log::warning('[metrics] video_insights.fail', $ctx + ['error' => $vidErr]);
                 }
 
-                // 3.b) Intentar resolver el post_id del feed de la página (si fue post con video)
+                // 3.b) Resolver el post_id del feed (si el post fue "video en feed")
                 $postId = $this->resolvePostIdFromVideo(
                     $post->fb_post_id,
                     $post->meta_page_id,
@@ -190,16 +293,14 @@ class MetaInsightsService
                 if ($postId) {
                     $sources['resolved_post_id'] = $postId;
 
+                    // (Opcional) traer impresiones/alcance desde el post del feed si no lo tenías
                     $tmpErr = null;
                     $postIns2 = $this->fetchPostInsights($postId, $pageToken, $tmpErr);
                     if (is_array($postIns2)) {
                         $alcance = $postIns2['post_impressions_unique'] ?? $alcance;
-                        $interacciones = $postIns2['post_engaged_users'] ?? $interacciones;
-
                         Log::info('[metrics] post_from_video.ok', $ctx + [
                             'resolved_post_id' => $postId,
                             'alc' => $alcance,
-                            'int' => $interacciones,
                         ]);
                     } else {
                         Log::warning('[metrics] post_from_video.fail', $ctx + [
@@ -208,8 +309,18 @@ class MetaInsightsService
                         ]);
                     }
 
+                    // Engagement desde el post del feed (aquí suelen estar las reacciones/comentarios/compartidos)
+                    $eng = $getEngagement($postId);
+                    if (!is_null($eng)) {
+                        $interacciones = $eng;
+                        $sources['engagement_from'] = $postId;
+                        Log::info('[metrics] engagement.ok', $ctx + ['from' => 'resolved_post_id', 'val' => $eng]);
+                    } else {
+                        Log::warning('[metrics] engagement.missing', $ctx + ['from' => 'resolved_post_id']);
+                    }
+
                 } elseif ($isVideoType) {
-                    // 3.c) SOLO si realmente es video: sacar object_id y pedir video_insights ahí
+                    // 3.c) (Opcional avanzado) Si realmente es video, intentar object_id -> video_insights
                     $objErr = null;
                     $objectId = $this->fetchPostObjectId($post->fb_post_id, $pageToken, $objErr);
                     if ($objectId) {
@@ -231,7 +342,7 @@ class MetaInsightsService
             }
         }
 
-        // 4) Persistir si cambió algo
+        // 4) Persistir cambios
         $changed = false;
         if ($alcance !== null && $alcance !== $post->alcance) {
             $post->alcance = $alcance;
@@ -269,6 +380,7 @@ class MetaInsightsService
 
         return $changed;
     }
+
 
     /**
      * Señales CLARAS de que el error es “objeto Video”.
