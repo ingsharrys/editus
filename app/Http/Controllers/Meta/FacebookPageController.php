@@ -784,82 +784,103 @@ class FacebookPageController extends Controller
 
     private function performSync(User $user, SocialAccount $social): int
     {
-        // Usa v23.0 para ser consistente con el resto
+        $base = 'https://graph.facebook.com/v23.0';
         $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
 
-        $resp = Http::withToken($social->access_token)
-            ->get('https://graph.facebook.com/v23.0/me/accounts', ['fields' => $fields]);
+        $pages = [];
+        $url = "{$base}/me/accounts?fields={$fields}";
+        $http = Http::withToken($social->access_token);
 
-        if (!$resp->ok()) {
-           Log::error('FB /me/accounts error', [
-                'status' => $resp->status(),
-                'body' => $resp->body()
-            ]);
-            throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
+        // 1) Traer TODAS las páginas (paginación)
+        while ($url) {
+            $resp = $http->get($url);
+            if (!$resp->ok()) {
+                Log::error('FB /me/accounts error', ['status' => $resp->status(), 'body' => $resp->body()]);
+                throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
+            }
+            $json = $resp->json();
+            $pages = array_merge($pages, data_get($json, 'data', []));
+            $url = data_get($json, 'paging.next');
         }
 
-        $pages = data_get($resp->json(), 'data', []);
         if (empty($pages)) {
             throw new \RuntimeException("No se encontraron páginas.
-- Acepta los permisos requeridos (pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement).
+- Acepta los permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights
 - Verifica que la cuenta administre al menos una página.");
         }
 
-        DB::transaction(function () use ($pages, $user, $social) {
+        // 2) Guardar/actualizar MetaPage + Pivot con page_access_token
+        DB::transaction(function () use ($pages, $user, $social, $base, $http) {
             foreach ($pages as $page) {
                 $pageId = (string) data_get($page, 'id');
                 $name = data_get($page, 'name');
                 $category = data_get($page, 'category');
-                $picture = "https://graph.facebook.com/v23.0/{$pageId}/picture?type=normal";
+                $igId = data_get($page, 'connected_instagram_business_account.id');
+                $picture = "{$base}/{$pageId}/picture?type=normal";
 
-                // Toma el Page Access Token desde /me/accounts
+                // a) token de PÁGINA directo si viene en /me/accounts
                 $pageAccessToken = data_get($page, 'access_token');
 
-                // Si no vino (a veces pasa), intenta /{page-id}?fields=access_token (requiere pages_manage_metadata)
+                // b) si no vino, intentar /{page-id}?fields=access_token (requiere pages_manage_metadata)
                 if (!$pageAccessToken) {
-                    $try = Http::withToken($social->access_token)
-                        ->get("https://graph.facebook.com/v23.0/{$pageId}", ['fields' => 'access_token']);
+                    $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
                     if ($try->ok()) {
                         $pageAccessToken = data_get($try->json(), 'access_token');
+                    } else {
+                        Log::warning('No page_access_token (fallback)', $try->json() ?? []);
                     }
                 }
 
-                if (!$pageAccessToken) {
-                    // Si aún no hay token, registra y sigue con la otra página
-                    Log::warning('No page_access_token for page', ['page_id' => $pageId]);
-                    continue;
-                }
-
-                // Normaliza tasks
+                // c) Normaliza tasks y decide si activas el pivot
                 $tasks = data_get($page, 'tasks', []);
                 if (!is_array($tasks))
                     $tasks = $tasks ? [$tasks] : [];
 
+                // Para métricas, ideal que incluya ANALYZE (y para publicar, CREATE_CONTENT/MANAGE).
+                $canAnalyze = in_array('ANALYZE', $tasks, true);
+
+                // d) Upsert de MetaPage
                 $metaPage = MetaPage::updateOrCreate(
                     ['page_id' => $pageId],
                     [
                         'name' => $name,
                         'category' => $category,
-                        'instagram_business_account_id' => data_get($page, 'connected_instagram_business_account.id'),
+                        'instagram_business_account_id' => $igId,
                         'picture_url' => $picture,
                         'tasks' => array_values($tasks),
                     ]
                 );
 
-                // Guarda Page Access Token en el pivot (¡este es el que necesitas para insights/fields!)
+                // e) Guarda el token de PÁGINA en el pivot (si lo conseguimos)
                 $user->metaPages()->syncWithoutDetaching([
                     $metaPage->id => [
-                        'page_access_token' => $pageAccessToken,
+                        'page_access_token' => $pageAccessToken,   // <- CLAVE
                         'social_account_id' => $social->id,
-                        'expires_at' => null,
-                        'is_active' => true,
+                        'expires_at' => null,               // si más tarde haces long-lived, actualiza aquí
+                        'is_active' => $pageAccessToken ? 1 : 0,  // activa solo si tenemos token
+                        'updated_at' => now(),
                     ]
                 ]);
+
+                if (!$pageAccessToken) {
+                    // No detenemos el sync, pero lo documentamos
+                    Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', [
+                        'page_id' => $pageId,
+                        'tasks' => $tasks
+                    ]);
+                } elseif (!$canAnalyze) {
+                    // Podrás leer algunas cosas, pero las insights podrían fallar para ese usuario
+                    Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', [
+                        'page_id' => $pageId,
+                        'tasks' => $tasks
+                    ]);
+                }
             }
         });
 
         return count($pages);
     }
+
 
     public function unlinkAccount()
     {
