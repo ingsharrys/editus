@@ -21,122 +21,119 @@ Schedule::call(fn() => Log::info('[probe] schedule tick', ['at' => now()->toDate
     ->timezone(config('app.timezone', 'America/Bogota'));
 
 
-    Artisan::command('meta:debug-token
-    {--page-id= : ID interno de tu tabla meta_pages.id (no el de Facebook)}
-    {--user-id= : Filtrar por user_id del pivot}
-    {--days=7   : Rango de días para probar insights de la página}
-', function () {
-    $pageId = $this->option('page-id') ? (int) $this->option('page-id') : null;
-    $userId = $this->option('user-id') ? (int) $this->option('user-id') : null;
-    $days   = (int) ($this->option('days') ?? 7);
+Artisan::command(
+    'meta:debug-token {--page-id=} {--user-id=} {--days=7}',
+    function () {
+        $pageId = $this->option('page-id') ? (int) $this->option('page-id') : null;
+        $userId = $this->option('user-id') ? (int) $this->option('user-id') : null;
+        $days = (int) ($this->option('days') ?? 7);
 
-    if (!$pageId && !$userId) {
-        $this->error('Pasa --page-id=XX o --user-id=YY');
-        return 1;
-    }
+        if (!$pageId && !$userId) {
+            $this->error('Pasa --page-id=XX o --user-id=YY');
+            return 1;
+        }
 
-    // Trae tokens del pivot + el page_id de Facebook
-    $q = DB::table('meta_page_user as mpu')
-        ->join('meta_pages as mp', 'mp.id', '=', 'mpu.meta_page_id')
-        ->select([
-            'mpu.meta_page_id',
-            'mpu.user_id',
-            'mpu.page_access_token',
-            'mp.page_id as fb_page_id',
-            'mp.name as page_name',
-        ])
-        ->where('mpu.is_active', 1)
-        ->whereNotNull('mpu.page_access_token');
+        $q = DB::table('meta_page_user as mpu')
+            ->join('meta_pages as mp', 'mp.id', '=', 'mpu.meta_page_id')
+            ->select([
+                'mpu.meta_page_id',
+                'mpu.user_id',
+                'mpu.page_access_token',
+                'mp.page_id as fb_page_id',
+                'mp.name as page_name',
+            ])
+            ->where('mpu.is_active', 1)
+            ->whereNotNull('mpu.page_access_token');
 
-    if ($pageId) $q->where('mpu.meta_page_id', $pageId);
-    if ($userId) $q->where('mpu.user_id', $userId);
+        if ($pageId)
+            $q->where('mpu.meta_page_id', $pageId);
+        if ($userId)
+            $q->where('mpu.user_id', $userId);
 
-    $rows = $q->get();
-    if ($rows->isEmpty()) {
-        $this->error('No hay tokens activos en el pivot para ese filtro.');
-        return 1;
-    }
+        $rows = $q->get();
+        if ($rows->isEmpty()) {
+            $this->error('No hay tokens activos en el pivot para ese filtro.');
+            return 1;
+        }
 
-    $appId     = env('FACEBOOK_CLIENT_ID');
-    $appSecret = env('FACEBOOK_CLIENT_SECRET');
-    $appToken  = $appId && $appSecret ? ($appId.'|'.$appSecret) : null;
+        $appId = env('FACEBOOK_CLIENT_ID');
+        $appSecret = env('FACEBOOK_CLIENT_SECRET');
+        $appToken = $appId && $appSecret ? ($appId . '|' . $appSecret) : null;
 
-    foreach ($rows as $r) {
-        $ctx = "meta_page_id={$r->meta_page_id} fb_page_id={$r->fb_page_id} user_id={$r->user_id}";
-        $this->line(str_repeat('-', 60));
-        $this->info("Página: {$r->page_name} ({$ctx})");
-        $tok = $r->page_access_token;
+        foreach ($rows as $r) {
+            $ctx = "meta_page_id={$r->meta_page_id} fb_page_id={$r->fb_page_id} user_id={$r->user_id}";
+            $this->line(str_repeat('-', 60));
+            $this->info("Página: {$r->page_name} ({$ctx})");
+            $tok = $r->page_access_token;
 
-        // (A) DEBUG TOKEN (si hay appToken)
-        if ($appToken) {
+            // (A) debug_token
+            if ($appToken) {
+                try {
+                    $dt = Http::timeout(15)->get('https://graph.facebook.com/debug_token', [
+                        'input_token' => $tok,
+                        'access_token' => $appToken,
+                    ])->json();
+
+                    $data = data_get($dt, 'data', []);
+                    $valid = data_get($data, 'is_valid') ? 'yes' : 'no';
+                    $type = data_get($data, 'type', 'unknown');
+                    $scope1 = implode(',', (array) data_get($data, 'scopes', []));
+                    $this->line("debug_token: valid={$valid} type={$type}");
+                    if ($scope1)
+                        $this->line("debug_token.scopes: {$scope1}");
+                } catch (\Throwable $e) {
+                    $this->warn("debug_token error: " . $e->getMessage());
+                }
+            } else {
+                $this->warn('Omitiendo debug_token (falta FACEBOOK_CLIENT_ID/SECRET).');
+            }
+
+            // (B) pages_read_engagement
             try {
-                $dt = Http::timeout(15)->get('https://graph.facebook.com/debug_token', [
-                    'input_token'  => $tok,
-                    'access_token' => $appToken,
-                ])->json();
+                $r1 = Http::timeout(25)->connectTimeout(10)->retry(2, 800)
+                    ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                    ->get("https://graph.facebook.com/v23.0/{$r->fb_page_id}/posts", [
+                        'limit' => 1,
+                        'access_token' => $tok,
+                    ]);
 
-                $data   = data_get($dt, 'data', []);
-                $valid  = data_get($data, 'is_valid') ? 'yes' : 'no';
-                $type   = data_get($data, 'type', 'unknown');
-                $scope1 = implode(',', (array) data_get($data, 'scopes', []));
-                $this->line("debug_token: valid={$valid} type={$type}");
-                if ($scope1) $this->line("debug_token.scopes: {$scope1}");
+                if ($r1->ok()) {
+                    $this->info("pages_read_engagement: OK (GET /{page}/posts)");
+                } else {
+                    $this->error("pages_read_engagement: FAIL status={$r1->status()}");
+                    $this->line(substr((string) $r1->body(), 0, 300));
+                }
             } catch (\Throwable $e) {
-                $this->warn("debug_token error: ".$e->getMessage());
+                $this->error("pages_read_engagement: ERROR " . $e->getMessage());
             }
-        } else {
-            $this->warn('Omitiendo debug_token (falta FACEBOOK_CLIENT_ID/SECRET).');
+
+            // (C) read_insights (page)
+            try {
+                $sinceTs = now()->subDays($days)->timestamp;
+                $r2 = Http::timeout(25)->connectTimeout(10)->retry(2, 800)
+                    ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
+                    ->get("https://graph.facebook.com/v23.0/{$r->fb_page_id}/insights", [
+                        'metric' => 'page_impressions',
+                        'period' => 'day',
+                        'since' => $sinceTs,
+                        'access_token' => $tok,
+                    ]);
+
+                if ($r2->ok()) {
+                    $this->info("read_insights: OK (GET /{page}/insights page_impressions)");
+                } else {
+                    $this->error("read_insights: FAIL status={$r2->status()}");
+                    $this->line(substr((string) $r2->body(), 0, 300));
+                }
+            } catch (\Throwable $e) {
+                $this->error("read_insights: ERROR " . $e->getMessage());
+            }
         }
 
-        // (B) Test rápido: pages_read_engagement
-        // Intento leer 1 post del feed
-        try {
-            $r1 = Http::timeout(25)->connectTimeout(10)->retry(2, 800)
-                ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
-                ->get("https://graph.facebook.com/v23.0/{$r->fb_page_id}/posts", [
-                    'limit'        => 1,
-                    'access_token' => $tok,
-                ]);
-
-            if ($r1->ok()) {
-                $this->info("pages_read_engagement: OK (GET /{page}/posts)");
-            } else {
-                $body = (string) $r1->body();
-                $this->error("pages_read_engagement: FAIL status={$r1->status()}");
-                $this->line(substr($body, 0, 300));
-            }
-        } catch (\Throwable $e) {
-            $this->error("pages_read_engagement: ERROR ".$e->getMessage());
-        }
-
-        // (C) Test rápido: read_insights (page-level)
-        // Trae page_impressions últimos N días
-        try {
-            $sinceTs = now()->subDays($days)->timestamp;
-            $r2 = Http::timeout(25)->connectTimeout(10)->retry(2, 800)
-                ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]])
-                ->get("https://graph.facebook.com/v23.0/{$r->fb_page_id}/insights", [
-                    'metric'       => 'page_impressions',
-                    'period'       => 'day',
-                    'since'        => $sinceTs,
-                    'access_token' => $tok,
-                ]);
-
-            if ($r2->ok()) {
-                $this->info("read_insights: OK (GET /{page}/insights page_impressions)");
-            } else {
-                $body = (string) $r2->body();
-                $this->error("read_insights: FAIL status={$r2->status()}");
-                $this->line(substr($body, 0, 300));
-            }
-        } catch (\Throwable $e) {
-            $this->error("read_insights: ERROR ".$e->getMessage());
-        }
+        $this->line(str_repeat('-', 60));
+        return 0;
     }
-
-    $this->line(str_repeat('-', 60));
-    return 0;
-})->purpose('Audita page_access_token(s) y prueba permisos clave (engagement e insights)');
+)->purpose('Audita page_access_token(s) y permisos (engagement e insights)');
 // Artisan::command('meta:sync-page-tokens {--user-id=}', function () {
 //     $uid = (int) $this->option('user-id') ?: 2;
 
