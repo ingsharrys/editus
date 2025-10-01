@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Webhooks;
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log;
 
 class WhatsappWebhookController extends Controller
 {
