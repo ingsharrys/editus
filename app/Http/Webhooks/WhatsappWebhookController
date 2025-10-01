@@ -1,0 +1,69 @@
+<?php
+
+namespace App\Http\Controllers\Webhooks;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Controller;
+use Symfony\Component\HttpFoundation\Response;
+
+class WhatsappWebhookController extends Controller
+{
+    // Verificación (GET)
+    public function verify(Request $request)
+    {
+        $mode      = $request->query('hub_mode');
+        $token     = $request->query('hub_verify_token');
+        $challenge = $request->query('hub_challenge');
+
+        if ($mode === 'subscribe' && $token === env('WHATSAPP_VERIFY_TOKEN')) {
+            return response($challenge, Response::HTTP_OK);
+        }
+        return response('Forbidden', Response::HTTP_FORBIDDEN);
+    }
+
+    // Recepción de eventos (POST)
+    public function handle(Request $request)
+    {
+        // (Opcional) verifica firma HMAC con tu APP SECRET
+        if ($secret = env('WHATSAPP_APP_SECRET')) {
+            $sigHeader = $request->header('X-Hub-Signature-256');
+            if (!$this->isValidSignature($request->getContent(), $sigHeader, $secret)) {
+                Log::warning('[WA webhook] Firma inválida');
+                return response('Invalid signature', Response::HTTP_FORBIDDEN);
+            }
+        }
+
+        $payload = $request->all();
+        Log::info('[WA webhook]', $payload);
+
+        // Procesa statuses
+        $entry = $payload['entry'][0] ?? [];
+        $changes = $entry['changes'][0] ?? [];
+        $value = $changes['value'] ?? [];
+
+        if (!empty($value['statuses'])) {
+            foreach ($value['statuses'] as $st) {
+                Log::info('[WA status]', $st);
+                // TODO: actualiza tu tabla de envíos por $st['id'] => $st['status']
+            }
+        }
+
+        // Procesa mensajes entrantes (abre ventana 24h)
+        if (!empty($value['messages'])) {
+            foreach ($value['messages'] as $msg) {
+                Log::info('[WA incoming]', $msg);
+                // TODO: marca last_incoming_at para ese número y guarda el texto si necesitas
+            }
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    private function isValidSignature(string $raw, ?string $header, string $appSecret): bool
+    {
+        if (!$header || !str_starts_with($header, 'sha256=')) return false;
+        $hash = hash_hmac('sha256', $raw, $appSecret, false);
+        return hash_equals(substr($header, 7), $hash);
+    }
+}

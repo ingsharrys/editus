@@ -6,6 +6,7 @@ use App\Http\Controllers\Meta\FacebookPageController;
 use App\Http\Controllers\MetaPostController;
 use App\Http\Controllers\MyPostsController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\Webhooks\WhatsappWebhookController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn() => view('welcome'));
@@ -98,7 +99,8 @@ Route::post('/meta/pages/favorites/save', [FacebookPageController::class, 'saveF
     ->name('meta.pages.favorites.save')
     ->middleware('auth');
 
-
+Route::get('/webhooks/whatsapp', [WhatsappWebhookController::class, 'verify']);
+Route::post('/webhooks/whatsapp', [WhatsappWebhookController::class, 'handle']);
 
 /*
 |--------------------------------------------------------------------------
