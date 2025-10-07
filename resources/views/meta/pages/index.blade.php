@@ -597,6 +597,43 @@
                     return card.querySelector('.page-checkbox');
                 }
 
+                function autoSelectFavorites(onlyVisible = false) {
+                    getCards().forEach(card => {
+                        const isFav = card.dataset.favorite === '1';
+                        const isVisible = card.style.display !== 'none';
+                        if (!isFav) return;
+                        if (onlyVisible && !isVisible) return;
+
+                        const cb = getCardCheckbox(card);
+                        if (cb && !cb.disabled) {
+                            cb.checked = true;
+                            markAutoFav(cb, true);
+                            cb.dispatchEvent(new Event('change', {
+                                bubbles: true
+                            }));
+                        }
+                    });
+                }
+
+                function autoUnselectFavorites() {
+                    // solo desmarca los que marcamos automáticamente
+                    checkboxes().forEach(cb => {
+                        if (cb.dataset.autofav === '1') {
+                            cb.checked = false;
+                            delete cb.dataset.autofav;
+                            cb.dispatchEvent(new Event('change', {
+                                bubbles: true
+                            }));
+                        }
+                    });
+                }
+
+                function markAutoFav(cb, val) {
+                    if (!cb) return;
+                    if (val) cb.dataset.autofav = '1';
+                    else delete cb.dataset.autofav;
+                }
+
                 function setFavoriteSelection(checked = true, onlyVisible = false) {
                     getCards().forEach(card => {
                         const isFav = card.dataset.favorite === '1';
@@ -649,13 +686,15 @@
                 searchInput && searchInput.addEventListener('input', applyFilters);
                 statusFilter && statusFilter.addEventListener('change', applyFilters);
                 onlyFavorites && onlyFavorites.addEventListener('change', () => {
-                    // cuando activas el filtro, además de filtrar, selecciona los favoritos visibles
-                    if (onlyFavorites.checked) {
-                        setFavoriteSelection(true, true); // solo los que queden visibles tras el filtro
-                    }
                     applyFilters();
+                    if (onlyFavorites.checked) {
+                        autoSelectFavorites(true); // marca favoritos visibles
+                    } else {
+                        autoUnselectFavorites(); // desmarca solo los auto-seleccionados
+                    }
                     updateCounts();
                 });
+
 
                 selectAll && selectAll.addEventListener('change', () => {
                     const visibleCards = getCards().filter(card => card.style.display !== 'none');
@@ -672,8 +711,14 @@
 
 
                 document.addEventListener('change', (e) => {
-                    if (e.target.classList.contains('page-checkbox')) updateCounts();
+                    if (e.target.classList.contains('page-checkbox')) {
+                        if (!e.target.checked && e.target.dataset.autofav === '1') {
+                            delete e.target.dataset.autofav;
+                        }
+                        updateCounts();
+                    }
                 });
+
 
                 // ====== MENSAJE ======
                 function updateMsg() {
