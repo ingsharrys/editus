@@ -133,7 +133,7 @@ class MetaPostController extends Controller
     {
         $isAdmin = (int) ($request->user()->role_id ?? 0) === 1;
 
-        $posts = MetaPost::with('page:id,name,page_id,access_token')
+        $posts = MetaPost::with('page:id,name,page_id')
             ->when(!$isAdmin, fn($q) => $q->where('user_id', $request->user()->id))
             ->where('batch_uuid', $batch)
             ->where('status', 'fail')
