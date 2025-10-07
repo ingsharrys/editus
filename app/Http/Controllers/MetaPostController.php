@@ -63,68 +63,52 @@ class MetaPostController extends Controller
     }
     public function retry(Request $request, MetaPost $post)
     {
-        // Autorización básica: admin o dueño del post
+        // Admin o dueño
         $isAdmin = (int) ($request->user()->role_id ?? 0) === 1;
         if (!$isAdmin && $post->user_id !== $request->user()->id) {
             abort(403);
         }
 
-        // Solo reintentar si falló y no tiene ya post publicado
+        // Solo si falló y no tiene fb_post_id
         if ($post->status !== 'fail' || $post->fb_post_id) {
             return back()->with('warn', 'Este item no está en estado fallido o ya tiene publicación.');
         }
 
-        // Datos base
-        $page = $post->page; // relación que ya cargas en show()
-        $pageId = $page?->page_id;
-        $pageName = $page?->name;
-        // Ajusta según tu esquema: de aquí debe salir el Page Access Token vigente
-        $pageToken = $page->access_token ?? $post->page_token ?? null;
+        // Cargar relación para sacar el page_id
+        $post->loadMissing('page');
 
-        if (!$pageId || !$pageToken) {
-            return back()->with('error', 'Falta page_id o page_token para reintentar.');
+        // page_id: relación -> columna -> fallback a fb_post_id
+        $pageId = $post->page->page_id ?? $post->page_id ?? null;
+        if (!$pageId && $post->fb_post_id) {
+            $pageId = explode('_', $post->fb_post_id)[0] ?? null;
+        }
+        if (!$pageId) {
+            return back()->with('error', 'No se pudo determinar la página de destino.');
         }
 
-        // Foto(s) y caption
-        $photoUrls = (array) data_get(json_decode($post->photo_urls ?? '[]', true), 'photo_urls', []);
-        $caption = $post->message;
-
-        if (empty($photoUrls)) {
+        // photo_urls: de local_media o (fallback) de photo_urls
+        $urls = [];
+        $lm = json_decode($post->local_media ?? '[]', true) ?: [];
+        $urls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
+        if (empty($urls) && !empty($post->photo_urls)) {
+            $pj = json_decode($post->photo_urls, true) ?: [];
+            $urls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
+        }
+        if (empty($urls)) {
             return back()->with('error', 'No hay photo_urls guardadas para reintentar.');
         }
 
-        // HEAD rápido: evita reintentar imágenes 404/0 bytes
-        foreach ($photoUrls as $u) {
-            try {
-                $res = Http::timeout(10)->head($u);
-                if (!$res->ok()) {
-                    return back()->with('error', "La imagen no es accesible (HEAD {$res->status()}): $u");
-                }
-                $ct = strtolower($res->header('Content-Type') ?? '');
-                if (strpos($ct, 'image/') !== 0) {
-                    return back()->with('error', "Content-Type inválido para Facebook ($ct): $u");
-                }
-            } catch (\Throwable $e) {
-                return back()->with('error', "No se pudo verificar la imagen: $u");
-            }
-        }
+        // Marcar en cola y limpiar error
+        $post->update(['status' => 'queued', 'error' => null]);
 
-        // Marcar en "queued" y limpiar error para que en UI se note el reintento
-        $post->update([
-            'status' => 'queued',
-            'error' => null,
-        ]);
-
-        // Encolar exactamente el mismo Job que ya usas
+        // Encolar: SIN page_token (el Job lo resolverá desde meta_page_user)
         PublishPhotosToFacebook::dispatch([
             'meta_post_id' => $post->id,
             'page_id' => $pageId,
-            'page_name' => $pageName,
-            'page_token' => $pageToken,
-            'photo_urls' => $photoUrls,
-            'cleanup_rel' => [], // opcional
-            'cleanup_abs' => [], // opcional
-            'caption' => $caption,
+            'photo_urls' => $urls,
+            'caption' => $post->message,
+            'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
+            'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
         ])->onQueue('default');
 
         return back()->with('ok', 'Reintento encolado.');
@@ -134,7 +118,7 @@ class MetaPostController extends Controller
     {
         $isAdmin = (int) ($request->user()->role_id ?? 0) === 1;
 
-        $posts = MetaPost::with('page:id,name,page_id')
+        $posts = MetaPost::with('page:id,name,page_id', 'user:id')
             ->when(!$isAdmin, fn($q) => $q->where('user_id', $request->user()->id))
             ->where('batch_uuid', $batch)
             ->where('status', 'fail')
@@ -147,48 +131,59 @@ class MetaPostController extends Controller
         }
 
         $countQueued = 0;
-        foreach ($posts as $post) {
-            $page = $post->page;
-            $pageId = $page?->page_id;
-            $pageName = $page?->name;
-            $pageToken = $page->access_token ?? $post->page_token ?? null;
 
-            $photoUrls = (array) data_get(json_decode($post->photo_urls ?? '[]', true), 'photo_urls', []);
-            if (!$pageId || !$pageToken || empty($photoUrls)) {
-                continue; // saltar inválidos
+        foreach ($posts as $post) {
+            // 1) page_id robusto: relación -> columna -> parse de fb_post_id
+            $pageId = $post->page->page_id ?? $post->page_id ?? null;
+            if (!$pageId && $post->fb_post_id) {
+                $pageId = explode('_', $post->fb_post_id)[0] ?? null;
+            }
+            if (!$pageId) {
+                Log::warning('[retryFails] sin page_id', ['meta_post_id' => $post->id]);
+                continue;
             }
 
-            // Chequeo opcional (no bloqueante)
+            // 2) photo_urls: primero local_media, luego fallback a photo_urls
+            $lm = json_decode($post->local_media ?? '[]', true) ?: [];
+            $photoUrls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
+
+            if (empty($photoUrls) && !empty($post->photo_urls)) {
+                $pj = json_decode($post->photo_urls, true) ?: [];
+                $photoUrls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
+            }
+
+            if (empty($photoUrls)) {
+                Log::info('[retryFails] sin photo_urls', ['meta_post_id' => $post->id]);
+                continue;
+            }
+
+            // 3) (Opcional) HEAD NO bloqueante
             try {
                 $head = Http::timeout(10)->head($photoUrls[0]);
                 if (!$head->ok() || stripos($head->header('Content-Type') ?? '', 'image/') !== 0) {
-                    Log::info('[retryFails] HEAD no-OK o no image/*, se sigue igual', [
+                    Log::info('[retryFails] HEAD no-OK o no image/* (se continúa igual)', [
                         'url' => $photoUrls[0],
                         'status' => $head->status(),
                         'ct' => $head->header('Content-Type')
                     ]);
                 }
             } catch (\Throwable $e) {
-                Log::info('[retryFails] HEAD exception, se sigue igual', [
+                Log::info('[retryFails] HEAD exception (se continúa igual)', [
                     'url' => $photoUrls[0],
                     'err' => $e->getMessage()
                 ]);
             }
 
-
-
+            // 4) marcar en cola y encolar SIN token (el Job lo resuelve desde meta_page_user)
             $post->update(['status' => 'queued', 'error' => null]);
 
-            // Escalonar con pequeños delays para no saturar
-            PublishPhotosToFacebook::dispatch([
+            \App\Jobs\PublishPhotosToFacebook::dispatch([
                 'meta_post_id' => $post->id,
                 'page_id' => $pageId,
-                'page_name' => $pageName,
-                'page_token' => $pageToken,
                 'photo_urls' => $photoUrls,
-                'cleanup_rel' => [],
-                'cleanup_abs' => [],
                 'caption' => $post->message,
+                'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
+                'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
             ])->onQueue('default')->delay(now()->addSeconds($countQueued * 3));
 
             $countQueued++;
@@ -196,4 +191,5 @@ class MetaPostController extends Controller
 
         return back()->with('ok', "Se encolaron $countQueued reintentos.");
     }
+
 }
