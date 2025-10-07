@@ -593,6 +593,27 @@
                     return Array.from(grid?.querySelectorAll('.page-card') || []);
                 }
 
+                function getCardCheckbox(card) {
+                    return card.querySelector('.page-checkbox');
+                }
+
+                function setFavoriteSelection(checked = true, onlyVisible = false) {
+                    getCards().forEach(card => {
+                        const isFav = card.dataset.favorite === '1';
+                        const isVisible = card.style.display !== 'none';
+                        if (!isFav) return;
+                        if (onlyVisible && !isVisible) return;
+
+                        const cb = getCardCheckbox(card);
+                        if (cb && !cb.disabled) {
+                            cb.checked = checked;
+                            // dispara change por si tu UI cuenta seleccionados
+                            cb.dispatchEvent(new Event('change', {
+                                bubbles: true
+                            }));
+                        }
+                    });
+                }
                 // ====== FILTROS Y SELECCIÓN ======
                 function applyFilters() {
                     if (!grid) return;
@@ -627,14 +648,28 @@
 
                 searchInput && searchInput.addEventListener('input', applyFilters);
                 statusFilter && statusFilter.addEventListener('change', applyFilters);
-                onlyFavorites && onlyFavorites.addEventListener('change', applyFilters);
+                onlyFavorites && onlyFavorites.addEventListener('change', () => {
+                    // cuando activas el filtro, además de filtrar, selecciona los favoritos visibles
+                    if (onlyFavorites.checked) {
+                        setFavoriteSelection(true, true); // solo los que queden visibles tras el filtro
+                    }
+                    applyFilters();
+                    updateCounts();
+                });
 
                 selectAll && selectAll.addEventListener('change', () => {
-                    checkboxes().forEach(c => {
-                        if (!c.disabled) c.checked = selectAll.checked;
+                    const visibleCards = getCards().filter(card => card.style.display !== 'none');
+                    visibleCards.forEach(card => {
+                        const cb = getCardCheckbox(card);
+                        if (cb && !cb.disabled) cb.checked = selectAll.checked;
                     });
                     updateCounts();
                 });
+                if (onlyFavorites?.checked) {
+                    setFavoriteSelection(true, true);
+                    updateCounts();
+                }
+
 
                 document.addEventListener('change', (e) => {
                     if (e.target.classList.contains('page-checkbox')) updateCounts();
