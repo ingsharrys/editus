@@ -20,7 +20,7 @@ class RetryFailedMetaPosts extends Command
 
     public function handle(): int
     {
-        $type  = $this->option('type') ?: 'photo';
+        $type = $this->option('type') ?: 'photo';
         $batch = $this->option('batch');
         $limit = (int) $this->option('limit');
         $since = $this->option('since');
@@ -38,19 +38,20 @@ class RetryFailedMetaPosts extends Command
         }
 
         // Evita reintentar errores permanentes recientes de auth/permiso: opcional
-        $q->where(function($w){
+        $q->where(function ($w) {
             $w->whereNull('error')
-              ->orWhere(function($e){
-                  $e->where('error', 'not like', '%The user must be an administrator%')
-                    ->where('error', 'not like', '%session has been invalidated%')
-                    ->where('error', 'not like', '%Error validating access token%');
-              });
+                ->orWhere(function ($e) {
+                    $e->where('error', 'not like', '%The user must be an administrator%')
+                        ->where('error', 'not like', '%session has been invalidated%')
+                        ->where('error', 'not like', '%Error validating access token%');
+                });
         });
 
+
         $posts = $q->with(['page:id,page_id,name', 'user:id'])
-                   ->orderBy('id')
-                   ->limit($limit)
-                   ->get();
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
 
         if ($posts->isEmpty()) {
             $this->info('No hay fallidos para reintentar.');
@@ -61,7 +62,8 @@ class RetryFailedMetaPosts extends Command
         foreach ($posts as $post) {
             // Obtener page_id
             $pageId = $post->page?->page_id ?? $post->page_id;
-            if (!$pageId) continue;
+            if (!$pageId)
+                continue;
 
             // Extraer photo_urls desde local_media o desde campo dedicado
             $urls = [];
@@ -98,11 +100,11 @@ class RetryFailedMetaPosts extends Command
             // Encolar (el Job resolverá el token via pivot/SystemUser)
             PublishPhotosToFacebook::dispatch([
                 'meta_post_id' => $post->id,
-                'page_id'      => $pageId,
-                'photo_urls'   => $urls,
-                'caption'      => $post->message,
-                'cleanup_rel'  => [],
-                'cleanup_abs'  => [],
+                'page_id' => $pageId,
+                'photo_urls' => $urls,
+                'caption' => $post->message,
+                'cleanup_rel' => [],
+                'cleanup_abs' => [],
             ])->onQueue('default')->delay(now()->addSeconds($count * 3));
 
             $count++;

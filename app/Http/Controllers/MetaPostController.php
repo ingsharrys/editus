@@ -7,6 +7,7 @@ use App\Models\MetaPost;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use App\Jobs\PublishPhotosToFacebook;
+use Illuminate\Support\Facades\Log;
 
 
 class MetaPostController extends Controller
@@ -157,15 +158,24 @@ class MetaPostController extends Controller
                 continue; // saltar inválidos
             }
 
-            // Validación rápida imagen (evita reintentos basura)
+            // Chequeo opcional (no bloqueante)
             try {
                 $head = Http::timeout(10)->head($photoUrls[0]);
                 if (!$head->ok() || stripos($head->header('Content-Type') ?? '', 'image/') !== 0) {
-                    continue;
+                    Log::info('[retryFails] HEAD no-OK o no image/*, se sigue igual', [
+                        'url' => $photoUrls[0],
+                        'status' => $head->status(),
+                        'ct' => $head->header('Content-Type')
+                    ]);
                 }
             } catch (\Throwable $e) {
-                continue;
+                Log::info('[retryFails] HEAD exception, se sigue igual', [
+                    'url' => $photoUrls[0],
+                    'err' => $e->getMessage()
+                ]);
             }
+
+
 
             $post->update(['status' => 'queued', 'error' => null]);
 
