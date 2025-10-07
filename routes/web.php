@@ -95,6 +95,15 @@ Route::middleware(['auth'])->group(function () {
     });
 });
 // routes/web.php
+Route::middleware(['auth'])->group(function () {
+    Route::post('/meta/posts/{post}/retry', [MetaPostController::class, 'retry'])
+        ->name('meta.posts.retry');
+
+    Route::post('/meta/posts/batch/{batch}/retry-fails', [MetaPostController::class, 'retryFails'])
+        ->name('meta.posts.retryFails');
+});
+
+// routes/web.php
 Route::post('/meta/pages/favorites/save', [FacebookPageController::class, 'saveFavorites'])
     ->name('meta.pages.favorites.save')
     ->middleware('auth');

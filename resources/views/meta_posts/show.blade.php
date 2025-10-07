@@ -21,11 +21,29 @@
                 </div>
             </div>
         </div>
+        @if (session('ok'))
+            <div class="mb-3 rounded-lg bg-green-50 text-green-700 px-3 py-2 text-sm">{{ session('ok') }}</div>
+        @endif
+        @if (session('warn'))
+            <div class="mb-3 rounded-lg bg-yellow-50 text-yellow-800 px-3 py-2 text-sm">{{ session('warn') }}</div>
+        @endif
+        @if (session('error'))
+            <div class="mb-3 rounded-lg bg-red-50 text-red-700 px-3 py-2 text-sm">{{ session('error') }}</div>
+        @endif
+
         <div class="text-right">
             <a href="{{ route('meta.posts.index') }}" class="text-sm text-white hover:underline">
                 ← Volver al listado
             </a>
         </div>
+        @if ($summary['fails'] > 0)
+            <form method="POST" action="{{ route('meta.posts.retryFails', $summary['batch']) }}" class="text-right mb-3">
+                @csrf
+                <button class="px-3 py-1.5 rounded bg-amber-600 text-white text-xs hover:bg-amber-700">
+                    Reintentar fallidos del lote
+                </button>
+            </form>
+        @endif
 
         <div class="rounded-xl border border-gray-200 bg-white overflow-hidden">
             <table class="min-w-full text-sm">
@@ -36,6 +54,7 @@
                         <th class="px-3 py-2 text-left">Permalink</th>
                         <th class="px-3 py-2 text-left">Publicado</th>
                         <th class="px-3 py-2 text-left">Acciones</th>
+                        <th class="px-3 py-2 text-left">Reintentar</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -78,6 +97,19 @@
                                 @if ($p->fb_permalink_url)
                                     <a href="{{ $p->fb_permalink_url }}" target="_blank" rel="noopener"
                                         class="inline-block px-2 py-1 rounded bg-indigo-600 text-white text-xs">Abrir</a>
+                                @else
+                                    <span class="text-gray-400 text-xs">—</span>
+                                @endif
+                            </td>
+                            <td class="px-3 py-2">
+                                @if ($p->status === 'fail' && empty($p->fb_post_id))
+                                    <form method="POST" action="{{ route('meta.posts.retry', $p->id) }}" class="inline">
+                                        @csrf
+                                        <button
+                                            class="inline-block px-2 py-1 rounded bg-amber-600 text-white text-xs hover:bg-amber-700">
+                                            Reintentar
+                                        </button>
+                                    </form>
                                 @else
                                     <span class="text-gray-400 text-xs">—</span>
                                 @endif
