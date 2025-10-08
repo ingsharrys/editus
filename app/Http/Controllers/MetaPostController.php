@@ -7,7 +7,6 @@ use App\Models\MetaPost;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use App\Jobs\PublishPhotosToFacebook;
-use App\Jobs\PublishVideoToFacebook;
 use Illuminate\Support\Facades\Log;
 
 
@@ -64,16 +63,21 @@ class MetaPostController extends Controller
     }
     public function retry(Request $request, MetaPost $post)
     {
+        // Admin o dueño
         $isAdmin = (int) ($request->user()->role_id ?? 0) === 1;
         if (!$isAdmin && $post->user_id !== $request->user()->id) {
             abort(403);
         }
 
+        // Solo si falló y no tiene fb_post_id
         if ($post->status !== 'fail' || $post->fb_post_id) {
             return back()->with('warn', 'Este item no está en estado fallido o ya tiene publicación.');
         }
 
+        // Cargar relación para sacar el page_id
         $post->loadMissing('page');
+
+        // page_id: relación -> columna -> fallback a fb_post_id
         $pageId = $post->page->page_id ?? $post->page_id ?? null;
         if (!$pageId && $post->fb_post_id) {
             $pageId = explode('_', $post->fb_post_id)[0] ?? null;
@@ -82,32 +86,9 @@ class MetaPostController extends Controller
             return back()->with('error', 'No se pudo determinar la página de destino.');
         }
 
-        // Local media
-        $lm = json_decode($post->local_media ?? '[]', true) ?: [];
-
-        // === NUEVO: si es VIDEO, despachar video job ===
-        if (($post->type ?? 'photo') === 'video') {
-            $videoUrl = $lm['video_url'] ?? ($post->video_url ?? null);
-            if (empty($videoUrl)) {
-                return back()->with('error', 'No hay video_url guardada para reintentar.');
-            }
-
-            $post->update(['status' => 'queued', 'error' => null]);
-
-            PublishVideoToFacebook::dispatch([
-                'meta_post_id' => $post->id,
-                'page_id' => $pageId,
-                'video_url' => $videoUrl,
-                'caption' => $post->message,
-                'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
-                'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
-            ])->onQueue('default');
-
-            return back()->with('ok', 'Reintento de video encolado.');
-        }
-
-        // === FOTO (lo que ya tenías) ===
+        // photo_urls: de local_media o (fallback) de photo_urls
         $urls = [];
+        $lm = json_decode($post->local_media ?? '[]', true) ?: [];
         $urls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
         if (empty($urls) && !empty($post->photo_urls)) {
             $pj = json_decode($post->photo_urls, true) ?: [];
@@ -117,8 +98,10 @@ class MetaPostController extends Controller
             return back()->with('error', 'No hay photo_urls guardadas para reintentar.');
         }
 
+        // Marcar en cola y limpiar error
         $post->update(['status' => 'queued', 'error' => null]);
 
+        // Encolar: SIN page_token (el Job lo resolverá desde meta_page_user)
         PublishPhotosToFacebook::dispatch([
             'meta_post_id' => $post->id,
             'page_id' => $pageId,
@@ -148,58 +131,33 @@ class MetaPostController extends Controller
         }
 
         $countQueued = 0;
-        $skippedNoPage = 0;
-        $skippedNoMedia = 0;
 
         foreach ($posts as $post) {
+            // 1) page_id robusto: relación -> columna -> parse de fb_post_id
             $pageId = $post->page->page_id ?? $post->page_id ?? null;
             if (!$pageId && $post->fb_post_id) {
                 $pageId = explode('_', $post->fb_post_id)[0] ?? null;
             }
             if (!$pageId) {
                 Log::warning('[retryFails] sin page_id', ['meta_post_id' => $post->id]);
-                $skippedNoPage++;
                 continue;
             }
 
+            // 2) photo_urls: primero local_media, luego fallback a photo_urls
             $lm = json_decode($post->local_media ?? '[]', true) ?: [];
-
-            if (($post->type ?? 'photo') === 'video') {
-                $videoUrl = $lm['video_url'] ?? ($post->video_url ?? null);
-                if (empty($videoUrl)) {
-                    Log::info('[retryFails] sin video_url', ['meta_post_id' => $post->id]);
-                    $skippedNoMedia++;
-                    continue;
-                }
-
-                $post->update(['status' => 'queued', 'error' => null]);
-
-                \App\Jobs\PublishVideoToFacebook::dispatch([
-                    'meta_post_id' => $post->id,
-                    'page_id' => $pageId,
-                    'video_url' => $videoUrl,
-                    'caption' => $post->message,
-                    'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
-                    'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
-                ])->onQueue('default')->delay(now()->addSeconds($countQueued * 3));
-
-                $countQueued++;
-                continue;
-            }
-
-            // FOTO
             $photoUrls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
+
             if (empty($photoUrls) && !empty($post->photo_urls)) {
                 $pj = json_decode($post->photo_urls, true) ?: [];
                 $photoUrls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
             }
+
             if (empty($photoUrls)) {
                 Log::info('[retryFails] sin photo_urls', ['meta_post_id' => $post->id]);
-                $skippedNoMedia++;
                 continue;
             }
 
-            // (HEAD opcional, igual que ya tenías)
+            // 3) (Opcional) HEAD NO bloqueante
             try {
                 $head = Http::timeout(10)->head($photoUrls[0]);
                 if (!$head->ok() || stripos($head->header('Content-Type') ?? '', 'image/') !== 0) {
@@ -216,6 +174,7 @@ class MetaPostController extends Controller
                 ]);
             }
 
+            // 4) marcar en cola y encolar SIN token (el Job lo resuelve desde meta_page_user)
             $post->update(['status' => 'queued', 'error' => null]);
 
             \App\Jobs\PublishPhotosToFacebook::dispatch([
@@ -230,14 +189,7 @@ class MetaPostController extends Controller
             $countQueued++;
         }
 
-        $msg = "Se encolaron $countQueued reintentos.";
-        if ($skippedNoPage)
-            $msg .= " Omitidos sin página: $skippedNoPage.";
-        if ($skippedNoMedia)
-            $msg .= " Omitidos sin media: $skippedNoMedia.";
-
-        return back()->with('ok', $msg);
+        return back()->with('ok', "Se encolaron $countQueued reintentos.");
     }
-
 
 }
