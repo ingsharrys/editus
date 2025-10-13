@@ -487,45 +487,54 @@ class FacebookPageController extends Controller
             return ['ok' => false, 'error' => 'El archivo llegó con tamaño 0 (parcial o bloqueado).'];
         }
 
+        // Extensión normalizada (mp4/mov)
         $ext = strtolower($file->getClientOriginalExtension() ?: 'mp4');
+        if (!in_array($ext, ['mp4', 'mov', 'm4v'], true)) {
+            // Acepta extensiones típicas; fuerza mp4 si no se detecta algo válido
+            $ext = 'mp4';
+        }
+
         $name = (string) \Illuminate\Support\Str::uuid() . '.' . $ext;
 
         // 1) Intentar disco "public" (storage/app/public → public/storage)
         try {
-            // ¿existe el disk?
-            \Illuminate\Support\Facades\Storage::disk('public')->exists('.');
-            if (!\Illuminate\Support\Facades\Storage::disk('public')->exists('videos/tmp')) {
-                \Illuminate\Support\Facades\Storage::disk('public')->makeDirectory('videos/tmp');
+            $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+            // Comprobar/crear carpeta
+            if (!$disk->exists('videos/tmp')) {
+                $disk->makeDirectory('videos/tmp');
             }
 
-            // guardar
-            $stream = fopen($file->getRealPath(), 'r');
-            if ($stream === false) {
-                return ['ok' => false, 'error' => 'No se pudo abrir el archivo temporal del upload.'];
-            }
-
+            // Guardar usando putFileAs (maneja streams del UploadedFile)
             $path = 'videos/tmp/' . $name;
-            $saved = \Illuminate\Support\Facades\Storage::disk('public')->put($path, $stream);
-            if (is_resource($stream))
-                fclose($stream);
+            $saved = $disk->putFileAs('videos/tmp', $file, $name);
 
             if (!$saved) {
                 return ['ok' => false, 'error' => 'Falló escribir en storage/app/public/videos/tmp.'];
             }
 
+            // Asegurar visibilidad pública (evita 403 desde Facebook)
+            $disk->setVisibility($path, 'public');
+
+            // Paths y URL estables
             $abs = storage_path('app/public/' . $path);
             if (!file_exists($abs)) {
                 return ['ok' => false, 'error' => 'No se encontró el archivo guardado en storage (permisos).'];
             }
 
-            $url = asset('storage/' . $path);
+            // Construir URL estable sin depender de asset()/APP_URL
+            $url = url(\Illuminate\Support\Facades\Storage::url($path));
+
             return [
                 'ok' => true,
                 'url' => $url,
-                'rel' => 'public/' . $path, // para Storage::delete
+                'rel' => 'public/' . $path, // para Storage::delete()
                 'abs' => $abs,
                 'cleanup_rel' => 'public/' . $path,
                 'cleanup_abs' => null,
+                // Opcional: info útil para logs/diagnóstico en el Job
+                'mime' => $file->getMimeType(),
+                'size' => $size,
             ];
         } catch (\Throwable $e) {
             // sigue a fallback
@@ -552,6 +561,7 @@ class FacebookPageController extends Controller
         }
 
         $url = url('uploads/tmp/' . $name);
+
         return [
             'ok' => true,
             'url' => $url,
@@ -559,8 +569,12 @@ class FacebookPageController extends Controller
             'abs' => $abs,
             'cleanup_rel' => null,
             'cleanup_abs' => $abs,
+            // Opcional: info
+            'mime' => mime_content_type($abs) ?: null,
+            'size' => filesize($abs) ?: $size,
         ];
     }
+
 
     /**
      * Guarda 1 foto en una URL pública temporal.
