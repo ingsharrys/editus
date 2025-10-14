@@ -7,6 +7,7 @@ use App\Models\MetaPost;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use App\Jobs\PublishPhotosToFacebook;
+use App\Jobs\PublishVideoToFacebook;
 use Illuminate\Support\Facades\Log;
 
 
@@ -86,33 +87,74 @@ class MetaPostController extends Controller
             return back()->with('error', 'No se pudo determinar la página de destino.');
         }
 
-        // photo_urls: de local_media o (fallback) de photo_urls
-        $urls = [];
+        $type = $post->type; // 'photo' | 'video' | 'text'
         $lm = json_decode($post->local_media ?? '[]', true) ?: [];
-        $urls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
-        if (empty($urls) && !empty($post->photo_urls)) {
-            $pj = json_decode($post->photo_urls, true) ?: [];
-            $urls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
+
+        if ($type === 'photo') {
+            // photo_urls: de local_media o (fallback) de photo_urls
+            $urls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
+            if (empty($urls) && !empty($post->photo_urls)) {
+                $pj = json_decode($post->photo_urls, true) ?: [];
+                $urls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
+            }
+            if (empty($urls)) {
+                return back()->with('error', 'No hay photo_urls guardadas para reintentar.');
+            }
+
+            // Marcar en cola y limpiar error
+            $post->update(['status' => 'queued', 'error' => null]);
+
+            // Encolar (el Job resolverá token desde meta_page_user)
+            PublishPhotosToFacebook::dispatch([
+                'meta_post_id' => $post->id,
+                'page_id' => $pageId,
+                'photo_urls' => $urls,
+                'caption' => $post->message,
+                'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
+                'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
+            ])->onQueue('default');
+
+            return back()->with('ok', 'Reintento de fotos encolado.');
         }
-        if (empty($urls)) {
-            return back()->with('error', 'No hay photo_urls guardadas para reintentar.');
+
+        if ($type === 'video') {
+            // video: public_url y limpiezas simples (string)
+            $publicUrl = $lm['public_url'] ?? null;
+            $cleanupRel = $lm['cleanup_rel'] ?? null;
+            $cleanupAbs = $lm['cleanup_abs'] ?? null;
+
+            if (!$publicUrl) {
+                return back()->with('error', 'No hay public_url guardada para reintentar el video.');
+            }
+
+            // Preflight opcional (si ya se limpió el tmp, evitar reintentos inútiles)
+            try {
+                $head = Http::timeout(10)->withOptions(['allow_redirects' => true])->send('HEAD', $publicUrl);
+                if (!$head->successful()) {
+                    return back()->with('error', 'El video temporal ya no es accesible (re-subir archivo).');
+                }
+            } catch (\Throwable $e) {
+                return back()->with('error', 'No se pudo acceder al video temporal (re-subir archivo).');
+            }
+
+            $post->update(['status' => 'queued', 'error' => null]);
+
+            PublishVideoToFacebook::dispatch([
+                'meta_post_id' => $post->id,
+                'page_id' => $pageId,
+                'public_url' => $publicUrl,
+                'caption' => $post->message,
+                'cleanup_rel' => $cleanupRel,
+                'cleanup_abs' => $cleanupAbs,
+            ])->onQueue('default');
+
+            return back()->with('ok', 'Reintento de video encolado.');
         }
 
-        // Marcar en cola y limpiar error
-        $post->update(['status' => 'queued', 'error' => null]);
-
-        // Encolar: SIN page_token (el Job lo resolverá desde meta_page_user)
-        PublishPhotosToFacebook::dispatch([
-            'meta_post_id' => $post->id,
-            'page_id' => $pageId,
-            'photo_urls' => $urls,
-            'caption' => $post->message,
-            'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
-            'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
-        ])->onQueue('default');
-
-        return back()->with('ok', 'Reintento encolado.');
+        // (Opcional) soporte para texto si lo deseas
+        return back()->with('warn', 'Este tipo de publicación no admite reintento automático.');
     }
+
 
     public function retryFails(Request $request, string $batch)
     {
@@ -133,7 +175,7 @@ class MetaPostController extends Controller
         $countQueued = 0;
 
         foreach ($posts as $post) {
-            // 1) page_id robusto: relación -> columna -> parse de fb_post_id
+            // page_id robusto
             $pageId = $post->page->page_id ?? $post->page_id ?? null;
             if (!$pageId && $post->fb_post_id) {
                 $pageId = explode('_', $post->fb_post_id)[0] ?? null;
@@ -143,53 +185,103 @@ class MetaPostController extends Controller
                 continue;
             }
 
-            // 2) photo_urls: primero local_media, luego fallback a photo_urls
+            $type = $post->type;
             $lm = json_decode($post->local_media ?? '[]', true) ?: [];
-            $photoUrls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
 
-            if (empty($photoUrls) && !empty($post->photo_urls)) {
-                $pj = json_decode($post->photo_urls, true) ?: [];
-                $photoUrls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
-            }
+            if ($type === 'photo') {
+                $photoUrls = array_values(array_filter((array) ($lm['photo_urls'] ?? [])));
+                if (empty($photoUrls) && !empty($post->photo_urls)) {
+                    $pj = json_decode($post->photo_urls, true) ?: [];
+                    $photoUrls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
+                }
+                if (empty($photoUrls)) {
+                    Log::info('[retryFails] sin photo_urls', ['meta_post_id' => $post->id]);
+                    continue;
+                }
 
-            if (empty($photoUrls)) {
-                Log::info('[retryFails] sin photo_urls', ['meta_post_id' => $post->id]);
+                // HEAD NO bloqueante
+                try {
+                    $head = Http::timeout(10)->withOptions(['allow_redirects' => true])->send('HEAD', $photoUrls[0]);
+                    if (!$head->ok() || stripos($head->header('Content-Type') ?? '', 'image/') !== 0) {
+                        Log::info('[retryFails] HEAD no-OK o no image/* (continuando)', [
+                            'url' => $photoUrls[0],
+                            'status' => $head->status(),
+                            'ct' => $head->header('Content-Type')
+                        ]);
+                    }
+                } catch (\Throwable $e) {
+                    Log::info('[retryFails] HEAD exception (continuando)', [
+                        'url' => $photoUrls[0],
+                        'err' => $e->getMessage()
+                    ]);
+                }
+
+                $post->update(['status' => 'queued', 'error' => null]);
+
+                PublishPhotosToFacebook::dispatch([
+                    'meta_post_id' => $post->id,
+                    'page_id' => $pageId,
+                    'photo_urls' => $photoUrls,
+                    'caption' => $post->message,
+                    'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
+                    'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
+                ])->onQueue('default')->delay(now()->addSeconds($countQueued * 3));
+
+                $countQueued++;
                 continue;
             }
 
-            // 3) (Opcional) HEAD NO bloqueante
-            try {
-                $head = Http::timeout(10)->head($photoUrls[0]);
-                if (!$head->ok() || stripos($head->header('Content-Type') ?? '', 'image/') !== 0) {
-                    Log::info('[retryFails] HEAD no-OK o no image/* (se continúa igual)', [
-                        'url' => $photoUrls[0],
-                        'status' => $head->status(),
-                        'ct' => $head->header('Content-Type')
-                    ]);
+            if ($type === 'video') {
+                $publicUrl = $lm['public_url'] ?? null;
+                $cleanupRel = $lm['cleanup_rel'] ?? null;
+                $cleanupAbs = $lm['cleanup_abs'] ?? null;
+
+                if (!$publicUrl) {
+                    Log::info('[retryFails] sin public_url de video', ['meta_post_id' => $post->id]);
+                    continue;
                 }
-            } catch (\Throwable $e) {
-                Log::info('[retryFails] HEAD exception (se continúa igual)', [
-                    'url' => $photoUrls[0],
-                    'err' => $e->getMessage()
-                ]);
+
+                // HEAD rápido; si no es accesible, mejor no encolar
+                try {
+                    $head = Http::timeout(10)->withOptions(['allow_redirects' => true])->send('HEAD', $publicUrl);
+                    if (!$head->successful()) {
+                        Log::info('[retryFails] video no accesible, se omite', [
+                            'meta_post_id' => $post->id,
+                            'status' => $head->status(),
+                        ]);
+                        continue;
+                    }
+                } catch (\Throwable $e) {
+                    Log::info('[retryFails] HEAD exception en video, se omite', [
+                        'meta_post_id' => $post->id,
+                        'err' => $e->getMessage()
+                    ]);
+                    continue;
+                }
+
+                $post->update(['status' => 'queued', 'error' => null]);
+
+                PublishVideoToFacebook::dispatch([
+                    'meta_post_id' => $post->id,
+                    'page_id' => $pageId,
+                    'public_url' => $publicUrl,
+                    'caption' => $post->message,
+                    'cleanup_rel' => $cleanupRel,
+                    'cleanup_abs' => $cleanupAbs,
+                ])->onQueue('default')->delay(now()->addSeconds($countQueued * 3));
+
+                $countQueued++;
+                continue;
             }
 
-            // 4) marcar en cola y encolar SIN token (el Job lo resuelve desde meta_page_user)
-            $post->update(['status' => 'queued', 'error' => null]);
-
-            \App\Jobs\PublishPhotosToFacebook::dispatch([
+            Log::info('[retryFails] tipo no soportado para reintento', [
                 'meta_post_id' => $post->id,
-                'page_id' => $pageId,
-                'photo_urls' => $photoUrls,
-                'caption' => $post->message,
-                'cleanup_rel' => (array) ($lm['cleanup_rel'] ?? []),
-                'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
-            ])->onQueue('default')->delay(now()->addSeconds($countQueued * 3));
-
-            $countQueued++;
+                'type' => $type
+            ]);
         }
 
         return back()->with('ok', "Se encolaron $countQueued reintentos.");
     }
+
 
 }
