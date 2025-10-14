@@ -82,6 +82,13 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
     Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');
 
+    // Boton obtener métricas
+    Route::post('/meta-posts/{batch}/metrics/start', [MetaPostController::class, 'startMetrics'])
+        ->name('meta.posts.metrics.start');
+
+    Route::get('/meta-posts/{batch}/metrics/progress', [MetaPostController::class, 'metricsProgress'])
+        ->name('meta.posts.metrics.progress');
+
     // Módulo: Mis publicaciones (user)
     Route::get('/mis-publicaciones', [MyPostsController::class, 'index'])->name('mis-posts.index');
     Route::get('/mis-publicaciones/{post}', [MyPostsController::class, 'show'])->name('mis-posts.show');

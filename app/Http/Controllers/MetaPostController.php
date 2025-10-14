@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Http;
 use App\Jobs\PublishPhotosToFacebook;
 use App\Jobs\PublishVideoToFacebook;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use App\Jobs\CollectBatchMetrics;
+use Illuminate\Support\Str;
 
 
 class MetaPostController extends Controller
@@ -282,6 +285,73 @@ class MetaPostController extends Controller
 
         return back()->with('ok', "Se encolaron $countQueued reintentos.");
     }
+    public function startMetrics(Request $request, string $batch)
+    {
+        $user = $request->user();
+        $isAdmin = (int) ($user->role_id ?? 0) === 1;
+
+        // Verifica que el batch sea accesible por el usuario
+        $exists = MetaPost::query()
+            ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id))
+            ->where('batch_uuid', $batch)
+            ->exists();
+
+        if (!$exists) {
+            return response()->json(['ok' => false, 'error' => 'Batch no encontrado o sin permisos.'], 404);
+        }
+
+        $key = "metrics:batch:{$batch}:progress";
+
+        // Si ya hay un progreso activo y no está terminado, no lances otro
+        $progress = Cache::get($key);
+        if ($progress && !($progress['finished'] ?? false)) {
+            return response()->json(['ok' => true, 'already_running' => true, 'progress' => $progress]);
+        }
+
+        // Inicializa progreso minimal mientras arranca el job
+        Cache::put($key, [
+            'total' => 0,
+            'done' => 0,
+            'ok' => 0,
+            'empty' => 0,
+            'errors' => 0,
+            'started_at' => now()->toIso8601String(),
+            'finished' => false,
+            'finished_at' => null,
+        ], now()->addHours(2));
+
+        // Despacha el job
+        CollectBatchMetrics::dispatch(
+            batch: $batch,
+            onlyUserId: $isAdmin ? null : $user->id,
+            onlyForUser: !$isAdmin
+        )->onQueue('default');
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function metricsProgress(Request $request, string $batch)
+    {
+        $user = $request->user();
+        $isAdmin = (int) ($user->role_id ?? 0) === 1;
+
+        $exists = MetaPost::query()
+            ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id))
+            ->where('batch_uuid', $batch)
+            ->exists();
+
+        if (!$exists) {
+            return response()->json(['ok' => false, 'error' => 'Batch no encontrado o sin permisos.'], 404);
+        }
+
+        $progress = Cache::get("metrics:batch:{$batch}:progress");
+        if (!$progress) {
+            return response()->json(['ok' => false, 'error' => 'Sin progreso disponible.'], 404);
+        }
+
+        return response()->json(['ok' => true, 'progress' => $progress]);
+    }
+
 
 
 }
