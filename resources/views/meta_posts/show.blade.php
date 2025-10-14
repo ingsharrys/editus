@@ -62,7 +62,7 @@
         </div>
 
         {{-- NUEVO: barra de progreso --}}
-        <div id="metricsPanel" class="hidden mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
+        <div id="metricsPanel" class="hidden mt-2 rounded-xl border bg-white border-blue-200 p-3">
             <div class="flex items-center justify-between text-xs text-blue-900 mb-2">
                 <div><strong>Progreso métricas:</strong> <span id="metricsText">0 / 0</span></div>
                 <div><span id="metricsCounts">OK 0 · Vacíos 0 · Errores 0</span></div>
