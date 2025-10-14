@@ -80,11 +80,22 @@
                                 @endif
                             </td>
                             <td class="px-3 py-2">
-                                @if ($p->fb_permalink_url)
-                                    <a href="{{ $p->fb_permalink_url }}" target="_blank" rel="noopener"
+                                @php
+                                    $link = $p->fb_permalink_url;
+                                    if (
+                                        $p->type === 'video' &&
+                                        $p->fb_post_id &&
+                                        !str_contains($link, 'facebook.com')
+                                    ) {
+                                        $link = 'https://www.facebook.com/reel/' . $p->fb_post_id;
+                                    }
+                                @endphp
+
+                                @if ($link)
+                                    <a href="{{ $link }}" target="_blank" rel="noopener"
                                         class="text-indigo-600 hover:underline">Ver publicación</a>
                                     <button type="button" class="ml-2 text-xs text-gray-500 hover:text-gray-700"
-                                        onclick="navigator.clipboard.writeText('{{ $p->fb_permalink_url }}')">Copiar</button>
+                                        onclick="navigator.clipboard.writeText('{{ $link }}')">Copiar</button>
                                 @else
                                     <span class="text-gray-400">—</span>
                                 @endif
@@ -94,8 +105,8 @@
                                 {{ $p->published_at ? $p->published_at->format('Y-m-d H:i') : '—' }}
                             </td>
                             <td class="px-3 py-2">
-                                @if ($p->fb_permalink_url)
-                                    <a href="{{ $p->fb_permalink_url }}" target="_blank" rel="noopener"
+                                @if ($link)
+                                    <a href="{{ $link }}" target="_blank" rel="noopener"
                                         class="inline-block px-2 py-1 rounded bg-indigo-600 text-white text-xs">Abrir</a>
                                 @else
                                     <span class="text-gray-400 text-xs">—</span>
