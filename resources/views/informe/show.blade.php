@@ -101,14 +101,12 @@
                                 <td class="py-2 pr-4 text-right">{{ number_format($p->interacciones) }}</td>
                                 <td class="py-2 pr-4 text-center">
                                     @php
-                                        // Si es video y el enlace no contiene 'facebook.com', lo corregimos
-                                        $link = $p->any_permalink;
-                                        if (
-                                            $p->type === 'video' &&
-                                            $p->fb_post_id &&
-                                            !str_contains($link, 'facebook.com')
-                                        ) {
-                                            $link = 'https://www.facebook.com/reel/' . $p->fb_post_id;
+                                        $link = $summary['any_permalink'] ?? null;
+                                        $fb_id = $posts->first()->fb_post_id ?? null;
+                                        $type = $posts->first()->type ?? null;
+
+                                        if ($type === 'video' && $fb_id && !str_contains($link, 'facebook.com')) {
+                                            $link = 'https://www.facebook.com/reel/' . $fb_id;
                                         }
                                     @endphp
 
