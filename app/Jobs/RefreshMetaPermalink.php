@@ -146,7 +146,7 @@ class RefreshMetaPermalink implements ShouldQueue
                 return false;
             })
             ->withHeaders([
-                'User-Agent' => 'EditusBot/1.0 (+https://app.editus.online)',
+                'User-Agent' => 'EditusBot/1.0 (+https://www.facebook.com)',
             ])
             ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]]);
     }
