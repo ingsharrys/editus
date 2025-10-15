@@ -285,12 +285,14 @@ class MetaPostController extends Controller
 
         return back()->with('ok', "Se encolaron $countQueued reintentos.");
     }
-    public function startMetrics(Request $request, string $batch)
+
+
+    public function startMetricsSync(Request $request, string $batch)
     {
         $user = $request->user();
         $isAdmin = (int) ($user->role_id ?? 0) === 1;
 
-        // Verifica que el batch sea accesible por el usuario
+        // Validar acceso al batch
         $exists = MetaPost::query()
             ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id))
             ->where('batch_uuid', $batch)
@@ -300,58 +302,133 @@ class MetaPostController extends Controller
             return response()->json(['ok' => false, 'error' => 'Batch no encontrado o sin permisos.'], 404);
         }
 
-        $key = "metrics:batch:{$batch}:progress";
+        // Calcular universo a procesar (posts exitosos con fb_post_id)
+        $q = MetaPost::query()
+            ->where('batch_uuid', $batch)
+            ->where('status', 'success')
+            ->whereNotNull('fb_post_id')
+            ->orderBy('id');
 
-        // Si ya hay un progreso activo y no está terminado, no lances otro
-        $progress = Cache::get($key);
-        if ($progress && !($progress['finished'] ?? false)) {
-            return response()->json(['ok' => true, 'already_running' => true, 'progress' => $progress]);
+        if (!$isAdmin) {
+            $q->where('user_id', $user->id);
         }
 
-        // Inicializa progreso minimal mientras arranca el job
-        Cache::put($key, [
-            'total' => 0,
-            'done' => 0,
-            'ok' => 0,
-            'empty' => 0,
-            'errors' => 0,
-            'started_at' => now()->toIso8601String(),
-            'finished' => false,
-            'finished_at' => null,
-        ], now()->addHours(2));
+        $total = (clone $q)->count();
 
-        // Despacha el job
-        CollectBatchMetrics::dispatch(
-            batch: $batch,
-            onlyUserId: $isAdmin ? null : $user->id,
-            onlyForUser: !$isAdmin
-        )->onQueue('default');
+        $key = "metrics:sync:{$batch}:state";
+        $lock = Cache::lock("metrics:sync:{$batch}:lock", 120); // 120s
 
-        return response()->json(['ok' => true]);
+        if (!$lock->get()) {
+            // ya hay otro proceso corriendo
+            $state = Cache::get($key);
+            return response()->json(['ok' => true, 'already_running' => true, 'state' => $state]);
+        }
+
+        try {
+            // Inicializa estado
+            $state = [
+                'total' => $total,
+                'done' => 0,
+                'ok' => 0,
+                'empty' => 0,
+                'errors' => 0,
+                'cursor_id' => 0, // último ID procesado
+                'finished' => $total === 0,
+                'started_at' => now()->toIso8601String(),
+                'finished_at' => $total === 0 ? now()->toIso8601String() : null,
+                'scope_user' => $isAdmin ? null : $user->id, // para validar en steps
+            ];
+            Cache::put($key, $state, now()->addHours(2));
+        } finally {
+            optional($lock)->release();
+        }
+
+        return response()->json(['ok' => true, 'state' => Cache::get($key)]);
     }
 
-    public function metricsProgress(Request $request, string $batch)
+    public function metricsStep(Request $request, string $batch)
     {
         $user = $request->user();
         $isAdmin = (int) ($user->role_id ?? 0) === 1;
+        $limit = (int) ($request->input('limit', 25)); // items por paso (ajústalo)
+        $limit = max(1, min($limit, 100));
 
-        $exists = MetaPost::query()
-            ->when(!$isAdmin, fn($q) => $q->where('user_id', $user->id))
-            ->where('batch_uuid', $batch)
-            ->exists();
+        $key = "metrics:sync:{$batch}:state";
+        $lock = Cache::lock("metrics:sync:{$batch}:lock", 120);
 
-        if (!$exists) {
-            return response()->json(['ok' => false, 'error' => 'Batch no encontrado o sin permisos.'], 404);
+        $state = Cache::get($key);
+        if (!$state) {
+            return response()->json(['ok' => false, 'error' => 'No hay sesión de métricas inicializada.'], 400);
         }
 
-        $progress = Cache::get("metrics:batch:{$batch}:progress");
-        if (!$progress) {
-            return response()->json(['ok' => false, 'error' => 'Sin progreso disponible.'], 404);
+        // Chequeo de alcance: si no es admin, debe coincidir scope_user
+        if (!$isAdmin && (int) ($state['scope_user'] ?? 0) !== (int) $user->id) {
+            return response()->json(['ok' => false, 'error' => 'Sin permisos para continuar este batch.'], 403);
         }
 
-        return response()->json(['ok' => true, 'progress' => $progress]);
+        if (!empty($state['finished'])) {
+            return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
+        }
+
+        if (!$lock->get()) {
+            // otro step en curso
+            return response()->json(['ok' => true, 'state' => $state, 'busy' => true]);
+        }
+
+        try {
+            $cursor = (int) ($state['cursor_id'] ?? 0);
+
+            $q = MetaPost::query()
+                ->where('batch_uuid', $batch)
+                ->where('status', 'success')
+                ->whereNotNull('fb_post_id')
+                ->where('id', '>', $cursor)
+                ->orderBy('id')
+                ->limit($limit);
+
+            if (!$isAdmin) {
+                $q->where('user_id', $user->id);
+            }
+
+            $chunk = $q->get();
+            if ($chunk->isEmpty()) {
+                // terminado
+                $state['finished'] = true;
+                $state['finished_at'] = now()->toIso8601String();
+                Cache::put($key, $state, now()->addHours(2));
+                return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
+            }
+
+            // Procesar cada post (sin colas)
+            $svc = app(\App\Services\MetaInsightsService::class);
+
+            $lastId = $cursor;
+            foreach ($chunk as $post) {
+                try {
+                    $updated = $svc->updatePostMetrics($post);
+                    $state['done']++;
+                    $updated ? $state['ok']++ : $state['empty']++;
+                } catch (\Throwable $e) {
+                    $state['done']++;
+                    $state['errors']++;
+                    Log::warning('[metrics-sync] error', ['meta_post_id' => $post->id, 'err' => $e->getMessage()]);
+                }
+                $lastId = $post->id;
+            }
+
+            $state['cursor_id'] = $lastId;
+            if ($state['done'] >= (int) $state['total']) {
+                $state['finished'] = true;
+                $state['finished_at'] = now()->toIso8601String();
+            }
+
+            Cache::put($key, $state, now()->addHours(2));
+        } finally {
+            $lock->release();
+        }
+
+        return response()->json(['ok' => true, 'state' => Cache::get($key)]);
     }
-
 
 
 }

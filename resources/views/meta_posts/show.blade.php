@@ -54,15 +54,15 @@
             </form>
         @endif
 
-        {{-- NUEVO: botón obtener métricas --}}
+        {{-- Botón obtener métricas (SYNC, sin colas) --}}
         <div class="text-right mb-3 inline-block ml-2">
             <button id="btnMetrics" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-700">
                 Obtener métricas del lote
             </button>
         </div>
 
-        {{-- NUEVO: barra de progreso --}}
-        <div id="metricsPanel" class="hidden mt-2 rounded-xl border bg-white border-blue-200 p-3">
+        {{-- Barra de progreso --}}
+        <div id="metricsPanel" class="hidden mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
             <div class="flex items-center justify-between text-xs text-blue-900 mb-2">
                 <div><strong>Progreso métricas:</strong> <span id="metricsText">0 / 0</span></div>
                 <div><span id="metricsCounts">OK 0 · Vacíos 0 · Errores 0</span></div>
@@ -169,44 +169,56 @@
             const text = document.getElementById('metricsText');
             const counts = document.getElementById('metricsCounts');
             const bar = document.getElementById('metricsBar');
-            const batch = @json($summary['batch']);
-            const startUrl = "{{ route('meta.posts.metrics.start', $summary['batch']) }}";
-            const progUrl = "{{ route('meta.posts.metrics.progress', $summary['batch']) }}";
+
+            const startUrl = "{{ route('meta.posts.metrics.startSync', $summary['batch']) }}";
+            const stepUrl = "{{ route('meta.posts.metrics.step', $summary['batch']) }}";
             const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
 
-            let timer = null;
-
-            function setProgress(p) {
-                const total = p.total || 0;
-                const done = p.done || 0;
-                const ok = p.ok || 0;
-                const empty = p.empty || 0;
-                const errs = p.errors || 0;
+            function setProgress(state) {
+                const total = state?.total || 0;
+                const done = state?.done || 0;
+                const ok = state?.ok || 0;
+                const empty = state?.empty || 0;
+                const errs = state?.errors || 0;
                 text.textContent = `${done} / ${total}`;
                 counts.textContent = `OK ${ok} · Vacíos ${empty} · Errores ${errs}`;
-                const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
                 bar.style.width = pct + '%';
             }
 
-            async function poll() {
+            async function runStep() {
                 try {
-                    const r = await fetch(progUrl, {
+                    const r = await fetch(stepUrl, {
+                        method: 'POST',
                         headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': token,
                             'X-Requested-With': 'XMLHttpRequest'
-                        }
+                        },
+                        body: JSON.stringify({
+                            limit: 25
+                        })
                     });
                     const j = await r.json();
-                    if (!j.ok) return;
-                    const p = j.progress || {};
-                    setProgress(p);
-                    if (p.finished) {
-                        clearInterval(timer);
-                        timer = null;
-                        // opcional: refrescar después de 1.5s
-                        setTimeout(() => location.reload(), 1500);
+                    if (!j.ok) {
+                        alert(j.error || 'Error en step');
+                        btn.disabled = false;
+                        btn.classList.remove('opacity-60', 'cursor-not-allowed');
+                        return;
+                    }
+                    setProgress(j.state);
+                    if (j.done || j.state?.finished) {
+                        // Terminado
+                        setTimeout(() => location.reload(), 1200);
+                    } else {
+                        // Sigue procesando el siguiente bloque
+                        // Pequeño respiro para no saturar
+                        setTimeout(runStep, 300);
                     }
                 } catch (e) {
-                    console.warn('poll error', e);
+                    alert('Error de red en step');
+                    btn.disabled = false;
+                    btn.classList.remove('opacity-60', 'cursor-not-allowed');
                 }
             }
 
@@ -214,7 +226,6 @@
                 e.preventDefault();
                 btn.disabled = true;
                 btn.classList.add('opacity-60', 'cursor-not-allowed');
-
                 panel.classList.remove('hidden');
                 setProgress({
                     total: 0,
@@ -230,26 +241,27 @@
                         headers: {
                             'Content-Type': 'application/json',
                             'X-CSRF-TOKEN': token,
-                            'X-Requested-With': 'XMLHttpRequest',
+                            'X-Requested-With': 'XMLHttpRequest'
                         },
                         body: JSON.stringify({
                             start: true
-                        }),
+                        })
                     });
                     const j = await r.json();
                     if (!j.ok && !j.already_running) {
-                        alert(j.error || 'No se pudo iniciar la recolección de métricas.');
+                        alert(j.error || 'No se pudo iniciar.');
                         btn.disabled = false;
                         btn.classList.remove('opacity-60', 'cursor-not-allowed');
                         return;
                     }
-                    // empieza a poller
-                    if (!timer) {
-                        timer = setInterval(poll, 1500);
-                        poll();
+                    // set progreso inicial si vino en la respuesta
+                    if (j.state) {
+                        setProgress(j.state);
                     }
-                } catch (e2) {
-                    alert('Error iniciando métricas.');
+                    // empezar a “pasitos”
+                    runStep();
+                } catch (e) {
+                    alert('Error de red al iniciar');
                     btn.disabled = false;
                     btn.classList.remove('opacity-60', 'cursor-not-allowed');
                 }
