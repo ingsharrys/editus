@@ -123,6 +123,16 @@
                     Arreglar tokens (insights)
                 </button>
             </div>
+            <div id="repairBox" class="hidden mt-3 w-full sm:w-96">
+                <div class="flex justify-between text-xs mb-1">
+                    <span id="repairLabel" class="text-gray-600">Preparando…</span>
+                    <span id="repairPct" class="text-gray-600">0%</span>
+                </div>
+                <div class="w-full bg-gray-100 rounded h-2 overflow-hidden">
+                    <div id="repairBar" class="h-2 bg-emerald-500" style="width:0%"></div>
+                </div>
+                <div id="repairStats" class="mt-1 text-[11px] text-gray-500"></div>
+            </div>
         </div>
 
 
@@ -961,6 +971,79 @@
                 updateMsg();
                 toggleClear();
                 refreshUI();
+            })();
+        </script>
+        <script>
+            (function() {
+                const btn = document.getElementById('btnRepairTokens');
+                const box = document.getElementById('repairBox');
+                const bar = document.getElementById('repairBar');
+                const pct = document.getElementById('repairPct');
+                const label = document.getElementById('repairLabel');
+                const stats = document.getElementById('repairStats');
+
+                async function post(url, data = {}) {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Accept': 'application/json',
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+                    return res.json();
+                }
+
+                async function start() {
+                    btn.disabled = true;
+                    box.classList.remove('hidden');
+                    label.textContent = 'Inicializando…';
+                    bar.style.width = '0%';
+                    pct.textContent = '0%';
+                    stats.textContent = '';
+
+                    const startUrl = "{{ route('meta.pages.repairTokens.start') }}";
+                    const stepUrl = "{{ route('meta.pages.repairTokens.step') }}";
+
+                    const s = await post(startUrl);
+                    if (!s.ok) {
+                        label.textContent = 'Error: ' + (s.error || 'inicio');
+                        btn.disabled = false;
+                        return;
+                    }
+
+                    async function step() {
+                        const r = await post(stepUrl, {
+                            limit: 25
+                        });
+                        if (!r.ok) {
+                            label.textContent = 'Error en step';
+                            btn.disabled = false;
+                            return;
+                        }
+
+                        const st = r.state;
+                        const total = st.total || 1;
+                        const done = st.done || 0;
+                        const perc = Math.round(done * 100 / total);
+
+                        bar.style.width = perc + '%';
+                        pct.textContent = perc + '%';
+                        label.textContent = st.finished ? 'Terminado' : 'Procesando…';
+                        stats.textContent =
+                            `Total: ${total} | Listos: ${st.kept} | Fix: ${st.fixed} | Errores: ${st.errors}`;
+
+                        if (st.finished) {
+                            btn.disabled = false;
+                            return;
+                        }
+                        setTimeout(step, 500);
+                    }
+                    step();
+                }
+
+                if (btn) btn.addEventListener('click', start);
             })();
         </script>
     </div>
