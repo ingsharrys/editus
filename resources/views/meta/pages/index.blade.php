@@ -116,7 +116,13 @@
 
                 </div>
             </div>
-
+            <div class="w-full sm:w-44">
+                <button id="btnRepairTokens"
+                    class="w-full text-xs px-3 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
+                    {{ $hasFb ? '' : 'disabled' }}>
+                    Arreglar tokens (insights)
+                </button>
+            </div>
         </div>
 
 

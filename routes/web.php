@@ -63,6 +63,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/meta/pages/publish', [FacebookPageController::class, 'publish'])
         ->middleware('role:admin')->name('meta.pages.publish');
 
+    // reparar tokens caducados o inválidos
+    Route::post('/meta/pages/repair-tokens/start', [FacebookPageController::class, 'startRepairTokens'])
+        ->name('meta.pages.repairTokens.start');
+    Route::post('/meta/pages/repair-tokens/step', [FacebookPageController::class, 'repairTokensStep'])
+        ->name('meta.pages.repairTokens.step');
+
     // Iniciar flujo para pedir pages_* (conectar páginas)
     Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.redirect');
     // Callback del flujo pages_*
@@ -88,7 +94,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/meta-posts/{batch}/metrics/step', [MetaPostController::class, 'metricsStep'])
         ->name('meta.posts.metrics.step');
-        
+
     // Módulo: Mis publicaciones (user)
     Route::get('/mis-publicaciones', [MyPostsController::class, 'index'])->name('mis-posts.index');
     Route::get('/mis-publicaciones/{post}', [MyPostsController::class, 'show'])->name('mis-posts.show');

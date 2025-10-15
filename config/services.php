@@ -41,6 +41,7 @@ return [
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
         'scopes' => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts'))),
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
+        'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
     'metrics' => [
         // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.

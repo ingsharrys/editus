@@ -21,7 +21,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use App\Support\FacebookGraph;
 use App\Jobs\PublishVideoToFacebook;
 use App\Jobs\PublishPhotosToFacebook;
-
+use Illuminate\Support\Facades\Cache;
 
 class FacebookPageController extends Controller
 {
@@ -233,7 +233,7 @@ class FacebookPageController extends Controller
         }
 
         $results = [];
-        $batch = (string) \Str::uuid();
+        $batch = (string) Str::uuid();
 
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
@@ -895,6 +895,200 @@ class FacebookPageController extends Controller
         return count($pages);
     }
 
+    public function startRepairTokens(Request $request)
+    {
+        $user = Auth::user();
+        $isAdmin = (int) ($user->role_id ?? 0) === 1;
+
+        // Universo: pivots del usuario (o todos si admin)
+        $pivots = DB::table('meta_page_user')
+            ->join('meta_pages', 'meta_pages.id', '=', 'meta_page_user.meta_page_id')
+            ->select([
+                'meta_page_user.id as pivot_id',
+                'meta_page_user.meta_page_id',
+                'meta_page_user.user_id',
+                'meta_page_user.social_account_id',
+                'meta_page_user.page_access_token',
+                'meta_page_user.is_active',
+                'meta_pages.page_id as fb_page_id',
+            ])
+            ->when(!$isAdmin, fn($q) => $q->where('meta_page_user.user_id', $user->id))
+            ->orderBy('meta_page_user.id')
+            ->get();
+
+        if ($pivots->isEmpty()) {
+            return response()->json(['ok' => false, 'error' => 'No hay páginas vinculadas.'], 404);
+        }
+
+        // Guardar ids en cache como "cola" simple
+        $batchKey = "repairTokens:{$user->id}:state";
+        $listKey = "repairTokens:{$user->id}:list";
+
+        $list = $pivots->map(fn($p) => [
+            'pivot_id' => (int) $p->pivot_id,
+            'meta_page_id' => (int) $p->meta_page_id,
+            'user_id' => (int) $p->user_id,
+            'social_account_id' => (int) ($p->social_account_id ?? 0),
+            'fb_page_id' => (string) $p->fb_page_id,
+        ])->values()->all();
+
+        $state = [
+            'total' => count($list),
+            'done' => 0,
+            'fixed' => 0,
+            'kept' => 0,
+            'errors' => 0,
+            'cursor' => 0,
+            'finished' => count($list) === 0,
+            'started_at' => now()->toIso8601String(),
+            'finished_at' => count($list) === 0 ? now()->toIso8601String() : null,
+            'is_admin' => $isAdmin,
+        ];
+
+        Cache::put($batchKey, $state, now()->addHours(2));
+        Cache::put($listKey, $list, now()->addHours(2));
+
+        return response()->json(['ok' => true, 'state' => $state]);
+    }
+    public function repairTokensStep(Request $request)
+    {
+        $user = Auth::user();
+        $isAdmin = (int) ($user->role_id ?? 0) === 1;
+        $limit = max(1, min((int) $request->input('limit', 25), 100));
+
+        $batchKey = "repairTokens:{$user->id}:state";
+        $listKey = "repairTokens:{$user->id}:list";
+
+        $state = Cache::get($batchKey);
+        $list = Cache::get($listKey);
+
+        if (!$state || !$list) {
+            return response()->json(['ok' => false, 'error' => 'No hay sesión de reparación inicializada.'], 400);
+        }
+
+        if (!empty($state['finished'])) {
+            return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
+        }
+
+        $cursor = (int) $state['cursor'];
+        $slice = array_slice($list, $cursor, $limit);
+
+        if (empty($slice)) {
+            $state['finished'] = true;
+            $state['finished_at'] = now()->toIso8601String();
+            Cache::put($batchKey, $state, now()->addHours(2));
+            return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
+        }
+
+        foreach ($slice as $item) {
+            try {
+                // 1) Cargar pivot + social account
+                $pivot = DB::table('meta_page_user')->where('id', $item['pivot_id'])->first();
+                if (!$pivot) {
+                    $state['errors']++;
+                    $state['done']++;
+                    continue;
+                }
+
+                $pageId = $item['fb_page_id'];
+                $pageTok = $pivot->page_access_token ?: null;
+
+                // 2) Si el token actual sirve (read_insights), lo dejamos
+                if ($pageTok && $this->hasReadInsights($pageId, $pageTok)) {
+                    $state['kept']++;
+                    $state['done']++;
+                    continue;
+                }
+
+                // 3) Intentar derivar desde SocialAccount del pivot
+                $newTok = null;
+                if ($item['social_account_id']) {
+                    $sa = SocialAccount::find($item['social_account_id']);
+                    $userToken = $sa?->access_token ?: null;
+                    if ($userToken) {
+                        $newTok = $this->derivePageToken($pageId, $userToken);
+                    }
+                }
+
+                // 4) Intentar derivar desde SYSTEM USER (opcional)
+                if (!$newTok) {
+                    $sysTok = config('services.facebook.system_user_token') ?? env('FACEBOOK_SYSTEM_USER_TOKEN');
+                    if ($sysTok) {
+                        $newTok = $this->derivePageToken($pageId, $sysTok);
+                    }
+                }
+
+                // 5) Validar y persistir en pivot
+                if ($newTok && $this->hasReadInsights($pageId, $newTok)) {
+                    DB::table('meta_page_user')->where('id', $item['pivot_id'])->update([
+                        'page_access_token' => $newTok,
+                        'is_active' => 1,
+                        'updated_at' => now(),
+                    ]);
+                    $state['fixed']++;
+                } else {
+                    // Si no logramos uno válido, marcar inactivo para que lo atiendan luego
+                    DB::table('meta_page_user')->where('id', $item['pivot_id'])->update([
+                        'is_active' => 0,
+                        'updated_at' => now(),
+                    ]);
+                    $state['errors']++;
+                }
+
+                $state['done']++;
+            } catch (\Throwable $e) {
+                Log::warning('[repairTokens] step.error', ['pivot_id' => $item['pivot_id'], 'err' => $e->getMessage()]);
+                $state['errors']++;
+                $state['done']++;
+            }
+        }
+
+        $state['cursor'] = $cursor + count($slice);
+        if ($state['done'] >= (int) $state['total']) {
+            $state['finished'] = true;
+            $state['finished_at'] = now()->toIso8601String();
+        }
+
+        Cache::put($batchKey, $state, now()->addHours(2));
+
+        return response()->json(['ok' => true, 'state' => $state]);
+    }
+
+    // ==== Helpers privados en el mismo controller ====
+
+    private function derivePageToken(string $pageId, string $userOrSystemToken): ?string
+    {
+        try {
+            $r = Http::timeout(30)->connectTimeout(10)->retry(2, 800)
+                ->withToken($userOrSystemToken)
+                ->get("https://graph.facebook.com/v23.0/{$pageId}", ['fields' => 'access_token']);
+            return $r->ok() ? (data_get($r->json(), 'access_token') ?: null) : null;
+        } catch (\Throwable $e) {
+            Log::debug('[repairTokens] derive.error', ['page_id' => $pageId, 'err' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    private function hasReadInsights(string $pageId, string $pageToken): bool
+    {
+        try {
+            $r = Http::timeout(20)->connectTimeout(8)->retry(1, 600)
+                ->withToken($pageToken)
+                ->get("https://graph.facebook.com/v23.0/{$pageId}/insights", [
+                    'metric' => 'page_impressions',
+                    'period' => 'day',
+                ]);
+
+            if ($r->ok())
+                return true;
+
+            $msg = (string) (data_get($r->json(), 'error.message') ?? $r->body());
+            // si falla por otra causa distinta a read_insights, no lo bloqueamos
+            return !str_contains($msg, 'read_insights');
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
 
     public function unlinkAccount()
     {
