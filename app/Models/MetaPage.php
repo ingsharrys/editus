@@ -19,12 +19,15 @@ class MetaPage extends Model
         'tasks' => 'array',
     ];
 
+    // MetaPage.php
     public function users()
     {
-        return $this->belongsToMany(User::class, 'meta_page_user')
-            ->withPivot(['page_access_token', 'social_account_id', 'expires_at', 'is_active'])
+        return $this->belongsToMany(User::class, 'meta_page_user', 'meta_page_id', 'user_id')
+            ->using(\App\Models\MetaPageUser::class)
+            ->withPivot(['social_account_id', 'page_access_token', 'expires_at', 'is_active'])
             ->withTimestamps();
     }
+
     public function pictureUrl(string $type = 'normal', ?int $width = null, ?int $height = null): string
     {
         // Si prefieres forzar siempre Graph:
