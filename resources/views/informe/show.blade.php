@@ -21,26 +21,37 @@
         </div>
 
         {{-- Panel de gráfica (solo barra) --}}
-        @php
-            $eff = $summary['effective_at']
-                ? \Carbon\Carbon::parse($summary['effective_at'])->timezone(config('app.timezone'))->format('d/m/Y H:i')
-                : '—';
+       @php
+    // Fecha efectiva formateada (published_at o created_at, según lo que mandó el controller en $summary['effective_at'])
+    $eff = $summary['effective_at']
+        ? \Carbon\Carbon::parse($summary['effective_at'])
+            ->timezone(config('app.timezone'))
+            ->format('d/m/Y H:i')
+        : '—';
 
-            // Construimos un "resumen por página" directamente desde $posts
-            $pageSummary = $posts
-                ->groupBy(fn($p) => $p->page->name ?? '—')
-                ->map(function ($group) {
-                    return (object) [
-                        'page_name' => $group->first()->page->name ?? '—',
-                        'alcance' => (int) $group->sum(fn($p) => (int) ($p->alcance ?? 0)),
-                        'visualizaciones' => (int) $group->sum(fn($p) => (int) ($p->visualizaciones ?? 0)),
-                        'interacciones' => (int) $group->sum(fn($p) => (int) ($p->interacciones ?? 0)),
-                        'any_permalink' => optional($group->firstWhere('fb_permalink_url'))?->fb_permalink_url,
-                    ];
-                })
-                ->sortBy('page_name')
-                ->values();
-        @endphp
+    // Tu pageSummary tal cual:
+    $pageSummary = $posts
+        ->groupBy(fn($p) => $p->page->name ?? '—')
+        ->map(function ($group) {
+            $sample = $group->filter(fn($p) => !empty($p->fb_permalink_url))->last() ?? $group->last();
+
+            return (object) [
+                'page_name'         => $group->first()->page->name ?? '—',
+                'alcance'           => (int) $group->sum(fn($p) => (int) ($p->alcance ?? 0)),
+                'visualizaciones'   => (int) $group->sum(fn($p) => (int) ($p->visualizaciones ?? 0)),
+                'interacciones'     => (int) $group->sum(fn($p) => (int) ($p->interacciones ?? 0)),
+                'sample_permalink'  => $sample->fb_permalink_url ?? null,
+                'sample_link'       => $sample->link ?? null,
+                'sample_type'       => $sample->type ?? null,
+                'sample_fb_post_id' => $sample->fb_post_id ?? null,
+            ];
+        })
+        ->sortBy('page_name')
+        ->values();
+@endphp
+
+
+
 
         <div class="rounded-2xl border bg-white p-6 shadow-sm mb-6">
             <div class="text-sm text-gray-500 mb-1">{{ $eff }}</div>
@@ -101,18 +112,24 @@
                                 <td class="py-2 pr-4 text-right">{{ number_format($p->interacciones) }}</td>
                                 <td class="py-2 pr-4 text-center">
                                     @php
-                                        $link = $summary['any_permalink'] ?? null;
-                                        $fb_id = $posts->first()->fb_post_id ?? null;
-                                        $type = $posts->first()->type ?? null;
+                                        $link = $p->sample_permalink ?: $p->sample_link;
 
-                                        if ($type === 'video' && $fb_id && !str_contains($link, 'facebook.com')) {
-                                            $link = 'https://www.facebook.com/reel/' . $fb_id;
+                                        if ($p->sample_type === 'video' && $p->sample_fb_post_id) {
+                                            $isFacebook =
+                                                $link &&
+                                                (str_contains($link, 'facebook.com') ||
+                                                    str_contains($link, 'fb.watch'));
+                                            if (!$link || !$isFacebook) {
+                                                $link = 'https://www.facebook.com/reel/' . $p->sample_fb_post_id;
+                                            }
                                         }
                                     @endphp
 
                                     @if ($link)
                                         <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
-                                            class="underline text-indigo-600">Abrir</a>
+                                            class="underline text-indigo-600">
+                                            Abrir
+                                        </a>
                                     @else
                                         <span class="text-gray-400">—</span>
                                     @endif
@@ -150,7 +167,7 @@
         (function() {
             // Datos precalculados desde el controlador
             const byPage =
-            @json($chartByPage); // { labels: [...], datasets: { Alcance:[...], Visualizaciones:[...], Interacciones:[...] } }
+                @json($chartByPage); // { labels: [...], datasets: { Alcance:[...], Visualizaciones:[...], Interacciones:[...] } }
 
             const labels = byPage.labels || [];
             const datasets = {
