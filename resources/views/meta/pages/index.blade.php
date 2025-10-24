@@ -369,7 +369,10 @@
 
                             <div class="min-w-0">
                                 <div class="truncate font-semibold flex items-center gap-1">
-                                    {{ $p->name }}
+                                    <a href="{{ route('facebook-pages.show', $p) }}"
+                                        class="hover:underline focus:underline outline-none cursor-pointer">
+                                        {{ $p->name }}
+                                    </a>
                                     @if ($isFav)
                                         <span class="text-yellow-500" title="Favorito">⭐</span>
                                     @endif

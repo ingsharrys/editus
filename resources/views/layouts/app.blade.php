@@ -8,6 +8,7 @@
 
     <title>{{ config('app.name', 'Editus') }}</title>
     <link rel="icon" href="{{ asset('img/logo.jpg') }}" type="image/png">
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">

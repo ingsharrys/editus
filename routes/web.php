@@ -59,6 +59,8 @@ Route::middleware(['auth', 'role:user'])->group(function () {
 */
 Route::middleware(['auth'])->group(function () {
     Route::get('/meta/pages', [FacebookPageController::class, 'index'])->name('meta.pages.index');
+    Route::resource('facebook-pages', FacebookPageController::class)
+        ->only(['index', 'show']);
     Route::post('/meta/pages/sync', [FacebookPageController::class, 'sync'])->name('meta.pages.sync');
     Route::post('/meta/pages/publish', [FacebookPageController::class, 'publish'])
         ->middleware('role:admin')->name('meta.pages.publish');

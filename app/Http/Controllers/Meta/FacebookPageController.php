@@ -31,6 +31,48 @@ class FacebookPageController extends Controller
     {
         $this->fb = $fb;
     }
+    // app/Http/Controllers/FacebookPageController.php
+
+    public function show(MetaPage $facebook_page)
+    {
+        $user = Auth::user();
+        $facebook_page->load('users'); // para revisar pivots/permiso
+
+        $isAdmin = $user->isAdmin();
+        $myPivot = $facebook_page->users->firstWhere('id', $user->id)?->pivot;
+
+        $canView = $isAdmin || ($myPivot && $myPivot->is_active && !empty($myPivot->page_access_token));
+        abort_unless($canView, 403, 'No tienes permiso para ver esta página.');
+
+        // Publicaciones de esta página (agregamos fb_permalink_url y link)
+        $posts = \App\Models\MetaPost::where('meta_page_id', $facebook_page->id)
+            ->latest('published_at')
+            ->get([
+                'id',
+                'message',
+                'published_at',
+                'alcance',
+                'visualizaciones',
+                'interacciones',
+                'fb_permalink_url',
+                'link',
+            ]);
+
+        // Totales
+        $totals = [
+            'publicaciones' => $posts->count(),
+            'alcance' => (int) $posts->sum('alcance'),
+            'visualizaciones' => (int) $posts->sum('visualizaciones'),
+            'interacciones' => (int) $posts->sum('interacciones'),
+        ];
+
+        return view('meta.pages.show', [
+            'page' => $facebook_page,
+            'posts' => $posts,
+            'totals' => $totals,
+        ]);
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
