@@ -49,6 +49,8 @@ class FacebookPageController extends Controller
             ->latest('published_at')
             ->get([
                 'id',
+                'type',            // 👈 necesario
+                'fb_post_id',      // 👈 necesario
                 'message',
                 'published_at',
                 'alcance',
