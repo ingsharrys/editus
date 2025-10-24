@@ -195,7 +195,7 @@ class MetaInsightsService
 
         // 1) Resolver SIEMPRE Page Token del pivot (y saber su fuente)
         //    Esperado: ['token' => '...', 'source' => 'page_pivot', 'user_id' => X]
-        $tokInfo = $this->resolvePageToken($post->meta_page_id, $post->user_id ?? null);
+        $tokInfo = $this->resolvePageToken($post->meta_page_id);
         if (!$tokInfo) {
             Log::warning('[metrics] no-page-token', $ctx + ['author_user_id' => $post->user_id]);
             return false;
@@ -277,19 +277,68 @@ class MetaInsightsService
             return [$out, $resp];
         };
 
-        $getEngagement = function (string $postId) use ($httpGet) {
-            [$data, $resp] = $httpGet(
-                "https://graph.facebook.com/v23.0/{$postId}",
+        $getEngagement = function (string $id) use ($httpGet) {
+            $gotAny = false;
+
+            // 1) REACCIONES
+            $reactions = null;
+
+            // Insights solo aplica a post-id del feed (formato pageId_postId: contiene "_")
+            if (str_contains($id, '_')) {
+                [$ins, $respI] = $httpGet(
+                    "https://graph.facebook.com/v23.0/{$id}/insights",
+                    [
+                        'metric' => 'post_reactions_by_type_total',
+                        'period' => 'lifetime',
+                    ]
+                );
+                if (is_array($ins)) {
+                    $val = data_get($ins, 'data.0.values.0.value');
+                    if (is_array($val)) {
+                        $reactions = array_sum(array_map('intval', $val));
+                        $gotAny = true;
+                    }
+                }
+            }
+
+            // Fallback reacciones (sirve para post o video): summary(total_count)
+            if ($reactions === null) {
+                [$dataR, $respR] = $httpGet(
+                    "https://graph.facebook.com/v23.0/{$id}/reactions",
+                    [
+                        'summary' => 'total_count',
+                        'limit' => 0,
+                    ]
+                );
+                if (is_array($dataR)) {
+                    $reactions = (int) data_get($dataR, 'summary.total_count', 0);
+                    $gotAny = true;
+                }
+            }
+
+            // 2) COMENTARIOS + SHARES (desde el objeto)
+            $comments = null;
+            $shares = null;
+
+            [$dataC, $respC] = $httpGet(
+                "https://graph.facebook.com/v23.0/{$id}",
                 [
-                    'fields' => 'reactions.limit(0).summary(true),comments.limit(0).summary(true),shares'
+                    'fields' => 'comments.summary(total_count).limit(0),shares',
                 ]
             );
-            if (!$data || isset($data['error']))
+            if (is_array($dataC)) {
+                $comments = (int) data_get($dataC, 'comments.summary.total_count', 0);
+                $shares = (int) data_get($dataC, 'shares.count', 0);
+                $gotAny = true;
+            }
+
+            // Si ninguna llamada devolvió nada usable, regresamos null para que cuente como "empty"
+            if (!$gotAny) {
                 return null;
-            $reac = (int) (data_get($data, 'reactions.summary.total_count') ?? 0);
-            $comms = (int) (data_get($data, 'comments.summary.total_count') ?? 0);
-            $shares = (int) (data_get($data, 'shares.count') ?? 0);
-            return $reac + $comms + $shares;
+            }
+
+            // Suma final: reacciones + comentarios + compartidos
+            return (int) ($reactions ?? 0) + (int) ($comments ?? 0) + (int) ($shares ?? 0);
         };
 
         // 4) Flags e iniciales
