@@ -289,7 +289,8 @@ class MetaInsightsService
         $until = $published->copy()->addHours(24)->timestamp;
 
         $endpoint = "https://graph.facebook.com/v23.0/{$pageIdReal}/published_posts";
-        $fields = 'id,created_time,permalink_url,object_id,status_type';
+        // ⚠️ Campos “seguros” en el edge de página (evita object_id / attachments / status_type aquí)
+        $fields = 'id,created_time,permalink_url';
         $params = [
             'fields' => $fields,
             'since' => $since,
@@ -322,27 +323,28 @@ class MetaInsightsService
                     if (!$pid)
                         continue;
 
-                    // 1) match directo por object_id
-                    if (!empty($post['object_id']) && (string) $post['object_id'] === (string) $videoId) {
-                        Log::info('[metrics] feed.scan.match.object_id', [
-                            'page_id' => $pageIdReal,
-                            'video_id' => $videoId,
-                            'post_id' => $pid
-                        ]);
-                        return $pid;
-                    }
-
-                    // 2) SIN attachments en el edge de página (para evitar code 12):
-                    //    hacemos una llamada por post para pedir attachments.
+                    // 🔎 Fetch POR POST (aquí sí pedimos object_id y attachments)
                     try {
                         $postResp = Http::withToken($pageToken)
                             ->acceptJson()->timeout(25)->connectTimeout(10)
                             ->get("https://graph.facebook.com/v23.0/{$pid}", [
-                                'fields' => 'id,attachments{target{id},media_type}'
+                                'fields' => 'id,object_id,attachments{target{id},media_type}'
                             ]);
 
                         if ($postResp->ok()) {
-                            foreach ((array) data_get($postResp->json(), 'attachments.data', []) as $att) {
+                            $pj = $postResp->json();
+                            $objId = data_get($pj, 'object_id');
+
+                            if ($objId && (string) $objId === (string) $videoId) {
+                                Log::info('[metrics] feed.scan.match.object_id', [
+                                    'page_id' => $pageIdReal,
+                                    'video_id' => $videoId,
+                                    'post_id' => $pid
+                                ]);
+                                return $pid;
+                            }
+
+                            foreach ((array) data_get($pj, 'attachments.data', []) as $att) {
                                 $targetId = data_get($att, 'target.id');
                                 if ($targetId && (string) $targetId === (string) $videoId) {
                                     Log::info('[metrics] feed.scan.match.attachment', [
@@ -370,7 +372,7 @@ class MetaInsightsService
 
                 // paginación
                 $url = data_get($json, 'paging.next');
-                $params = []; // paging.next ya incluye query params
+                $params = []; // next ya incluye query params
             }
         } catch (\Throwable $e) {
             Log::warning('[metrics] feed.scan.exception', [
@@ -381,6 +383,7 @@ class MetaInsightsService
         }
         return null;
     }
+
 
     /**
      * Resuelve el page_id REAL usando el Page Access Token.
@@ -643,14 +646,10 @@ class MetaInsightsService
             }
         }
 
-        if ($engagementPostId) {
-            $rx = $this->fetchReactionsTotalForPost($engagementPostId, $pageToken, $ctx);
-            if ($rx !== null) {
-                $interacciones = (int) $rx;
-                $sources['reactions_from'] = $engagementPostId;
-            }
-        }
 
+        if (!$engagementPostId) {
+            Log::info('[metrics] no-feed-post-for-video', $ctx + ['reason' => 'no post/story referencing video']);
+        }
 
         if ($engagementPostId) {
             $rx = $this->fetchReactionsTotalForPost($engagementPostId, $pageToken, $ctx);
