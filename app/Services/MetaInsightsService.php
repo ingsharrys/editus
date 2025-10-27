@@ -288,10 +288,10 @@ class MetaInsightsService
         $since = $published->copy()->subHours(2)->timestamp;
         $until = $published->copy()->addHours(24)->timestamp;
 
-        // Usar published_posts (mejor que posts)
         $endpoint = "https://graph.facebook.com/v23.0/{$pageIdReal}/published_posts";
+        $fields = 'id,created_time,permalink_url,object_id,status_type';
         $params = [
-            'fields' => 'id,created_time,object_id,permalink_url,attachments{target{id}}',
+            'fields' => $fields,
             'since' => $since,
             'until' => $until,
             'limit' => 100,
@@ -300,7 +300,7 @@ class MetaInsightsService
         try {
             $url = $endpoint;
             $tries = 0;
-            while ($url && $tries < 8) { // máx ~800 posts
+            while ($url && $tries < 8) {
                 $tries++;
                 $resp = Http::withToken($pageToken)
                     ->acceptJson()->timeout(40)->connectTimeout(10)
@@ -322,18 +322,49 @@ class MetaInsightsService
                     if (!$pid)
                         continue;
 
-                    // match por object_id
+                    // 1) match directo por object_id
                     if (!empty($post['object_id']) && (string) $post['object_id'] === (string) $videoId) {
-                        Log::info('[metrics] feed.scan.match.object_id', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'post_id' => $pid]);
+                        Log::info('[metrics] feed.scan.match.object_id', [
+                            'page_id' => $pageIdReal,
+                            'video_id' => $videoId,
+                            'post_id' => $pid
+                        ]);
                         return $pid;
                     }
-                    // match por attachments.target.id
-                    foreach (($post['attachments']['data'] ?? []) as $att) {
-                        $targetId = data_get($att, 'target.id');
-                        if ($targetId && (string) $targetId === (string) $videoId) {
-                            Log::info('[metrics] feed.scan.match.attachment', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'post_id' => $pid]);
-                            return $pid;
+
+                    // 2) SIN attachments en el edge de página (para evitar code 12):
+                    //    hacemos una llamada por post para pedir attachments.
+                    try {
+                        $postResp = Http::withToken($pageToken)
+                            ->acceptJson()->timeout(25)->connectTimeout(10)
+                            ->get("https://graph.facebook.com/v23.0/{$pid}", [
+                                'fields' => 'id,attachments{target{id},media_type}'
+                            ]);
+
+                        if ($postResp->ok()) {
+                            foreach ((array) data_get($postResp->json(), 'attachments.data', []) as $att) {
+                                $targetId = data_get($att, 'target.id');
+                                if ($targetId && (string) $targetId === (string) $videoId) {
+                                    Log::info('[metrics] feed.scan.match.attachment', [
+                                        'page_id' => $pageIdReal,
+                                        'video_id' => $videoId,
+                                        'post_id' => $pid
+                                    ]);
+                                    return $pid;
+                                }
+                            }
+                        } else {
+                            Log::warning('[metrics] feed.scan.post.fetch.fail', [
+                                'post_id' => $pid,
+                                'status' => $postResp->status(),
+                                'body' => $postResp->body(),
+                            ]);
                         }
+                    } catch (\Throwable $e) {
+                        Log::warning('[metrics] feed.scan.post.fetch.exception', [
+                            'post_id' => $pid,
+                            'err' => $e->getMessage()
+                        ]);
                     }
                 }
 
@@ -342,10 +373,15 @@ class MetaInsightsService
                 $params = []; // paging.next ya incluye query params
             }
         } catch (\Throwable $e) {
-            Log::warning('[metrics] feed.scan.exception', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'err' => $e->getMessage()]);
+            Log::warning('[metrics] feed.scan.exception', [
+                'page_id' => $pageIdReal,
+                'video_id' => $videoId,
+                'err' => $e->getMessage()
+            ]);
         }
         return null;
     }
+
     /**
      * Resuelve el page_id REAL usando el Page Access Token.
      * Con un Page Token, /me devuelve la Page.
