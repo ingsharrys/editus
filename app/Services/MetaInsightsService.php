@@ -196,17 +196,23 @@ class MetaInsightsService
     {
         try {
             $resp = Http::withToken($pageToken)
-                ->acceptJson()->timeout(30)->connectTimeout(10)
+                ->acceptJson()->timeout(25)->connectTimeout(10)
                 ->get("https://graph.facebook.com/v23.0/{$videoId}", [
-                    'fields' => 'id,creation_story{id},permalink_url'
+                    'fields' => 'id,creation_story{id}'
                 ]);
-            if (!$resp->ok())
-                return null;
-            return data_get($resp->json(), 'creation_story.id');
+
+            if ($resp->ok()) {
+                $pid = data_get($resp->json(), 'creation_story.id');
+                return $pid ? (string) $pid : null;
+            }
         } catch (\Throwable $e) {
-            return null;
+            Log::debug('[metrics] resolvePostIdFromVideoLight.exception', ['video_id' => $videoId, 'err' => $e->getMessage()]);
         }
+
+        return null;
     }
+
+
 
     /**
      * Obtiene total de reacciones (likes y variantes) desde cualquier objeto (post o video).
@@ -214,6 +220,12 @@ class MetaInsightsService
      */
     private function fetchReactionsTotal(string $objectId, string $pageToken, array $logCtx, bool $isPostId): ?int
     {
+        // Guard: nunca consultes reacciones en Video
+        if (!$isPostId) {
+            Log::info('[metrics] reactions.skip.video', $logCtx + ['object_id' => $objectId]);
+            return null;
+        }
+
         // 1) Intento directo con /reactions
         try {
             $rx = Http::withToken($pageToken)
@@ -237,22 +249,16 @@ class MetaInsightsService
                 'body' => $rx->body(),
             ]);
 
-            if (!$isPostId) {
-                return null; // video: no hay fallback por insights
-            }
-
-            // Solo para POST: intentamos insights si fue error de permisos
+            // Solo para POST: intenta insights si fue error típico de permisos
             if (!in_array($code, [10, 200], true)) {
-                return null; // otros errores, no insistir
+                return null; // otros errores: no insistir
             }
         } catch (\Throwable $e) {
             Log::warning('[metrics] reactions.edge.exception', $logCtx + [
                 'object_id' => $objectId,
                 'err' => $e->getMessage()
             ]);
-            // Si no es post, no hay más que hacer.
-            if (!$isPostId)
-                return null;
+            // seguimos al fallback por insights
         }
 
         // 2) SOLO PARA POSTS: fallback por insights con breakdown
@@ -291,6 +297,7 @@ class MetaInsightsService
         }
     }
 
+
     /**
      * Fallback: busca en el feed de la Page alrededor de la hora de publicación para
      * encontrar el post del feed que referencia al videoId (por object_id o attachments.target.id).
@@ -301,14 +308,12 @@ class MetaInsightsService
         ?string $publishedAtIso,
         string $pageToken
     ): ?string {
-        // Ventana: -2h / +24h desde la hora de publicación (o ahora)
-        $published = $publishedAtIso ? Carbon::parse($publishedAtIso) : now();
-        $since = $published->copy()->subHours(2)->timestamp;
-        $until = $published->copy()->addHours(24)->timestamp;
+        $published = $publishedAtIso ? \Carbon\Carbon::parse($publishedAtIso) : now();
+        $since = $published->copy()->subHours(24)->timestamp;  // ventana más generosa
+        $until = $published->copy()->addHours(48)->timestamp;
 
-        // Edge "seguro" del feed de la página: published_posts
-        // (NO pedimos object_id ni attachments aquí; solo ids/metadata ligera).
         $endpoint = "https://graph.facebook.com/v23.0/{$pageIdReal}/published_posts";
+        // Campos “ligeros/seguros” en página
         $params = [
             'fields' => 'id,created_time,permalink_url',
             'since' => $since,
@@ -319,13 +324,10 @@ class MetaInsightsService
         try {
             $url = $endpoint;
             $tries = 0;
-
-            while ($url && $tries < 8) {
+            while ($url && $tries < 10) {
                 $tries++;
-
                 $resp = Http::withToken($pageToken)
-                    ->acceptJson()
-                    ->timeout(40)->connectTimeout(10)
+                    ->acceptJson()->timeout(40)->connectTimeout(10)
                     ->get($url, $params);
 
                 if (!$resp->ok()) {
@@ -341,17 +343,15 @@ class MetaInsightsService
                 $json = $resp->json();
                 foreach ((array) ($json['data'] ?? []) as $post) {
                     $pid = $post['id'] ?? null;
-                    if (!$pid) {
+                    if (!$pid)
                         continue;
-                    }
 
-                    // Para cada post, ahora sí pedimos object_id (a nivel POST, no Page edge).
+                    // 1) Intento por object_id (en el NODO del post, esto sí es válido)
                     try {
                         $postResp = Http::withToken($pageToken)
-                            ->acceptJson()
-                            ->timeout(25)->connectTimeout(10)
+                            ->acceptJson()->timeout(25)->connectTimeout(10)
                             ->get("https://graph.facebook.com/v23.0/{$pid}", [
-                                'fields' => 'id,object_id',
+                                'fields' => 'id,object_id'
                             ]);
 
                         if ($postResp->ok()) {
@@ -360,9 +360,9 @@ class MetaInsightsService
                                 Log::info('[metrics] feed.scan.match.object_id', [
                                     'page_id' => $pageIdReal,
                                     'video_id' => $videoId,
-                                    'post_id' => $pid,
+                                    'post_id' => $pid
                                 ]);
-                                return $pid;
+                                return (string) $pid;
                             }
                         } else {
                             Log::warning('[metrics] feed.scan.post.fetch.fail', [
@@ -374,23 +374,58 @@ class MetaInsightsService
                     } catch (\Throwable $e) {
                         Log::warning('[metrics] feed.scan.post.fetch.exception', [
                             'post_id' => $pid,
-                            'err' => $e->getMessage(),
+                            'err' => $e->getMessage()
+                        ]);
+                    }
+
+                    // 2) SIN pedir attachments como campo agregado:
+                    //    usar el EDGE /{post_id}/attachments?fields=target{id}
+                    try {
+                        $attResp = Http::withToken($pageToken)
+                            ->acceptJson()->timeout(25)->connectTimeout(10)
+                            ->get("https://graph.facebook.com/v23.0/{$pid}/attachments", [
+                                'fields' => 'target{id}',
+                                'limit' => 10,
+                            ]);
+
+                        if ($attResp->ok()) {
+                            foreach ((array) data_get($attResp->json(), 'data', []) as $att) {
+                                $targetId = data_get($att, 'target.id');
+                                if ($targetId && (string) $targetId === (string) $videoId) {
+                                    Log::info('[metrics] feed.scan.match.attachment.edge', [
+                                        'page_id' => $pageIdReal,
+                                        'video_id' => $videoId,
+                                        'post_id' => $pid
+                                    ]);
+                                    return (string) $pid;
+                                }
+                            }
+                        } else {
+                            Log::warning('[metrics] feed.scan.attachments.fail', [
+                                'post_id' => $pid,
+                                'status' => $attResp->status(),
+                                'body' => $attResp->body(),
+                            ]);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('[metrics] feed.scan.attachments.exception', [
+                            'post_id' => $pid,
+                            'err' => $e->getMessage()
                         ]);
                     }
                 }
 
-                // Paginación
+                // paginación
                 $url = data_get($json, 'paging.next');
-                $params = []; // paging.next ya incluye los query params
+                $params = []; // next ya incluye query params
             }
         } catch (\Throwable $e) {
             Log::warning('[metrics] feed.scan.exception', [
                 'page_id' => $pageIdReal,
                 'video_id' => $videoId,
-                'err' => $e->getMessage(),
+                'err' => $e->getMessage()
             ]);
         }
-
         return null;
     }
 
@@ -439,7 +474,7 @@ class MetaInsightsService
         ];
 
         // 1) Page token
-        $tokInfo = $this->resolvePageToken($post->meta_page_id, $post->user_id ?? null);
+        $tokInfo = $this->resolvePageToken($post->meta_page_id);
         if (!$tokInfo) {
             Log::warning('[metrics] no-page-token', $ctx + ['author_user_id' => $post->user_id]);
             return false;
@@ -647,24 +682,17 @@ class MetaInsightsService
         }
 
         // 3) Si hay post -> leer reacciones sobre el post; si no hay post pero es Reel/video -> leer directo sobre videoId
+        // 3) Reacciones SOLO si tenemos un POST del feed
         if ($engagementPostId) {
             $rx = $this->fetchReactionsTotal($engagementPostId, $pageToken, $ctx, true);
             if ($rx !== null) {
                 $interacciones = (int) $rx;
                 $sources['reactions_from'] = $engagementPostId;
             }
-        } elseif ($looksNumericId) {
-            // Reel/video sin post del feed: intenta reacciones sobre el VIDEO
-            $rxVid = $this->fetchReactionsTotal($fbId, $pageToken, $ctx + ['hint' => 'video reactions'], false);
-            if ($rxVid !== null) {
-                $interacciones = (int) $rxVid;
-                $sources['reactions_from'] = $fbId; // dejamos rastreable que vino del video
-                Log::info('[metrics] reactions.from_video.ok', $ctx + ['video_id' => $fbId, 'sum' => $interacciones]);
-            } else {
-                Log::info('[metrics] reactions.from_video.none', $ctx + ['video_id' => $fbId]);
-            }
         } else {
-            Log::info('[metrics] no-feed-post-for-video', $ctx + ['reason' => 'no post/story referencing video']);
+            Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
+                'hint' => 'videoId sin post/story; no hay /reactions en Video'
+            ]);
         }
 
 
