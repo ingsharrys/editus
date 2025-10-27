@@ -272,6 +272,77 @@ class MetaInsightsService
             return null;
         }
     }
+    /**
+     * Fallback: busca en el feed de la Page alrededor de la hora de publicación para
+     * encontrar el post del feed que referencia al videoId (por object_id o attachments.target.id).
+     */
+    private function resolvePostIdFromVideoByScanningFeed(
+        string $pageId,
+        string $videoId,
+        ?string $publishedAtIso,
+        string $pageToken
+    ): ?string {
+        $published = $publishedAtIso ? Carbon::parse($publishedAtIso) : now();
+        $since = $published->copy()->subHours(2)->timestamp;
+        $until = $published->copy()->addHours(24)->timestamp;
+
+        $endpoint = "https://graph.facebook.com/v23.0/{$pageId}/posts";
+        $params = [
+            'fields' => 'id,created_time,object_id,permalink_url,attachments{target{id}}',
+            'since' => $since,
+            'until' => $until,
+            'limit' => 100,
+        ];
+
+        try {
+            $url = $endpoint;
+            $tries = 0;
+            while ($url && $tries < 8) { // máx ~800 posts
+                $tries++;
+                $resp = Http::withToken($pageToken)
+                    ->acceptJson()->timeout(40)->connectTimeout(10)
+                    ->get($url, $params);
+
+                if (!$resp->ok()) {
+                    Log::warning('[metrics] feed.scan.fail', [
+                        'page_id' => $pageId,
+                        'video_id' => $videoId,
+                        'status' => $resp->status(),
+                        'body' => $resp->body()
+                    ]);
+                    return null;
+                }
+
+                $json = $resp->json();
+                foreach ((array) ($json['data'] ?? []) as $post) {
+                    $pid = $post['id'] ?? null;
+                    if (!$pid)
+                        continue;
+
+                    // match por object_id
+                    if (!empty($post['object_id']) && (string) $post['object_id'] === (string) $videoId) {
+                        Log::info('[metrics] feed.scan.match.object_id', ['page_id' => $pageId, 'video_id' => $videoId, 'post_id' => $pid]);
+                        return $pid;
+                    }
+                    // match por attachments.target.id
+                    foreach (($post['attachments']['data'] ?? []) as $att) {
+                        $targetId = data_get($att, 'target.id');
+                        if ($targetId && (string) $targetId === (string) $videoId) {
+                            Log::info('[metrics] feed.scan.match.attachment', ['page_id' => $pageId, 'video_id' => $videoId, 'post_id' => $pid]);
+                            return $pid;
+                        }
+                    }
+                }
+
+                // paginación
+                $url = data_get($json, 'paging.next');
+                $params = []; // paging.next ya incluye query params
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[metrics] feed.scan.exception', ['page_id' => $pageId, 'video_id' => $videoId, 'err' => $e->getMessage()]);
+        }
+        return null;
+    }
 
     public function updatePostMetrics(MetaPost $post): bool
     {
@@ -463,7 +534,7 @@ class MetaInsightsService
         if ($isFeedPostId) {
             $engagementPostId = $fbId;
         } else {
-            // Si el id luce numérico (típico de video) intenta resolver el post del feed
+            // 1) Intento rápido: creation_story{id}
             if ($looksNumericId && ($isVideoType || true)) {
                 $resolved = $this->resolvePostIdFromVideoLight($fbId, $pageToken);
                 if ($resolved) {
@@ -471,9 +542,22 @@ class MetaInsightsService
                     $sources['resolved_post_id'] = $resolved;
                     Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $resolved]);
                 } else {
-                    Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
-                        'hint' => 'videoId sin post asociado (no se puede leer /reactions en video)'
-                    ]);
+                    // 2) Fallback: escanear el feed de la Page alrededor de published_at
+                    $resolved2 = $this->resolvePostIdFromVideoByScanningFeed(
+                        (string) $post->meta_page_id, // asegúrate que es el page_id real
+                        $fbId,
+                        optional($post->published_at)->toIso8601String() ?? $post->created_at?->toIso8601String(),
+                        $pageToken
+                    );
+                    if ($resolved2) {
+                        $engagementPostId = $resolved2;
+                        $sources['resolved_post_id'] = $resolved2;
+                        Log::info('[metrics] engagement.post_id.resolved.scan', $ctx + ['resolved_post_id' => $resolved2]);
+                    } else {
+                        Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
+                            'hint' => 'videoId sin post/story en el feed; no se puede leer /reactions'
+                        ]);
+                    }
                 }
             }
         }
@@ -485,6 +569,7 @@ class MetaInsightsService
                 $sources['reactions_from'] = $engagementPostId;
             }
         }
+
         // 6) Persistir
         $changed = false;
         if ($alcance !== null && $alcance !== $post->alcance) {
