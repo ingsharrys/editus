@@ -178,6 +178,100 @@ class MetaInsightsService
         }
     }
 
+    private function getGraphErrorCode(?\Illuminate\Http\Client\Response $resp): ?int
+    {
+        if (!$resp)
+            return null;
+        $json = $resp->json();
+        return (int) data_get($json, 'error.code');
+    }
+
+    /**
+     * Dado un videoId numérico, intenta devolver el post_id del feed si existe.
+     * Usa creation_story{id}. Si no existe, devuelve null.
+     */
+    private function resolvePostIdFromVideoLight(string $videoId, string $pageToken): ?string
+    {
+        try {
+            $resp = Http::withToken($pageToken)
+                ->acceptJson()->timeout(30)->connectTimeout(10)
+                ->get("https://graph.facebook.com/v23.0/{$videoId}", [
+                    'fields' => 'id,creation_story{id},permalink_url'
+                ]);
+            if (!$resp->ok())
+                return null;
+            return data_get($resp->json(), 'creation_story.id');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Intenta obtener el total de reacciones de un post del feed.
+     * 1) /reactions?summary=total_count  (requiere pages_read_engagement)
+     * 2) fallback: /insights?metric=post_reactions_by_type_total (requiere read_insights)
+     */
+    private function fetchReactionsTotalForPost(string $postId, string $pageToken, array $logCtx): ?int
+    {
+        // 1) Intento directo con /reactions (más barato)
+        try {
+            $rx = Http::withToken($pageToken)
+                ->acceptJson()->timeout(30)->connectTimeout(10)
+                ->get("https://graph.facebook.com/v23.0/{$postId}/reactions", [
+                    'summary' => 'total_count',
+                    'limit' => 0,
+                ]);
+            if ($rx->ok()) {
+                $sum = (int) data_get($rx->json(), 'summary.total_count', 0);
+                Log::info('[metrics] reactions.edge.ok', $logCtx + ['post_id' => $postId, 'sum' => $sum]);
+                return $sum;
+            } else {
+                $code = $this->getGraphErrorCode($rx); // ej 10
+                Log::warning('[metrics] reactions.edge.fail', $logCtx + [
+                    'post_id' => $postId,
+                    'status' => $rx->status(),
+                    'code' => $code,
+                    'body' => $rx->body()
+                ]);
+                // Si es (#10) falta pages_read_engagement, probamos insights como fallback
+                if ($code !== 10) {
+                    // Otros errores => no insistimos
+                    return null;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[metrics] reactions.edge.exception', $logCtx + ['post_id' => $postId, 'err' => $e->getMessage()]);
+        }
+
+        // 2) Fallback con insights (breakdown por tipo)
+        try {
+            $ins = Http::withToken($pageToken)
+                ->acceptJson()->timeout(30)->connectTimeout(10)
+                ->get("https://graph.facebook.com/v23.0/{$postId}/insights", [
+                    'metric' => 'post_reactions_by_type_total',
+                    'period' => 'lifetime',
+                ]);
+
+            if ($ins->ok()) {
+                $map = (array) data_get($ins->json(), 'data.0.values.0.value', []);
+                $sum = array_reduce($map, fn($c, $v) => $c + (int) $v, 0);
+                Log::info('[metrics] reactions.insights.ok', $logCtx + ['post_id' => $postId, 'sum' => $sum, 'breakdown' => $map]);
+                return $sum;
+            } else {
+                $code = $this->getGraphErrorCode($ins); // ej 200
+                Log::warning('[metrics] reactions.insights.fail', $logCtx + [
+                    'post_id' => $postId,
+                    'status' => $ins->status(),
+                    'code' => $code,
+                    'body' => $ins->body()
+                ]);
+                return null;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[metrics] reactions.insights.exception', $logCtx + ['post_id' => $postId, 'err' => $e->getMessage()]);
+            return null;
+        }
+    }
 
     public function updatePostMetrics(MetaPost $post): bool
     {
@@ -277,44 +371,7 @@ class MetaInsightsService
             return [$out, $resp];
         };
 
-        // === SOLO REACCIONES ===
-        // Sumar reacciones desde un POST-ID del feed (nunca con videoId)
-        $sumReactionsFromFeedPost = function (string $feedPostId) use ($httpGet, $ctx) {
-            // 1) Intento con insights (post_reactions_by_type_total)
-            [$ins, $ri] = $httpGet(
-                "https://graph.facebook.com/v23.0/{$feedPostId}/insights",
-                ['metric' => 'post_reactions_by_type_total', 'period' => 'lifetime']
-            );
-            if (is_array($ins)) {
-                $map = (array) data_get($ins, 'data.0.values.0.value', []);
-                if ($map) {
-                    $total = 0;
-                    foreach ($map as $k => $v)
-                        $total += (int) $v;
-                    Log::info('[metrics] reactions.insights.ok', $ctx + ['post_id' => $feedPostId, 'sum' => $total, 'breakdown' => $map]);
-                    return $total;
-                }
-            } else {
-                Log::warning('[metrics] reactions.insights.fail', $ctx + [
-                    'post_id' => $feedPostId,
-                    'status' => $ri?->status(),
-                    'body' => $ri?->body()
-                ]);
-            }
 
-            // 2) Fallback /reactions?summary=total_count
-            [$dataR, $rr] = $httpGet(
-                "https://graph.facebook.com/v23.0/{$feedPostId}/reactions",
-                ['summary' => 'total_count', 'limit' => 0]
-            );
-            if (is_array($dataR)) {
-                $total = (int) data_get($dataR, 'summary.total_count', 0);
-                Log::info('[metrics] reactions.ok', $ctx + ['post_id' => $feedPostId, 'sum' => $total]);
-                return $total;
-            }
-            Log::warning('[metrics] reactions.missing', $ctx + ['post_id' => $feedPostId, 'status' => $rr?->status(), 'body' => $rr?->body()]);
-            return null;
-        };
 
         // 4) Flags e iniciales
         $fbId = (string) $post->fb_post_id;
@@ -399,31 +456,35 @@ class MetaInsightsService
             }
         }
 
-        // === Reacciones (SOLO likes y similares) ===
-        // Siempre sobre un POST-ID del feed:
-        $engagementPostId = $isFeedPostId
-            ? $fbId
-            : $this->resolvePostIdFromVideo(
-                $fbId,
-                $post->meta_page_id,
-                optional($post->published_at)->toIso8601String(),
-                $pageToken
-            );
+        // === Reacciones (likes y similares) ===
+// Siempre sobre un POST-ID del feed. Si tenemos videoId numérico, intentamos resolver post_id.
+        $engagementPostId = null;
+
+        if ($isFeedPostId) {
+            $engagementPostId = $fbId;
+        } else {
+            // Si el id luce numérico (típico de video) intenta resolver el post del feed
+            if ($looksNumericId && ($isVideoType || true)) {
+                $resolved = $this->resolvePostIdFromVideoLight($fbId, $pageToken);
+                if ($resolved) {
+                    $engagementPostId = $resolved;
+                    $sources['resolved_post_id'] = $resolved;
+                    Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $resolved]);
+                } else {
+                    Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
+                        'hint' => 'videoId sin post asociado (no se puede leer /reactions en video)'
+                    ]);
+                }
+            }
+        }
 
         if ($engagementPostId) {
-            if (!$isFeedPostId) {
-                $sources['resolved_post_id'] = $engagementPostId;
-                Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $engagementPostId]);
-            }
-            $rx = $sumReactionsFromFeedPost($engagementPostId);
+            $rx = $this->fetchReactionsTotalForPost($engagementPostId, $pageToken, $ctx);
             if ($rx !== null) {
                 $interacciones = (int) $rx;
                 $sources['reactions_from'] = $engagementPostId;
             }
-        } else {
-            Log::warning('[metrics] reactions.post_id.not_found', $ctx + ['hint' => 'videoId sin post asociado (no se puede leer /reactions en video)']);
         }
-
         // 6) Persistir
         $changed = false;
         if ($alcance !== null && $alcance !== $post->alcance) {
