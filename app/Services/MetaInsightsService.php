@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
-
+use App\Models\MetaPage;
 
 class MetaInsightsService
 {   /**
@@ -279,7 +279,7 @@ class MetaInsightsService
      * encontrar el post del feed que referencia al videoId (por object_id o attachments.target.id).
      */
     private function resolvePostIdFromVideoByScanningFeed(
-        string $pageId,
+        string $pageIdReal,
         string $videoId,
         ?string $publishedAtIso,
         string $pageToken
@@ -288,7 +288,8 @@ class MetaInsightsService
         $since = $published->copy()->subHours(2)->timestamp;
         $until = $published->copy()->addHours(24)->timestamp;
 
-        $endpoint = "https://graph.facebook.com/v23.0/{$pageId}/posts";
+        // Usar published_posts (mejor que posts)
+        $endpoint = "https://graph.facebook.com/v23.0/{$pageIdReal}/published_posts";
         $params = [
             'fields' => 'id,created_time,object_id,permalink_url,attachments{target{id}}',
             'since' => $since,
@@ -307,7 +308,7 @@ class MetaInsightsService
 
                 if (!$resp->ok()) {
                     Log::warning('[metrics] feed.scan.fail', [
-                        'page_id' => $pageId,
+                        'page_id' => $pageIdReal,
                         'video_id' => $videoId,
                         'status' => $resp->status(),
                         'body' => $resp->body()
@@ -323,14 +324,14 @@ class MetaInsightsService
 
                     // match por object_id
                     if (!empty($post['object_id']) && (string) $post['object_id'] === (string) $videoId) {
-                        Log::info('[metrics] feed.scan.match.object_id', ['page_id' => $pageId, 'video_id' => $videoId, 'post_id' => $pid]);
+                        Log::info('[metrics] feed.scan.match.object_id', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'post_id' => $pid]);
                         return $pid;
                     }
                     // match por attachments.target.id
                     foreach (($post['attachments']['data'] ?? []) as $att) {
                         $targetId = data_get($att, 'target.id');
                         if ($targetId && (string) $targetId === (string) $videoId) {
-                            Log::info('[metrics] feed.scan.match.attachment', ['page_id' => $pageId, 'video_id' => $videoId, 'post_id' => $pid]);
+                            Log::info('[metrics] feed.scan.match.attachment', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'post_id' => $pid]);
                             return $pid;
                         }
                     }
@@ -341,9 +342,38 @@ class MetaInsightsService
                 $params = []; // paging.next ya incluye query params
             }
         } catch (\Throwable $e) {
-            Log::warning('[metrics] feed.scan.exception', ['page_id' => $pageId, 'video_id' => $videoId, 'err' => $e->getMessage()]);
+            Log::warning('[metrics] feed.scan.exception', ['page_id' => $pageIdReal, 'video_id' => $videoId, 'err' => $e->getMessage()]);
         }
         return null;
+    }
+    /**
+     * Resuelve el page_id REAL usando el Page Access Token.
+     * Con un Page Token, /me devuelve la Page.
+     */
+    private function resolvePageIdFromToken(string $pageToken): ?string
+    {
+        try {
+            $resp = Http::withToken($pageToken)
+                ->acceptJson()->timeout(20)->connectTimeout(10)
+                ->get('https://graph.facebook.com/v23.0/me', ['fields' => 'id,name']);
+            if (!$resp->ok()) {
+                Log::warning('[metrics] page-id.resolve.fail', [
+                    'status' => $resp->status(),
+                    'body' => $resp->body()
+                ]);
+                return null;
+            }
+            return (string) data_get($resp->json(), 'id');
+        } catch (\Throwable $e) {
+            Log::warning('[metrics] page-id.resolve.exception', ['err' => $e->getMessage()]);
+            return null;
+        }
+    }
+    private function resolveFacebookPageId(int|string $metaPageId): ?string
+    {
+        $row = MetaPage::query()->select('page_id')->find($metaPageId);
+        $pid = $row?->page_id;
+        return $pid ? (string) $pid : null;
     }
 
     public function updatePostMetrics(MetaPost $post): bool
@@ -373,7 +403,14 @@ class MetaInsightsService
             return false;
         }
         Log::info('[metrics][token] using page token', $ctx + ['source' => $tokenSource]);
+        // Resolver page_id real de Facebook
+        $pageIdReal = $this->resolveFacebookPageId($post->meta_page_id)
+            ?? $this->resolvePageIdFromToken($pageToken);
 
+        if (!$pageIdReal) {
+            Log::warning('[metrics] page-id.unresolved', $ctx + ['hint' => 'No se pudo mapear meta_page_id -> page_id real']);
+        }
+        $ctx['page_id_real'] = $pageIdReal;
         // 2) HTTP helper
         $httpGet = function (string $url, array $params = []) use ($pageToken, $ctx) {
             try {
@@ -544,25 +581,40 @@ class MetaInsightsService
                     $sources['resolved_post_id'] = $resolved;
                     Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $resolved]);
                 } else {
-                    // 2) Fallback: escanear el feed de la Page alrededor de published_at
-                    $resolved2 = $this->resolvePostIdFromVideoByScanningFeed(
-                        (string) $post->meta_page_id, // asegúrate que es el page_id real
-                        $fbId,
-                        optional($post->published_at)->toIso8601String() ?? $post->created_at?->toIso8601String(),
-                        $pageToken
-                    );
-                    if ($resolved2) {
-                        $engagementPostId = $resolved2;
-                        $sources['resolved_post_id'] = $resolved2;
-                        Log::info('[metrics] engagement.post_id.resolved.scan', $ctx + ['resolved_post_id' => $resolved2]);
-                    } else {
-                        Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
-                            'hint' => 'videoId sin post/story en el feed; no se puede leer /reactions'
+                    // 2) Fallback: escanear el feed de la Page alrededor de published_at (con page_id REAL)
+                    if (empty($pageIdReal)) {
+                        Log::warning('[metrics] reactions.skip.feedscan.no_page_id', $ctx + [
+                            'hint' => 'No se pudo resolver page_id real desde token/DB'
                         ]);
+                    } else {
+                        $resolved2 = $this->resolvePostIdFromVideoByScanningFeed(
+                            (string) $pageIdReal, // <-- AQUÍ VA EL PAGE_ID REAL
+                            $fbId,
+                            optional($post->published_at)->toIso8601String() ?? $post->created_at?->toIso8601String(),
+                            $pageToken
+                        );
+                        if ($resolved2) {
+                            $engagementPostId = $resolved2;
+                            $sources['resolved_post_id'] = $resolved2;
+                            Log::info('[metrics] engagement.post_id.resolved.scan', $ctx + ['resolved_post_id' => $resolved2]);
+                        } else {
+                            Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
+                                'hint' => 'videoId sin post/story en el feed; no se puede leer /reactions'
+                            ]);
+                        }
                     }
                 }
             }
         }
+
+        if ($engagementPostId) {
+            $rx = $this->fetchReactionsTotalForPost($engagementPostId, $pageToken, $ctx);
+            if ($rx !== null) {
+                $interacciones = (int) $rx;
+                $sources['reactions_from'] = $engagementPostId;
+            }
+        }
+
 
         if ($engagementPostId) {
             $rx = $this->fetchReactionsTotalForPost($engagementPostId, $pageToken, $ctx);
