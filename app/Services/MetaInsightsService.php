@@ -309,83 +309,73 @@ class MetaInsightsService
         string $pageToken
     ): ?string {
         $published = $publishedAtIso ? \Carbon\Carbon::parse($publishedAtIso) : now();
-        $since = $published->copy()->subHours(24)->timestamp;  // ventana más generosa
-        $until = $published->copy()->addHours(48)->timestamp;
+
+        // Ventana más corta para evitar scans largos
+        $since = $published->copy()->subHours(12)->timestamp;
+        $until = $published->copy()->addHours(24)->timestamp;
 
         $endpoint = "https://graph.facebook.com/v23.0/{$pageIdReal}/published_posts";
-        // Campos “ligeros/seguros” en página
         $params = [
             'fields' => 'id,created_time,permalink_url',
             'since' => $since,
             'until' => $until,
-            'limit' => 100,
+            'limit' => 50, // antes 100
         ];
+
+        // Circuit breakers
+        $maxTries = 5;   // antes 10
+        $maxScanned = 250; // tope global de posts inspeccionados
 
         try {
             $url = $endpoint;
             $tries = 0;
-            while ($url && $tries < 10) {
+            $scanned = 0;
+
+            while ($url && $tries < $maxTries && $scanned < $maxScanned) {
                 $tries++;
+
                 $resp = Http::withToken($pageToken)
-                    ->acceptJson()->timeout(40)->connectTimeout(10)
+                    ->acceptJson()
+                    ->timeout(20)->connectTimeout(8) // más agresivo
                     ->get($url, $params);
 
                 if (!$resp->ok()) {
-                    Log::warning('[metrics] feed.scan.fail', [
+                    Log::debug('[metrics] feed.scan.fail', [
                         'page_id' => $pageIdReal,
                         'video_id' => $videoId,
                         'status' => $resp->status(),
-                        'body' => $resp->body(),
+                        'code' => (int) data_get($resp->json(), 'error.code'),
                     ]);
-                    return null;
+                    return null; // corta en fallo de página
                 }
 
                 $json = $resp->json();
-                foreach ((array) ($json['data'] ?? []) as $post) {
-                    $pid = $post['id'] ?? null;
-                    if (!$pid)
-                        continue;
+                $data = (array) data_get($json, 'data', []);
 
-                    // 1) Intento por object_id (en el NODO del post, esto sí es válido)
-                    try {
-                        $postResp = Http::withToken($pageToken)
-                            ->acceptJson()->timeout(25)->connectTimeout(10)
-                            ->get("https://graph.facebook.com/v23.0/{$pid}", [
-                                'fields' => 'id,object_id'
-                            ]);
-
-                        if ($postResp->ok()) {
-                            $objId = data_get($postResp->json(), 'object_id');
-                            if ($objId && (string) $objId === (string) $videoId) {
-                                Log::info('[metrics] feed.scan.match.object_id', [
-                                    'page_id' => $pageIdReal,
-                                    'video_id' => $videoId,
-                                    'post_id' => $pid
-                                ]);
-                                return (string) $pid;
-                            }
-                        } else {
-                            Log::warning('[metrics] feed.scan.post.fetch.fail', [
-                                'post_id' => $pid,
-                                'status' => $postResp->status(),
-                                'body' => $postResp->body(),
-                            ]);
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('[metrics] feed.scan.post.fetch.exception', [
-                            'post_id' => $pid,
-                            'err' => $e->getMessage()
+                foreach ($data as $post) {
+                    if ($scanned >= $maxScanned) {
+                        Log::debug('[metrics] feed.scan.cutoff', [
+                            'page_id' => $pageIdReal,
+                            'video_id' => $videoId,
+                            'scanned' => $scanned,
                         ]);
+                        return null;
                     }
 
-                    // 2) SIN pedir attachments como campo agregado:
-                    //    usar el EDGE /{post_id}/attachments?fields=target{id}
+                    $pid = $post['id'] ?? null;
+                    if (!$pid) {
+                        $scanned++;
+                        continue;
+                    }
+
+                    // ÚNICO intento: EDGE /{post_id}/attachments?fields=target{id}
                     try {
                         $attResp = Http::withToken($pageToken)
-                            ->acceptJson()->timeout(25)->connectTimeout(10)
+                            ->acceptJson()
+                            ->timeout(20)->connectTimeout(8)
                             ->get("https://graph.facebook.com/v23.0/{$pid}/attachments", [
                                 'fields' => 'target{id}',
-                                'limit' => 10,
+                                'limit' => 5,
                             ]);
 
                         if ($attResp->ok()) {
@@ -395,37 +385,43 @@ class MetaInsightsService
                                     Log::info('[metrics] feed.scan.match.attachment.edge', [
                                         'page_id' => $pageIdReal,
                                         'video_id' => $videoId,
-                                        'post_id' => $pid
+                                        'post_id' => $pid,
                                     ]);
                                     return (string) $pid;
                                 }
                             }
                         } else {
-                            Log::warning('[metrics] feed.scan.attachments.fail', [
+                            Log::debug('[metrics] feed.scan.attachments.fail', [
                                 'post_id' => $pid,
                                 'status' => $attResp->status(),
-                                'body' => $attResp->body(),
+                                'code' => (int) data_get($attResp->json(), 'error.code'),
                             ]);
                         }
                     } catch (\Throwable $e) {
-                        Log::warning('[metrics] feed.scan.attachments.exception', [
+                        Log::debug('[metrics] feed.scan.attachments.exception', [
                             'post_id' => $pid,
-                            'err' => $e->getMessage()
+                            'err' => $e->getMessage(),
                         ]);
                     }
+
+                    $scanned++;
                 }
 
                 // paginación
-                $url = data_get($json, 'paging.next');
-                $params = []; // next ya incluye query params
+                $url = (string) data_get($json, 'paging.next', '');
+                if ($url === '') {
+                    $url = null;
+                }
+                $params = []; // el "next" ya trae sus propios query params
             }
         } catch (\Throwable $e) {
             Log::warning('[metrics] feed.scan.exception', [
                 'page_id' => $pageIdReal,
                 'video_id' => $videoId,
-                'err' => $e->getMessage()
+                'err' => $e->getMessage(),
             ]);
         }
+
         return null;
     }
 
