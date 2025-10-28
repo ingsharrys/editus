@@ -348,10 +348,21 @@ class MetaPostController extends Controller
 
     public function metricsStep(Request $request, string $batch)
     {
+        // --- Airbag #0: evita abortar si el cliente corta, pero nosotros igual cerramos bien
+        ignore_user_abort(true);
+        @set_time_limit(0);
+        @ini_set('max_execution_time', '0');
+
         $user = $request->user();
         $isAdmin = (int) ($user->role_id ?? 0) === 1;
-        $limit = (int) ($request->input('limit', 25)); // items por paso (ajústalo)
+
+        // Límite “lógico” por paso (cantidad de registros)
+        $limit = (int) $request->input('limit', 25);
         $limit = max(1, min($limit, 100));
+
+        // Límite “físico” por tiempo (segundos) — clave para no reventar por timeout
+        $MAX_SECONDS = (int) $request->input('max_seconds', 80);
+        $MAX_SECONDS = max(10, min($MAX_SECONDS, 110)); // guardas
 
         $key = "metrics:sync:{$batch}:state";
         $lock = Cache::lock("metrics:sync:{$batch}:lock", 120);
@@ -361,7 +372,7 @@ class MetaPostController extends Controller
             return response()->json(['ok' => false, 'error' => 'No hay sesión de métricas inicializada.'], 400);
         }
 
-        // Chequeo de alcance: si no es admin, debe coincidir scope_user
+        // Chequeo de alcance
         if (!$isAdmin && (int) ($state['scope_user'] ?? 0) !== (int) $user->id) {
             return response()->json(['ok' => false, 'error' => 'Sin permisos para continuar este batch.'], 403);
         }
@@ -370,14 +381,27 @@ class MetaPostController extends Controller
             return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
         }
 
+        // Si hay otro step en curso, retornamos 200 con busy=true
         if (!$lock->get()) {
-            // otro step en curso
             return response()->json(['ok' => true, 'state' => $state, 'busy' => true]);
         }
 
-        try {
-            $cursor = (int) ($state['cursor_id'] ?? 0);
+        $startedAt = microtime(true);
+        $processedThisStep = 0;
+        $errorsThisStep = 0;
 
+        try {
+            // Normaliza contadores por si faltan en state (defensivo)
+            $state['total'] = (int) ($state['total'] ?? 0);
+            $state['done'] = (int) ($state['done'] ?? 0);
+            $state['ok'] = (int) ($state['ok'] ?? 0);
+            $state['empty'] = (int) ($state['empty'] ?? 0);
+            $state['errors'] = (int) ($state['errors'] ?? 0);
+            $state['cursor_id'] = (int) ($state['cursor_id'] ?? 0);
+
+            $cursor = (int) $state['cursor_id'];
+
+            // Trae lote a partir del cursor
             $q = MetaPost::query()
                 ->where('batch_uuid', $batch)
                 ->where('status', 'success')
@@ -391,44 +415,102 @@ class MetaPostController extends Controller
             }
 
             $chunk = $q->get();
+
             if ($chunk->isEmpty()) {
-                // terminado
+                // Terminado
                 $state['finished'] = true;
                 $state['finished_at'] = now()->toIso8601String();
+                $state['last_step_at'] = now()->toIso8601String();
                 Cache::put($key, $state, now()->addHours(2));
                 return response()->json(['ok' => true, 'state' => $state, 'done' => true]);
             }
 
-            // Procesar cada post (sin colas)
+            // Procesa lote con corte por tiempo
             $svc = app(\App\Services\MetaInsightsService::class);
-
             $lastId = $cursor;
+
             foreach ($chunk as $post) {
+                // Corte por tiempo “duro”
+                if ((microtime(true) - $startedAt) >= $MAX_SECONDS) {
+                    break;
+                }
+
                 try {
                     $updated = $svc->updatePostMetrics($post);
                     $state['done']++;
-                    $updated ? $state['ok']++ : $state['empty']++;
+                    $processedThisStep++;
+
+                    if ($updated) {
+                        $state['ok']++;
+                    } else {
+                        $state['empty']++;
+                    }
                 } catch (\Throwable $e) {
                     $state['done']++;
                     $state['errors']++;
-                    Log::warning('[metrics-sync] error', ['meta_post_id' => $post->id, 'err' => $e->getMessage()]);
+                    $errorsThisStep++;
+                    Log::warning('[metrics-sync] error', [
+                        'meta_post_id' => $post->id,
+                        'err' => $e->getMessage(),
+                    ]);
+                    // seguimos con el siguiente; no relanzamos
                 }
+
                 $lastId = $post->id;
+                $state['cursor_id'] = $lastId;
+
+                // Pequeño respiro si quieres evitar “hot loop”
+                // usleep(1000);
             }
 
-            $state['cursor_id'] = $lastId;
+            // ¿Se acabó todo?
             if ($state['done'] >= (int) $state['total']) {
                 $state['finished'] = true;
                 $state['finished_at'] = now()->toIso8601String();
             }
 
+            $state['last_step_at'] = now()->toIso8601String();
+            $state['last_step_ms'] = (int) ((microtime(true) - $startedAt) * 1000);
+
             Cache::put($key, $state, now()->addHours(2));
+
+            return response()->json([
+                'ok' => true,
+                'state' => $state,
+                'done' => !empty($state['finished']),
+                'cut_by' => (!empty($state['finished']) ? 'none' : ((microtime(true) - $startedAt) >= $MAX_SECONDS ? 'time' : ($processedThisStep >= $limit ? 'limit' : 'none'))),
+                'step' => [
+                    'processed' => $processedThisStep,
+                    'errors' => $errorsThisStep,
+                    'elapsed_ms' => $state['last_step_ms'] ?? null,
+                ],
+            ], 200);
+
+        } catch (\Throwable $e) {
+            // --- Airbag #2: cualquier cosa inesperada => 200 con estado parcial (no 500)
+            Log::error('[metrics-sync] step.unhandled', [
+                'batch' => $batch,
+                'err' => $e->getMessage(),
+            ]);
+
+            // Asegura snapshot del estado actual
+            $state['last_step_at'] = now()->toIso8601String();
+            $state['last_step_ms'] = (int) ((microtime(true) - $startedAt) * 1000);
+            Cache::put($key, $state, now()->addHours(2));
+
+            return response()->json([
+                'ok' => false,
+                'state' => $state,
+                'done' => !empty($state['finished']),
+                'error' => 'step-unhandled',
+                'msg' => $e->getMessage(),
+            ], 200);
         } finally {
+            // Siempre libera el lock
             $lock->release();
         }
-
-        return response()->json(['ok' => true, 'state' => Cache::get($key)]);
     }
+
 
 
 }
