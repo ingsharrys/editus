@@ -186,40 +186,116 @@
                 bar.style.width = pct + '%';
             }
 
-            async function runStep() {
-                try {
-                    const r = await fetch(stepUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': token,
-                            'X-Requested-With': 'XMLHttpRequest'
-                        },
-                        body: JSON.stringify({
-                            limit: 25
-                        })
-                    });
-                    const j = await r.json();
-                    if (!j.ok) {
-                        alert(j.error || 'Error en step');
-                        btn.disabled = false;
-                        btn.classList.remove('opacity-60', 'cursor-not-allowed');
-                        return;
+            // ---- Helper: fetch con timeout + reintentos + parseo seguro
+            async function resilientFetchJson(url, opts = {}, {
+                timeoutMs = 45000,
+                retries = 3,
+                retryDelayBase = 800
+            } = {}) {
+                let lastErr = null;
+
+                for (let attempt = 0; attempt <= retries; attempt++) {
+                    const ac = new AbortController();
+                    const t = setTimeout(() => ac.abort(), timeoutMs);
+                    try {
+                        const r = await fetch(url, {
+                            signal: ac.signal,
+                            ...opts,
+                            keepalive: true
+                        });
+                        clearTimeout(t);
+
+                        // Intentamos JSON; si falla, intentamos texto y armamos un objeto-cáscara
+                        const ct = r.headers.get('content-type') || '';
+                        let body;
+                        if (ct.includes('application/json')) {
+                            body = await r.json();
+                        } else {
+                            const txt = await r.text();
+                            try {
+                                body = JSON.parse(txt);
+                            } catch {
+                                body = {
+                                    ok: false,
+                                    error: 'non-json',
+                                    raw: (txt || '').slice(0, 500)
+                                };
+                            }
+                        }
+
+                        // fetch sólo hace throw en errores de red; acá validamos app-level
+                        return {
+                            httpOk: r.ok,
+                            status: r.status,
+                            body
+                        };
+                    } catch (e) {
+                        clearTimeout(t);
+                        lastErr = e;
+                        // Backoff exponencial suave
+                        if (attempt < retries) {
+                            const wait = retryDelayBase * Math.pow(2, attempt) + Math.random() * 200;
+                            await new Promise(res => setTimeout(res, wait));
+                            continue;
+                        }
                     }
-                    setProgress(j.state);
+                }
+                // Exhausted retries
+                return {
+                    httpOk: false,
+                    status: 0,
+                    body: {
+                        ok: false,
+                        error: 'network',
+                        msg: String(lastErr)
+                    }
+                };
+            }
+
+            // ---- Step runner (siempre reintenta y nunca “mata” la sesión)
+            async function runStep() {
+                // pasos cortos para no pegar timeouts en proxy/navegador
+                const payload = {
+                    limit: 10, // MÁS chico que 25
+                    max_seconds: 35 // match con el backend (si lo agregaste) para evitar 502/524
+                };
+
+                const res = await resilientFetchJson(stepUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': token,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Cache-Control': 'no-store'
+                    },
+                    body: JSON.stringify(payload),
+                    keepalive: true
+                }, {
+                    timeoutMs: 45000, // 45s por step (el server debe responder <35s)
+                    retries: 4,
+                    retryDelayBase: 700
+                });
+
+                // Si vino algo parseable, úsalo; si no, seguimos intentando
+                const j = res.body || {};
+                if (j.state) setProgress(j.state);
+
+                // Lógica de control: si el server dijo ok=false pero devolvió JSON, no alertes; reintenta
+                if (res.httpOk && (j.ok || j.already_running)) {
                     if (j.done || j.state?.finished) {
                         // Terminado
                         setTimeout(() => location.reload(), 1200);
+                        return;
                     } else {
-                        // Sigue procesando el siguiente bloque
-                        // Pequeño respiro para no saturar
+                        // pequeño respiro para no saturar
                         setTimeout(runStep, 300);
+                        return;
                     }
-                } catch (e) {
-                    alert('Error de red en step');
-                    btn.disabled = false;
-                    btn.classList.remove('opacity-60', 'cursor-not-allowed');
                 }
+
+                // Si cayó por network o HTML raro, NO detengas: reintenta luego de una pausa
+                // (podrías mostrar un badge "reconectando..." en vez de alert)
+                setTimeout(runStep, 1200);
             }
 
             btn.addEventListener('click', async (e) => {
@@ -235,36 +311,37 @@
                     errors: 0
                 });
 
-                try {
-                    const r = await fetch(startUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': token,
-                            'X-Requested-With': 'XMLHttpRequest'
-                        },
-                        body: JSON.stringify({
-                            start: true
-                        })
-                    });
-                    const j = await r.json();
-                    if (!j.ok && !j.already_running) {
-                        alert(j.error || 'No se pudo iniciar.');
-                        btn.disabled = false;
-                        btn.classList.remove('opacity-60', 'cursor-not-allowed');
-                        return;
-                    }
-                    // set progreso inicial si vino en la respuesta
-                    if (j.state) {
-                        setProgress(j.state);
-                    }
-                    // empezar a “pasitos”
-                    runStep();
-                } catch (e) {
-                    alert('Error de red al iniciar');
+                // Start sync
+                const res = await resilientFetchJson(startUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': token,
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Cache-Control': 'no-store'
+                    },
+                    body: JSON.stringify({
+                        start: true
+                    }),
+                    keepalive: true
+                }, {
+                    timeoutMs: 20000,
+                    retries: 2,
+                    retryDelayBase: 500
+                });
+
+                const j = res.body || {};
+                if (!res.httpOk || (!j.ok && !j.already_running)) {
+                    // Si falla el inicio, sí mostramos alerta (caso raro)
+                    alert(j.error || 'No se pudo iniciar.');
                     btn.disabled = false;
                     btn.classList.remove('opacity-60', 'cursor-not-allowed');
+                    return;
                 }
+                if (j.state) setProgress(j.state);
+
+                // Empieza el loop de steps
+                runStep();
             });
         })();
     </script>
