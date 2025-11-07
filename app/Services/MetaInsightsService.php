@@ -19,21 +19,29 @@ class MetaInsightsService
     * 2) Si falta, usa social_accounts.access_token del usuario para llamar /me/accounts y guardar el token de página en la pivote.
     */
     protected array $pageTokenCache = [];
+    // CORREGIDO: siempre devuelve **Page Access Token** real; si el pivot está vacío o vencido, intercambia usando el user token
     protected function resolvePageToken(int $metaPageId): array
     {
         if (isset($this->pageTokenCache[$metaPageId])) {
             return $this->pageTokenCache[$metaPageId];
         }
 
-        // 1) Page token del pivot (el más reciente)
+        // page_id real (tabla meta_pages)
+        $pageId = DB::table('meta_pages')->where('id', $metaPageId)->value('page_id');
+
+        // 1) Page token del pivot (válido/no vencido)
         $row = DB::table('meta_page_user')
             ->where('meta_page_id', $metaPageId)
             ->where('is_active', 1)
             ->whereNotNull('page_access_token')
             ->orderByDesc('updated_at')
-            ->first();
+            ->first(['user_id', 'page_access_token', 'expires_at', 'social_account_id']);
 
-        if ($row && !empty($row->page_access_token)) {
+        $notExpired = function ($expiresAt) {
+            return empty($expiresAt) || now()->lt($expiresAt);
+        };
+
+        if ($row && !empty($row->page_access_token) && $notExpired($row->expires_at ?? null)) {
             $info = [
                 'token' => $row->page_access_token,
                 'source' => 'page_pivot',
@@ -51,29 +59,101 @@ class MetaInsightsService
             return $info;
         }
 
-        // 2) Si no hay page token, intenta social de alguien con esa página activa
-        $socialId = DB::table('meta_page_user')
+        // 2) Si no hay page token (o está vencido), intenta construirlo desde un user access token del pivot
+        $socialRow = DB::table('meta_page_user')
             ->where('meta_page_id', $metaPageId)
             ->where('is_active', 1)
             ->whereNotNull('social_account_id')
             ->orderByDesc('updated_at')
-            ->value('social_account_id');
+            ->first(['social_account_id', 'user_id']);
 
-        if ($socialId) {
-            $social = DB::table('social_accounts')->where('id', $socialId)->first();
-            if ($social && !empty($social->access_token)) {
-                Log::warning('[metrics][token] fallback social_any', [
-                    'meta_page_id' => $metaPageId,
-                    'social_account_id' => $socialId,
-                ]);
-                $info = ['token' => $social->access_token, 'source' => 'social_any', 'user_id' => null];
-                $this->pageTokenCache[$metaPageId] = $info;
-                return $info;
+        if ($socialRow && $socialRow->social_account_id) {
+            $social = DB::table('social_accounts')->where('id', $socialRow->social_account_id)->first(['access_token']);
+            if ($social && !empty($social->access_token) && !empty($pageId)) {
+                $pageTok = $this->exchangeUserTokenForPageToken((string) $social->access_token, (string) $pageId);
+                if ($pageTok) {
+                    Log::info('[metrics][token] exchanged user->page', [
+                        'meta_page_id' => $metaPageId,
+                        'social_account_id' => $socialRow->social_account_id,
+                    ]);
+
+                    // Opcional: persistir el page token en el pivot para próximas corridas
+                    DB::table('meta_page_user')
+                        ->where('meta_page_id', $metaPageId)
+                        ->where('is_active', 1)
+                        ->where('social_account_id', $socialRow->social_account_id)
+                        ->update(['page_access_token' => $pageTok, 'updated_at' => now()]);
+
+                    $info = ['token' => $pageTok, 'source' => 'exchanged_from_user', 'user_id' => $socialRow->user_id];
+                    return $this->pageTokenCache[$metaPageId] = $info;
+                }
+            }
+        }
+
+        // (Opcional) último intento: cualquier pivot activo con social_account_id, aunque no sea el último
+        if (!empty($pageId)) {
+            $anySocial = DB::table('meta_page_user')
+                ->where('meta_page_id', $metaPageId)
+                ->where('is_active', 1)
+                ->whereNotNull('social_account_id')
+                ->orderByDesc('updated_at')
+                ->pluck('social_account_id');
+
+            foreach ($anySocial as $sid) {
+                $social = DB::table('social_accounts')->where('id', $sid)->first(['access_token']);
+                if ($social && !empty($social->access_token)) {
+                    $pageTok = $this->exchangeUserTokenForPageToken((string) $social->access_token, (string) $pageId);
+                    if ($pageTok) {
+                        Log::info('[metrics][token] exchanged user->page (fallback-any)', [
+                            'meta_page_id' => $metaPageId,
+                            'social_account_id' => $sid,
+                        ]);
+
+                        DB::table('meta_page_user')
+                            ->where('meta_page_id', $metaPageId)
+                            ->where('is_active', 1)
+                            ->where('social_account_id', $sid)
+                            ->update(['page_access_token' => $pageTok, 'updated_at' => now()]);
+
+                        $info = ['token' => $pageTok, 'source' => 'exchanged_from_user_any', 'user_id' => null];
+                        return $this->pageTokenCache[$metaPageId] = $info;
+                    }
+                }
             }
         }
 
         throw new \RuntimeException("No hay token utilizable para meta_page_id={$metaPageId}");
     }
+
+    // NUEVO helper: cambia un user access token -> page access token para UNA page específica
+    private function exchangeUserTokenForPageToken(string $userAccessToken, string $targetPageId): ?string
+    {
+        try {
+            $resp = Http::withToken($userAccessToken)
+                ->acceptJson()->timeout(25)->connectTimeout(10)
+                ->get('https://graph.facebook.com/v23.0/me/accounts', [
+                    'fields' => 'id,access_token'
+                ]);
+
+            if (!$resp->ok()) {
+                Log::warning('[metrics][token] me/accounts.fail', [
+                    'status' => $resp->status(),
+                    'body' => $resp->body()
+                ]);
+                return null;
+            }
+
+            foreach ((array) data_get($resp->json(), 'data', []) as $pg) {
+                if ((string) ($pg['id'] ?? '') === (string) $targetPageId && !empty($pg['access_token'])) {
+                    return (string) $pg['access_token'];
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[metrics][token] me/accounts.exception', ['err' => $e->getMessage()]);
+        }
+        return null;
+    }
+
     protected function fbGet(string $url, array $params, string $token)
     {
         try {
@@ -455,6 +535,7 @@ class MetaInsightsService
         return $pid ? (string) $pid : null;
     }
 
+    // CORREGIDO: usa primero el breakdown de insights (si llega) para "interacciones" y evita duplicar llamadas a /reactions
     public function updatePostMetrics(MetaPost $post): bool
     {
         if (empty($post->fb_post_id)) {
@@ -469,7 +550,7 @@ class MetaInsightsService
                 ?? $post->created_at?->toIso8601String(),
         ];
 
-        // 1) Page token
+        // 1) Page token real
         $tokInfo = $this->resolvePageToken($post->meta_page_id);
         if (!$tokInfo) {
             Log::warning('[metrics] no-page-token', $ctx + ['author_user_id' => $post->user_id]);
@@ -482,15 +563,16 @@ class MetaInsightsService
             return false;
         }
         Log::info('[metrics][token] using page token', $ctx + ['source' => $tokenSource]);
-        // Resolver page_id real de Facebook
+
+        // page_id real
         $pageIdReal = $this->resolveFacebookPageId($post->meta_page_id)
             ?? $this->resolvePageIdFromToken($pageToken);
-
         if (!$pageIdReal) {
             Log::warning('[metrics] page-id.unresolved', $ctx + ['hint' => 'No se pudo mapear meta_page_id -> page_id real']);
         }
         $ctx['page_id_real'] = $pageIdReal;
-        // 2) HTTP helper
+
+        // 2) Helper HTTP local
         $httpGet = function (string $url, array $params = []) use ($pageToken, $ctx) {
             try {
                 $resp = Http::withToken($pageToken)
@@ -518,7 +600,7 @@ class MetaInsightsService
             }
         };
 
-        // 3) Insights helpers (post y video)
+        // 3) Helpers de insights
         $fetchPostInsights = function (string $postId) use ($httpGet) {
             [$data, $resp] = $httpGet(
                 "https://graph.facebook.com/v23.0/{$postId}/insights",
@@ -532,7 +614,6 @@ class MetaInsightsService
                 $name = $m['name'] ?? null;
                 $val = $m['values'][0]['value'] ?? null;
                 if ($name && $val !== null) {
-                    // post_reactions_by_type_total es un array; guardamos crudo para sumarlo luego
                     $out[$name] = $name === 'post_reactions_by_type_total'
                         ? (array) $val
                         : (int) $val;
@@ -560,12 +641,10 @@ class MetaInsightsService
             return [$out, $resp];
         };
 
-
-
-        // 4) Flags e iniciales
+        // 4) Flags/iniciales
         $fbId = (string) $post->fb_post_id;
-        $isFeedPostId = str_contains($fbId, '_');     // ej: 123456789_987654321
-        $looksNumericId = ctype_digit($fbId);           // típico para videoId
+        $isFeedPostId = str_contains($fbId, '_');   // ej: 123_456
+        $looksNumericId = ctype_digit($fbId);       // típico para videoId
         $isVideoType = strtolower((string) $post->type) === 'video';
 
         $before = [
@@ -585,7 +664,9 @@ class MetaInsightsService
             'token_source' => $tokenSource,
         ];
 
-        // 5) Flujo para alcance/visualizaciones (igual que tenías)
+        // 5) Flujo alcance/visualizaciones + reacciones (insights primero)
+        $reactionBreakdown = null;
+        $ins = null;
 
         // 5.1 Post del feed
         if ($isFeedPostId) {
@@ -595,6 +676,13 @@ class MetaInsightsService
                 $visualizaciones = $ins['post_impressions'] ?? $visualizaciones;
                 $sources['post_insights'] = true;
                 Log::info('[metrics] post_insights.ok', $ctx + ['alc' => $alcance, 'vis' => $visualizaciones]);
+
+                if (!empty($ins['post_reactions_by_type_total']) && is_array($ins['post_reactions_by_type_total'])) {
+                    $reactionBreakdown = $ins['post_reactions_by_type_total'];
+                    $sumRx = array_reduce($reactionBreakdown, fn($c, $v) => $c + (int) $v, 0);
+                    $interacciones = (int) $sumRx;
+                    $sources['reactions_from'] = 'insights:post_reactions_by_type_total';
+                }
             } else {
                 Log::warning('[metrics] post_insights.fail', $ctx + [
                     'status' => optional($r)->status(),
@@ -603,7 +691,7 @@ class MetaInsightsService
             }
         }
 
-        // 5.2 Video (videoId puro)
+        // 5.2 Video (videoId puro) o post que en realidad es video
         if (!$sources['post_insights'] && ($isVideoType || ($looksNumericId && !$isFeedPostId))) {
             if ($looksNumericId && !$isFeedPostId) {
                 [$vins, $vr] = $fetchVideoInsights($fbId);
@@ -619,7 +707,7 @@ class MetaInsightsService
                     ]);
                 }
             } else {
-                // es video pero fb_post_id luce como postId; opcionalmente resolvías el videoId, lo dejamos igual
+                // postId que representa un video -> intenta resolver el post del feed real
                 $postId = $this->resolvePostIdFromVideo(
                     $fbId,
                     $post->meta_page_id,
@@ -631,7 +719,16 @@ class MetaInsightsService
                     [$ins2, $r2] = $fetchPostInsights($postId);
                     if (is_array($ins2)) {
                         $alcance = $ins2['post_impressions_unique'] ?? $alcance;
+                        $visualizaciones = $ins2['post_impressions'] ?? $visualizaciones;
+                        $sources['post_insights'] = true;
                         Log::info('[metrics] post_from_video.ok', $ctx + ['resolved_post_id' => $postId, 'alc' => $alcance]);
+
+                        if (!empty($ins2['post_reactions_by_type_total']) && is_array($ins2['post_reactions_by_type_total'])) {
+                            $reactionBreakdown = $ins2['post_reactions_by_type_total'];
+                            $sumRx = array_reduce($reactionBreakdown, fn($c, $v) => $c + (int) $v, 0);
+                            $interacciones = (int) $sumRx;
+                            $sources['reactions_from'] = 'insights:post_reactions_by_type_total';
+                        }
                     } else {
                         Log::warning('[metrics] post_from_video.fail', $ctx + [
                             'resolved_post_id' => $postId,
@@ -645,22 +742,21 @@ class MetaInsightsService
             }
         }
 
-        // === Reacciones (likes y similares) ===
+        // === Reacciones (solo si NO las obtuvimos por insights) ===
         $engagementPostId = null;
-
-        if ($isFeedPostId) {
-            $engagementPostId = $fbId;
-        } else {
-            // 1) Intento rápido: creation_story{id}
-            if ($looksNumericId && ($isVideoType || true)) {
-                $resolved = $this->resolvePostIdFromVideoLight($fbId, $pageToken);
-                if ($resolved) {
-                    $engagementPostId = $resolved;
-                    $sources['resolved_post_id'] = $resolved;
-                    Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $resolved]);
-                } else {
-                    // 2) Fallback: escanear feed SIN attachments (solo object_id)
-                    if (!empty($pageIdReal)) {
+        if (empty($sources['reactions_from'])) {
+            if ($isFeedPostId) {
+                $engagementPostId = $fbId;
+            } else {
+                // 1) creation_story{id}
+                if ($looksNumericId && ($isVideoType || true)) {
+                    $resolved = $this->resolvePostIdFromVideoLight($fbId, $pageToken);
+                    if ($resolved) {
+                        $engagementPostId = $resolved;
+                        $sources['resolved_post_id'] = $resolved;
+                        Log::info('[metrics] engagement.post_id.resolved', $ctx + ['resolved_post_id' => $resolved]);
+                    } elseif (!empty($pageIdReal)) {
+                        // 2) scan feed
                         $resolved2 = $this->resolvePostIdFromVideoByScanningFeed(
                             (string) $pageIdReal,
                             $fbId,
@@ -675,25 +771,23 @@ class MetaInsightsService
                     }
                 }
             }
-        }
 
-        // 3) Si hay post -> leer reacciones sobre el post; si no hay post pero es Reel/video -> leer directo sobre videoId
-        // 3) Reacciones SOLO si tenemos un POST del feed
-        if ($engagementPostId) {
-            $rx = $this->fetchReactionsTotal($engagementPostId, $pageToken, $ctx, true);
-            if ($rx !== null) {
-                $interacciones = (int) $rx;
-                $sources['reactions_from'] = $engagementPostId;
+            if ($engagementPostId) {
+                $rx = $this->fetchReactionsTotal($engagementPostId, $pageToken, $ctx, true);
+                if ($rx !== null) {
+                    $interacciones = (int) $rx;
+                    $sources['reactions_from'] = $engagementPostId;
+                }
+            } else {
+                Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
+                    'hint' => 'videoId sin post/story; no hay /reactions en Video'
+                ]);
             }
-        } else {
-            Log::warning('[metrics] reactions.post_id.not_found', $ctx + [
-                'hint' => 'videoId sin post/story; no hay /reactions en Video'
-            ]);
         }
 
-
-        // 6) Persistir
+        // 6) Persistir (y guardar breakdown si tienes columna JSON)
         $changed = false;
+
         if ($alcance !== null && $alcance !== $post->alcance) {
             $post->alcance = $alcance;
             $changed = true;
@@ -704,6 +798,11 @@ class MetaInsightsService
         }
         if ($interacciones !== null && $interacciones !== $post->interacciones) {
             $post->interacciones = $interacciones;
+            $changed = true;
+        }
+
+        if ($reactionBreakdown && Schema::hasColumn('meta_posts', 'reacciones_json')) {
+            $post->reacciones_json = $reactionBreakdown;
             $changed = true;
         }
 
@@ -734,6 +833,7 @@ class MetaInsightsService
 
         return $changed;
     }
+
 
 
 
