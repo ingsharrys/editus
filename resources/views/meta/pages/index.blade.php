@@ -257,13 +257,14 @@
                                 </span>
                             </div>
 
-                            <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…"
+                            <textarea id="messageInput" name="message" rows="3" placeholder="Escribe el mensaje…" required
+                                maxlength="63206"
                                 class="w-full min-h-[96px] rounded-xl border border-gray-200 px-3 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"></textarea>
 
                             <p class="mt-1 text-[11px] text-gray-500">
-                                En <strong>Texto/Enlace</strong> el mensaje es obligatorio. En <strong>Foto</strong>, es
-                                opcional (caption).
+                                El mensaje es <strong>obligatorio</strong> para cualquier tipo de publicación.
                             </p>
+
                         </div>
 
                         {{-- Enlace (solo type=text) --}}
@@ -776,12 +777,15 @@
                     photoFilesWrap?.classList.toggle('hidden', !isPhoto);
                     videoWrap?.classList.toggle('hidden', !isVideo);
 
-                    if (msg) msg.required = isText;
+                    
+                    if (msg) msg.required = isText; 
+                    if (msg) msg.required = true; // SIEMPRE obligatorio
 
                     toggleClear();
                     updateMsg();
                     updatePublishState();
                 }
+
                 typeText && typeText.addEventListener('change', refreshUI);
                 typePhoto && typePhoto.addEventListener('change', refreshUI);
                 typeVideo && typeVideo.addEventListener('change', refreshUI);
@@ -883,22 +887,17 @@
                 // ====== VALIDACIÓN PARA HABILITAR “PUBLICAR” ======
                 function contentValid() {
                     const pagesOk = pagesSelectedCount() > 0;
-                    const isText = !!typeText?.checked;
-                    const isPhoto = !!typePhoto?.checked;
-                    const isVideo = !!typeVideo?.checked;
+                    const msgLen = (msg?.value || '').trim().length;
 
-                    if (isText) {
-                        const len = (msg?.value || '').trim().length;
-                        return pagesOk && len > 0 && len <= MAX_MSG;
-                    }
-                    if (isPhoto) {
-                        return pagesOk && selectedFiles.length > 0;
-                    }
-                    if (isVideo) {
-                        return pagesOk && (videoFile?.files?.length || 0) > 0;
-                    }
+                    // Mensaje siempre requerido y dentro del límite
+                    if (!pagesOk || msgLen === 0 || msgLen > MAX_MSG) return false;
+
+                    if (typeText?.checked) return true; // texto: con mensaje ya basta
+                    if (typePhoto?.checked) return selectedFiles.length > 0; // fotos + mensaje
+                    if (typeVideo?.checked) return (videoFile?.files?.length || 0) > 0; // video + mensaje
                     return false;
                 }
+
 
                 function updatePublishState() {
                     if (!publishBtn) return;
@@ -906,7 +905,16 @@
                 }
 
                 // Evita doble submit
-                form && form.addEventListener('submit', function() {
+
+                form && form.addEventListener('submit', function(e) {
+
+                    const hasMsg = (msg?.value || '').trim().length > 0;
+                    if (!hasMsg) {
+                        +e.preventDefault();
+                        alert('El mensaje es obligatorio.');
+                        msg?.focus();
+                        return;
+                    }
                     if (publishBtn) {
                         publishBtn.disabled = true;
                         publishBtn.textContent = 'Publicando...';
