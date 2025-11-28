@@ -136,24 +136,22 @@
                                     @endphp
 
                                     @if ($link)
-                                        <div class="inline-flex items-center justify-center">
+                                        <div class="flex flex-col items-start">
                                             {{-- Ver publicación --}}
                                             <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
                                                 class="text-indigo-600 underline text-xs">
                                                 Ver publicación
                                             </a>
 
-                                            {{-- Botón copiar: alineado horizontal + borde a la izquierda --}}
-                                            <button type="button"
-                                                class="ml-4 pl-4 border-l border-gray-300 inline-flex items-center text-[11px] text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
-                                                data-link="{{ $link }}">
-                                                <span class="text-lg copy-icon">📋</span>
-                                                <span class="copy-label ml-1">Copiar</span>
-                                            </button>
+                                            {{-- Párrafo con el link --}}
+                                            <p class="mt-1 text-[11px] text-gray-500 leading-snug break-all">
+                                                {{ $link }}
+                                            </p>
                                         </div>
                                     @else
                                         <span class="text-gray-400">—</span>
                                     @endif
+
                                 </td>
                             </tr>
                         @empty
