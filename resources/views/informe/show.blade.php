@@ -136,19 +136,19 @@
                                     @endphp
 
                                     @if ($link)
-                                        <div class="flex flex-col items-center gap-1">
-                                            {{-- Botón / link para ir a la publicación --}}
+                                        <div class="inline-flex items-center justify-center">
+                                            {{-- Ver publicación --}}
                                             <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
                                                 class="text-indigo-600 underline text-xs">
                                                 Ver publicación
                                             </a>
 
-                                            {{-- Botón para copiar --}}
+                                            {{-- Botón copiar: alineado horizontal + borde a la izquierda --}}
                                             <button type="button"
-                                                class="mt-1 inline-flex flex-col items-center text-[11px] text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
+                                                class="ml-4 pl-4 border-l border-gray-300 inline-flex items-center text-[11px] text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
                                                 data-link="{{ $link }}">
                                                 <span class="text-lg copy-icon">📋</span>
-                                                <span class="copy-label mt-0.5">Copiar</span>
+                                                <span class="copy-label ml-1">Copiar</span>
                                             </button>
                                         </div>
                                     @else
@@ -180,9 +180,6 @@
                         </tr>
                     </tfoot>
                 </table>
-
-
-
             </div>
         </div>
 
@@ -225,7 +222,7 @@
             }
 
             function markAsCopied(btn) {
-                // Evitar que se vuelva a procesar
+                // Si ya está copiado, no hacer nada
                 if (btn.dataset.copied === '1') return;
 
                 const icon = btn.querySelector('.copy-icon');
@@ -243,7 +240,7 @@
                 btn.classList.add('text-green-600', 'font-semibold', 'cursor-default');
 
                 btn.dataset.copied = '1';
-                btn.disabled = true; // opcional, ya no se puede volver a clicar
+                btn.disabled = true; // opcional: ya no hace nada después
             }
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -251,7 +248,7 @@
 
                 buttons.forEach(function(btn) {
                     btn.addEventListener('click', function() {
-                        // Si ya está copiado, no hacer nada
+                        // Si ya está copiado, ignorar
                         if (btn.dataset.copied === '1') return;
 
                         const link = btn.dataset.link;
