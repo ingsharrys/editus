@@ -21,34 +21,32 @@
         </div>
 
         {{-- Panel de gráfica (solo barra) --}}
-       @php
-    // Fecha efectiva formateada (published_at o created_at, según lo que mandó el controller en $summary['effective_at'])
-    $eff = $summary['effective_at']
-        ? \Carbon\Carbon::parse($summary['effective_at'])
-            ->timezone(config('app.timezone'))
-            ->format('d/m/Y H:i')
-        : '—';
+        @php
+            // Fecha efectiva formateada (published_at o created_at, según lo que mandó el controller en $summary['effective_at'])
+            $eff = $summary['effective_at']
+                ? \Carbon\Carbon::parse($summary['effective_at'])->timezone(config('app.timezone'))->format('d/m/Y H:i')
+                : '—';
 
-    // Tu pageSummary tal cual:
-    $pageSummary = $posts
-        ->groupBy(fn($p) => $p->page->name ?? '—')
-        ->map(function ($group) {
-            $sample = $group->filter(fn($p) => !empty($p->fb_permalink_url))->last() ?? $group->last();
+            // Tu pageSummary tal cual:
+            $pageSummary = $posts
+                ->groupBy(fn($p) => $p->page->name ?? '—')
+                ->map(function ($group) {
+                    $sample = $group->filter(fn($p) => !empty($p->fb_permalink_url))->last() ?? $group->last();
 
-            return (object) [
-                'page_name'         => $group->first()->page->name ?? '—',
-                'alcance'           => (int) $group->sum(fn($p) => (int) ($p->alcance ?? 0)),
-                'visualizaciones'   => (int) $group->sum(fn($p) => (int) ($p->visualizaciones ?? 0)),
-                'interacciones'     => (int) $group->sum(fn($p) => (int) ($p->interacciones ?? 0)),
-                'sample_permalink'  => $sample->fb_permalink_url ?? null,
-                'sample_link'       => $sample->link ?? null,
-                'sample_type'       => $sample->type ?? null,
-                'sample_fb_post_id' => $sample->fb_post_id ?? null,
-            ];
-        })
-        ->sortBy('page_name')
-        ->values();
-@endphp
+                    return (object) [
+                        'page_name' => $group->first()->page->name ?? '—',
+                        'alcance' => (int) $group->sum(fn($p) => (int) ($p->alcance ?? 0)),
+                        'visualizaciones' => (int) $group->sum(fn($p) => (int) ($p->visualizaciones ?? 0)),
+                        'interacciones' => (int) $group->sum(fn($p) => (int) ($p->interacciones ?? 0)),
+                        'sample_permalink' => $sample->fb_permalink_url ?? null,
+                        'sample_link' => $sample->link ?? null,
+                        'sample_type' => $sample->type ?? null,
+                        'sample_fb_post_id' => $sample->fb_post_id ?? null,
+                    ];
+                })
+                ->sortBy('page_name')
+                ->values();
+        @endphp
 
 
 
@@ -106,10 +104,22 @@
                     <tbody>
                         @forelse ($pageSummary as $p)
                             <tr class="border-b last:border-0">
-                                <td class="py-2 pr-4 font-medium">{{ $p->page_name }}</td>
-                                <td class="py-2 pr-4 text-right">{{ number_format($p->alcance) }}</td>
-                                <td class="py-2 pr-4 text-right">{{ number_format($p->visualizaciones) }}</td>
-                                <td class="py-2 pr-4 text-right">{{ number_format($p->interacciones) }}</td>
+                                <td class="py-2 pr-4 font-medium">
+                                    {{ $p->page_name }}
+                                </td>
+
+                                <td class="py-2 pr-4 text-right">
+                                    {{ number_format($p->alcance) }}
+                                </td>
+
+                                <td class="py-2 pr-4 text-right">
+                                    {{ number_format($p->visualizaciones) }}
+                                </td>
+
+                                <td class="py-2 pr-4 text-right">
+                                    {{ number_format($p->interacciones) }}
+                                </td>
+
                                 <td class="py-2 pr-4 text-center">
                                     @php
                                         $link = $p->sample_permalink ?: $p->sample_link;
@@ -126,34 +136,42 @@
                                     @endphp
 
                                     @if ($link)
-                                        <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
-                                            class="underline text-indigo-600">
-                                            Abrir
-                                        </a>
+                                        <button type="button"
+                                            class="inline-flex flex-col items-center text-xs text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
+                                            data-link="{{ $link }}">
+                                            <span class="text-xl">📋</span>
+                                            <span class="copy-label mt-1">Copiar</span>
+                                        </button>
                                     @else
                                         <span class="text-gray-400">—</span>
                                     @endif
                                 </td>
-
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="py-3 pr-4 text-gray-500">No hay datos.</td>
+                                <td colspan="5" class="py-3 pr-4 text-gray-500">
+                                    No hay datos.
+                                </td>
                             </tr>
                         @endforelse
                     </tbody>
                     <tfoot>
                         <tr class="font-semibold">
                             <td class="py-2 pr-4 text-right">Totales</td>
-                            <td class="py-2 pr-4 text-right">{{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}</td>
                             <td class="py-2 pr-4 text-right">
-                                {{ number_format((int) ($summary['visualizaciones_sum'] ?? 0)) }}</td>
+                                {{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}
+                            </td>
                             <td class="py-2 pr-4 text-right">
-                                {{ number_format((int) ($summary['interacciones_sum'] ?? 0)) }}</td>
+                                {{ number_format((int) ($summary['visualizaciones_sum'] ?? 0)) }}
+                            </td>
+                            <td class="py-2 pr-4 text-right">
+                                {{ number_format((int) ($summary['interacciones_sum'] ?? 0)) }}
+                            </td>
                             <td class="py-2 pr-4 text-center">—</td>
                         </tr>
                     </tfoot>
                 </table>
+
             </div>
         </div>
 
@@ -166,8 +184,7 @@
     <script>
         (function() {
             // Datos precalculados desde el controlador
-            const byPage =
-                @json($chartByPage); // { labels: [...], datasets: { Alcance:[...], Visualizaciones:[...], Interacciones:[...] } }
+            const byPage = @json($chartByPage);
 
             const labels = byPage.labels || [];
             const datasets = {
@@ -267,6 +284,74 @@
                     computeMinMax(datasets[metric]);
                 }, {
                     passive: true
+                });
+            });
+        })();
+    </script>
+
+    {{-- Copiar enlace desde la tabla (icono 📋 + "Copiar" / "Copiado") --}}
+    <script>
+        (function() {
+            function copyText(text, onSuccess) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text)
+                        .then(onSuccess)
+                        .catch(function() {
+                            fallbackCopy(text, onSuccess);
+                        });
+                } else {
+                    fallbackCopy(text, onSuccess);
+                }
+            }
+
+            function fallbackCopy(text, onSuccess) {
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                textarea.style.position = 'fixed';
+                textarea.style.top = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    if (typeof onSuccess === 'function') {
+                        onSuccess();
+                    }
+                } catch (e) {
+                    alert('No se pudo copiar el enlace');
+                }
+                document.body.removeChild(textarea);
+            }
+
+            function showCopied(btn) {
+                const label = btn.querySelector('.copy-label');
+                if (!label) return;
+
+                const original = label.dataset.originalText || label.textContent;
+                if (!label.dataset.originalText) {
+                    label.dataset.originalText = original;
+                }
+
+                label.textContent = 'Copiado';
+                btn.classList.add('text-green-600');
+
+                setTimeout(function() {
+                    label.textContent = label.dataset.originalText;
+                    btn.classList.remove('text-green-600');
+                }, 1500);
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                const buttons = document.querySelectorAll('.copy-btn');
+
+                buttons.forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        const link = btn.dataset.link;
+                        if (!link) return;
+
+                        copyText(link, function() {
+                            showCopied(btn);
+                        });
+                    });
                 });
             });
         })();
