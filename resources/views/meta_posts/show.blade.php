@@ -121,8 +121,12 @@
                                 @if ($link)
                                     <a href="{{ $link }}" target="_blank" rel="noopener"
                                         class="text-indigo-600 hover:underline">Ver publicación</a>
-                                    <button type="button" class="ml-2 text-xs text-gray-500 hover:text-gray-700"
-                                        onclick="navigator.clipboard.writeText('{{ $link }}')">Copiar</button>
+                                    <button type="button"
+                                        class="ml-4 pl-4 border-l border-gray-300 inline-flex items-center text-xs text-gray-500 hover:text-gray-700 focus:outline-none"
+                                        onclick="navigator.clipboard.writeText('{{ $link }}')">
+                                        <span class="text-lg">📋</span>
+                                        <span class="sr-only">Copiar</span>
+                                    </button>
                                 @else
                                     <span class="text-gray-400">—</span>
                                 @endif
