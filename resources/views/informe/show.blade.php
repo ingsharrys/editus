@@ -137,11 +137,7 @@
 
                                     @if ($link)
                                         <div class="flex flex-col items-start">
-                                            {{-- Ver publicación --}}
-                                            <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
-                                                class="text-indigo-600 underline text-xs">
-                                                Ver publicación
-                                            </a>
+                                          
 
                                             {{-- Párrafo con el link --}}
                                             <p class="mt-1 text-[11px] text-gray-500 leading-snug break-all">
