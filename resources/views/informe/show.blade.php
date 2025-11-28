@@ -136,12 +136,21 @@
                                     @endphp
 
                                     @if ($link)
-                                        <button type="button"
-                                            class="inline-flex flex-col items-center text-xs text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
-                                            data-link="{{ $link }}">
-                                            <span class="text-xl copy-icon">📋</span>
-                                            <span class="copy-label mt-1">Copiar</span>
-                                        </button>
+                                        <div class="flex flex-col items-center gap-1">
+                                            {{-- Botón / link para ir a la publicación --}}
+                                            <a href="{{ $link }}" target="_blank" rel="noopener noreferrer"
+                                                class="text-indigo-600 underline text-xs">
+                                                Ver publicación
+                                            </a>
+
+                                            {{-- Botón para copiar --}}
+                                            <button type="button"
+                                                class="mt-1 inline-flex flex-col items-center text-[11px] text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
+                                                data-link="{{ $link }}">
+                                                <span class="text-lg copy-icon">📋</span>
+                                                <span class="copy-label mt-0.5">Copiar</span>
+                                            </button>
+                                        </div>
                                     @else
                                         <span class="text-gray-400">—</span>
                                     @endif
@@ -171,6 +180,7 @@
                         </tr>
                     </tfoot>
                 </table>
+
 
 
             </div>
