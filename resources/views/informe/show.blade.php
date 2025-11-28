@@ -139,7 +139,7 @@
                                         <button type="button"
                                             class="inline-flex flex-col items-center text-xs text-gray-500 hover:text-gray-700 focus:outline-none copy-btn"
                                             data-link="{{ $link }}">
-                                            <span class="text-xl">📋</span>
+                                            <span class="text-xl copy-icon">📋</span>
                                             <span class="copy-label mt-1">Copiar</span>
                                         </button>
                                     @else
@@ -172,6 +172,7 @@
                     </tfoot>
                 </table>
 
+
             </div>
         </div>
 
@@ -181,115 +182,6 @@
 @section('scripts')
     {{-- Chart.js (CDN) --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        (function() {
-            // Datos precalculados desde el controlador
-            const byPage = @json($chartByPage);
-
-            const labels = byPage.labels || [];
-            const datasets = {
-                alcance: byPage.datasets?.['Alcance'] || [],
-                visualizaciones: byPage.datasets?.['Visualizaciones'] || [],
-                interacciones: byPage.datasets?.['Interacciones'] || [],
-            };
-
-            const fmt = (n) => (n ?? 0).toLocaleString();
-
-            function computeMinMax(data) {
-                const noDataBox = document.getElementById('noDataBox');
-                const extremesBox = document.getElementById('extremesBox');
-
-                const hasData = Array.isArray(data) && data.length && data.some(v => (v ?? 0) !== 0);
-
-                if (!hasData) {
-                    extremesBox.style.display = 'none';
-                    noDataBox.style.display = 'block';
-                    return;
-                }
-                noDataBox.style.display = 'none';
-                extremesBox.style.display = 'block';
-
-                let maxV = -Infinity,
-                    minV = Infinity,
-                    maxI = 0,
-                    minI = 0;
-                data.forEach((v, i) => {
-                    if (v > maxV) {
-                        maxV = v;
-                        maxI = i;
-                    }
-                    if (v < minV) {
-                        minV = v;
-                        minI = i;
-                    }
-                });
-                document.getElementById('maxName').textContent = labels[maxI] ?? '—';
-                document.getElementById('maxValue').textContent = fmt(maxV);
-                document.getElementById('minName').textContent = labels[minI] ?? '—';
-                document.getElementById('minValue').textContent = fmt(minV);
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                const select = document.getElementById('metricSelect');
-                const canvas = document.getElementById('summaryChart');
-
-                // Evitar instancias duplicadas (HMR)
-                const existing = Chart.getChart(canvas);
-                if (existing) existing.destroy();
-
-                const initialMetric = select.value || 'alcance';
-                const ctx = canvas.getContext('2d');
-
-                const chart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: initialMetric.charAt(0).toUpperCase() + initialMetric.slice(
-                                1),
-                            data: datasets[initialMetric],
-                            borderWidth: 1
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        plugins: {
-                            legend: {
-                                display: false
-                            },
-                            tooltip: {
-                                callbacks: {
-                                    label: (ctx) => `${ctx.label}: ${fmt(ctx.raw)}`
-                                }
-                            }
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                ticks: {
-                                    callback: v => fmt(v)
-                                }
-                            }
-                        }
-                    }
-                });
-
-                computeMinMax(datasets[initialMetric]);
-
-                select.addEventListener('change', function() {
-                    const metric = this.value;
-                    chart.data.datasets[0].label = metric.charAt(0).toUpperCase() + metric.slice(1);
-                    chart.data.datasets[0].data = datasets[metric];
-                    chart.update();
-                    computeMinMax(datasets[metric]);
-                }, {
-                    passive: true
-                });
-            });
-        })();
-    </script>
-
-    {{-- Copiar enlace desde la tabla (icono 📋 + "Copiar" / "Copiado") --}}
     <script>
         (function() {
             function copyText(text, onSuccess) {
@@ -322,22 +214,26 @@
                 document.body.removeChild(textarea);
             }
 
-            function showCopied(btn) {
-                const label = btn.querySelector('.copy-label');
-                if (!label) return;
+            function markAsCopied(btn) {
+                // Evitar que se vuelva a procesar
+                if (btn.dataset.copied === '1') return;
 
-                const original = label.dataset.originalText || label.textContent;
-                if (!label.dataset.originalText) {
-                    label.dataset.originalText = original;
+                const icon = btn.querySelector('.copy-icon');
+                const label = btn.querySelector('.copy-label');
+
+                if (icon) {
+                    icon.style.display = 'none'; // oculta el icono 📋
                 }
 
-                label.textContent = 'Copiado';
-                btn.classList.add('text-green-600');
+                if (label) {
+                    label.textContent = 'Copiado';
+                }
 
-                setTimeout(function() {
-                    label.textContent = label.dataset.originalText;
-                    btn.classList.remove('text-green-600');
-                }, 1500);
+                btn.classList.remove('text-gray-500', 'hover:text-gray-700');
+                btn.classList.add('text-green-600', 'font-semibold', 'cursor-default');
+
+                btn.dataset.copied = '1';
+                btn.disabled = true; // opcional, ya no se puede volver a clicar
             }
 
             document.addEventListener('DOMContentLoaded', function() {
@@ -345,11 +241,14 @@
 
                 buttons.forEach(function(btn) {
                     btn.addEventListener('click', function() {
+                        // Si ya está copiado, no hacer nada
+                        if (btn.dataset.copied === '1') return;
+
                         const link = btn.dataset.link;
                         if (!link) return;
 
                         copyText(link, function() {
-                            showCopied(btn);
+                            markAsCopied(btn);
                         });
                     });
                 });
