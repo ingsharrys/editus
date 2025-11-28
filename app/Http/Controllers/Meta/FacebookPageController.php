@@ -769,52 +769,37 @@ class FacebookPageController extends Controller
     public function linkRedirect()
     {
         return Socialite::driver('facebook')
-            ->scopes(config('services.facebook.scopes') ?? [])
-            ->redirectUrl(route('facebook.link.callback'))
+            ->scopes(config('services.facebook.scopes')) // <-- usa lo del config
+            ->redirectUrl(config('services.facebook.link_redirect') ?: route('facebook.link.callback'))
             ->redirect();
     }
 
     public function linkCallback()
     {
         $fbUser = Socialite::driver('facebook')
-            ->redirectUrl(route('facebook.link.callback'))
+            ->redirectUrl(config('services.facebook.link_redirect') ?: route('facebook.link.callback'))
             ->user();
 
-        $fbUser = $this->socialite()->user();
         $current = Auth::user();
 
-        $existing = SocialAccount::where('provider', 'facebook')
-            ->where('provider_user_id', $fbUser->getId())
-            ->first();
-
-        if ($existing && $existing->user_id !== $current->id) {
-            $existing->update([
+        // crear / actualizar SocialAccount
+        $social = SocialAccount::updateOrCreate(
+            [
                 'user_id' => $current->id,
+                'provider' => 'facebook',
+                'provider_user_id' => $fbUser->getId(),
+            ],
+            [
                 'name' => $fbUser->getName(),
                 'avatar' => $fbUser->getAvatar(),
                 'access_token' => $fbUser->token,
                 'refresh_token' => $fbUser->refreshToken ?? null,
-                'expires_at' => isset($fbUser->expiresIn) ? now()->addSeconds((int) $fbUser->expiresIn) : null,
+                'expires_at' => isset($fbUser->expiresIn)
+                    ? now()->addSeconds((int) $fbUser->expiresIn)
+                    : null,
                 'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
-            ]);
-            $social = $existing;
-        } else {
-            $social = SocialAccount::updateOrCreate(
-                [
-                    'user_id' => $current->id,
-                    'provider' => 'facebook',
-                    'provider_user_id' => $fbUser->getId(),
-                ],
-                [
-                    'name' => $fbUser->getName(),
-                    'avatar' => $fbUser->getAvatar(),
-                    'access_token' => $fbUser->token,
-                    'refresh_token' => $fbUser->refreshToken ?? null,
-                    'expires_at' => isset($fbUser->expiresIn) ? now()->addSeconds((int) $fbUser->expiresIn) : null,
-                    'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
-                ]
-            );
-        }
+            ]
+        );
 
         $count = $this->performSync($current, $social);
 
@@ -842,32 +827,65 @@ class FacebookPageController extends Controller
 
     private function performSync(User $user, SocialAccount $social): int
     {
-        $base = 'https://graph.facebook.com/v23.0';
+        $version = config('services.facebook.version', 'v23.0');
+        $base = "https://graph.facebook.com/{$version}";
+
         $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
 
-        $pages = [];
-        $url = "{$base}/me/accounts?fields={$fields}";
         $http = Http::withToken($social->access_token);
+        $pages = [];
 
-        // 1) Traer TODAS las páginas (paginación)
+        // 1) Páginas "clásicas" del usuario: /me/accounts
+        $url = "{$base}/me/accounts?fields={$fields}";
+
         while ($url) {
             $resp = $http->get($url);
+
             if (!$resp->ok()) {
-                Log::error('FB /me/accounts error', ['status' => $resp->status(), 'body' => $resp->body()]);
+                Log::error('FB /me/accounts error', [
+                    'status' => $resp->status(),
+                    'body' => $resp->body(),
+                ]);
                 throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
             }
+
             $json = $resp->json();
-            $pages = array_merge($pages, data_get($json, 'data', []));
+            $data = data_get($json, 'data', []);
+            $pages = array_merge($pages, $data);
             $url = data_get($json, 'paging.next');
         }
 
+        // 2) Fallback: páginas asignadas vía Business Manager: /me/assigned_pages
         if (empty($pages)) {
-            throw new \RuntimeException("No se encontraron páginas.
-- Acepta los permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights
-- Verifica que la cuenta administre al menos una página.");
+            $url = "{$base}/me/assigned_pages?fields={$fields}";
+
+            while ($url) {
+                $resp = $http->get($url);
+
+                if (!$resp->ok()) {
+                    Log::warning('FB /me/assigned_pages error', [
+                        'status' => $resp->status(),
+                        'body' => $resp->body(),
+                    ]);
+                    break;
+                }
+
+                $json = $resp->json();
+                $data = data_get($json, 'data', []);
+                $pages = array_merge($pages, $data);
+                $url = data_get($json, 'paging.next');
+            }
         }
 
-        // 2) Guardar/actualizar MetaPage + Pivot con page_access_token
+        // 3) Si sigue vacío, no hay páginas para ese usuario
+        if (empty($pages)) {
+            throw new \RuntimeException("No se encontraron páginas.
+- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.
+- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.
+- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
+        }
+
+        // 4) Tu lógica de guardado, igual a la que ya tenías
         DB::transaction(function () use ($pages, $user, $social, $base, $http) {
             foreach ($pages as $page) {
                 $pageId = (string) data_get($page, 'id');
@@ -876,10 +894,8 @@ class FacebookPageController extends Controller
                 $igId = data_get($page, 'connected_instagram_business_account.id');
                 $picture = "{$base}/{$pageId}/picture?type=normal";
 
-                // a) token de PÁGINA directo si viene en /me/accounts
                 $pageAccessToken = data_get($page, 'access_token');
 
-                // b) si no vino, intentar /{page-id}?fields=access_token (requiere pages_manage_metadata)
                 if (!$pageAccessToken) {
                     $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
                     if ($try->ok()) {
@@ -889,15 +905,13 @@ class FacebookPageController extends Controller
                     }
                 }
 
-                // c) Normaliza tasks y decide si activas el pivot
                 $tasks = data_get($page, 'tasks', []);
-                if (!is_array($tasks))
+                if (!is_array($tasks)) {
                     $tasks = $tasks ? [$tasks] : [];
+                }
 
-                // Para métricas, ideal que incluya ANALYZE (y para publicar, CREATE_CONTENT/MANAGE).
                 $canAnalyze = in_array('ANALYZE', $tasks, true);
 
-                // d) Upsert de MetaPage
                 $metaPage = MetaPage::updateOrCreate(
                     ['page_id' => $pageId],
                     [
@@ -909,28 +923,25 @@ class FacebookPageController extends Controller
                     ]
                 );
 
-                // e) Guarda el token de PÁGINA en el pivot (si lo conseguimos)
                 $user->metaPages()->syncWithoutDetaching([
                     $metaPage->id => [
-                        'page_access_token' => $pageAccessToken,   // <- CLAVE
+                        'page_access_token' => $pageAccessToken,
                         'social_account_id' => $social->id,
-                        'expires_at' => null,               // si más tarde haces long-lived, actualiza aquí
-                        'is_active' => $pageAccessToken ? 1 : 0,  // activa solo si tenemos token
+                        'expires_at' => null,
+                        'is_active' => $pageAccessToken ? 1 : 0,
                         'updated_at' => now(),
                     ]
                 ]);
 
                 if (!$pageAccessToken) {
-                    // No detenemos el sync, pero lo documentamos
                     Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', [
                         'page_id' => $pageId,
-                        'tasks' => $tasks
+                        'tasks' => $tasks,
                     ]);
                 } elseif (!$canAnalyze) {
-                    // Podrás leer algunas cosas, pero las insights podrían fallar para ese usuario
                     Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', [
                         'page_id' => $pageId,
-                        'tasks' => $tasks
+                        'tasks' => $tasks,
                     ]);
                 }
             }
