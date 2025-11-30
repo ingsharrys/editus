@@ -457,7 +457,7 @@ class MetaInsightsService
 
     public function updatePostMetrics(MetaPost $post): bool
     {
-        // Si no hay fb_post_id no hay nada que medir
+        // 0) Guard: no hay fb_post_id
         if (empty($post->fb_post_id)) {
             return false;
         }
@@ -470,7 +470,7 @@ class MetaInsightsService
                 ?? $post->created_at?->toIso8601String(),
         ];
 
-        // 1) Page token (usa tu resolvePageToken ya existente)
+        // 1) Page token
         try {
             $tokInfo = $this->resolvePageToken($post->meta_page_id);
         } catch (\Throwable $e) {
@@ -496,30 +496,77 @@ class MetaInsightsService
 
         Log::info('[metrics][token] using page token', $ctx + ['source' => $tokenSource]);
 
-        // 2) ID del objeto en Facebook (puede ser post o video, da igual para reactions/comments/shares)
+        // 2) Info del fb_post_id
         $fbId = (string) $post->fb_post_id;
+        $isFeedPostId = str_contains($fbId, '_');                // ej: 123456789_987654321
+        $looksNumeric = ctype_digit($fbId);                      // video/reel típico
+        $isVideoType = strtolower((string) $post->type) === 'video';
 
-        // 3) Valores "antes" para logging
+        // 3) Valores before (para log)
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
             'interacciones_before' => $post->interacciones,
         ];
 
-        // 4) Traer engagement (reacciones + comentarios + compartidos)
-        //    Usa tu helper privado ya definido más arriba.
-        $engagement = $this->fetchEngagementCounts($fbId, $pageToken);
-
         $sources = [
-            'post_insights' => false,       // NO usamos /insights
-            'video_insights' => false,       // NO usamos /video_insights
-            'reactions_from' => $fbId,       // objeto desde donde medimos
+            'post_insights' => false,   // ya no usamos insights
+            'video_insights' => false,
+            'reactions_from' => null,
             'resolved_post_id' => null,
             'token_source' => $tokenSource,
         ];
 
-        // Si no pudimos leer nada (error HTTP, permisos, etc.)
+        // 4) Decidir SOBRE QUÉ ID vamos a leer engagement
+        $engagementTargetId = null;
+
+        if ($isFeedPostId) {
+            // Caso normal: es un post del feed (PagePost)
+            $engagementTargetId = $fbId;
+        } elseif ($looksNumeric && $isVideoType) {
+            // Es un video/reel: primero intentamos resolver el post del feed que lo referencia
+            $resolvedPostId = $this->resolvePostIdFromVideo(
+                $fbId,
+                (int) $post->meta_page_id,
+                $ctx['published_at'],
+                $pageToken
+            );
+
+            if ($resolvedPostId) {
+                $engagementTargetId = $resolvedPostId;
+                $sources['resolved_post_id'] = $resolvedPostId;
+                Log::info('[metrics] engagement.post_id.resolved.from_video', $ctx + [
+                    'video_id' => $fbId,
+                    'post_id' => $resolvedPostId,
+                ]);
+            } else {
+                // No encontramos post asociado → NO llamamos /{videoId}?fields=reactions(...)
+                Log::warning('[metrics] engagement.video.no-post', $ctx + [
+                    'video_id' => $fbId,
+                    'hint' => 'Video/Reel sin post de feed asociado; se omiten métricas de engagement',
+                ]);
+            }
+        } else {
+            // Id "raro" pero por compatibilidad lo intentamos como si fuera Post
+            $engagementTargetId = $fbId;
+        }
+
+        if (!$engagementTargetId) {
+            Log::info('[metrics] no-engagement-target', $ctx + [
+                'sources' => $sources,
+            ]);
+
+            // No hubo error de código, simplemente no sabemos sobre qué objeto medir
+            return false;
+        }
+
+        // 5) Leer engagement (likes + comments + shares) sobre el ID elegido
+        $engagement = $this->fetchEngagementCounts($engagementTargetId, $pageToken);
+
+        // Importante: null = fallo (permiso, error HTTP, etc.)
         if ($engagement === null) {
+            $sources['reactions_from'] = $engagementTargetId;
+
             Log::warning('[metrics] engagement.fetch.null', $ctx + [
                 'sources' => $sources,
             ]);
@@ -531,51 +578,34 @@ class MetaInsightsService
                 'sources' => $sources,
             ]);
 
-            return false; // metricsStep lo contará como "empty"
+            return false;
         }
 
-        // 5) Tenemos un número (0 o más) → actualizar métricas
-        //    OJO: 0 es válido; solo tratamos null como fallo.
+        // 6) Tenemos un número (0 o más) → actualizar
         $engagement = (int) $engagement;
 
         $post->interacciones = $engagement;
+        $post->visualizaciones = $engagement; // aproximación
+        $post->alcance = $engagement; // aproximación
+        $sources['reactions_from'] = $engagementTargetId;
 
-        // Como NO tenemos acceso a reach/impressions oficiales (no hay read_insights),
-        // usamos engagement como aproximación para que no queden vacíos.
-        $post->visualizaciones = $engagement; // aproximamos "visualizaciones"
-        $post->alcance = $engagement; // aproximamos "alcance"
-
-        $changed = true;
-
-        // 6) last_insights_at (si existe la columna) para saber cuándo actualizaste
+        // 7) last_insights_at si existe
         if (Schema::hasColumn('meta_posts', 'last_insights_at')) {
             $post->last_insights_at = now();
         }
 
-        // 7) Guardar cambios
-        if ($changed) {
-            $post->saveQuietly();
+        $post->saveQuietly();
 
-            Log::info('[metrics] updated', $ctx + $before + [
-                'alcance_after' => $post->alcance,
-                'visualizaciones_after' => $post->visualizaciones,
-                'interacciones_after' => $post->interacciones,
-                'sources' => $sources,
-            ]);
-
-            return true; // metricsStep -> state['ok']++
-        }
-
-        // En teoría nunca llega acá, pero por si acaso
-        Log::info('[metrics] no-change', $ctx + $before + [
+        Log::info('[metrics] updated', $ctx + $before + [
             'alcance_after' => $post->alcance,
             'visualizaciones_after' => $post->visualizaciones,
             'interacciones_after' => $post->interacciones,
             'sources' => $sources,
         ]);
 
-        return false;
+        return true;
     }
+
 
 
 
