@@ -499,8 +499,12 @@ class MetaInsightsService
         // 2) Info del fb_post_id
         $fbId = (string) $post->fb_post_id;
         $isFeedPostId = str_contains($fbId, '_');                // ej: 123456789_987654321
-        $looksNumeric = ctype_digit($fbId);                      // video/reel típico
-        $isVideoType = strtolower((string) $post->type) === 'video';
+        $looksNumeric = ctype_digit($fbId);                      // típico para video/photo object
+        $type = strtolower((string) $post->type);
+
+        // marcadores por tipo de contenido
+        $isVideoType = in_array($type, ['video', 'reel'], true);
+        $isPhotoType = in_array($type, ['photo', 'image', 'photo_post', 'foto'], true);
 
         // 3) Valores before (para log)
         $before = [
@@ -510,7 +514,7 @@ class MetaInsightsService
         ];
 
         $sources = [
-            'post_insights' => false,   // ya no usamos insights
+            'post_insights' => false,   // ya no usamos /insights oficiales
             'video_insights' => false,
             'reactions_from' => null,
             'resolved_post_id' => null,
@@ -521,10 +525,17 @@ class MetaInsightsService
         $engagementTargetId = null;
 
         if ($isFeedPostId) {
-            // Caso normal: es un post del feed (PagePost)
+            /**
+             * Caso normal: ID de POST del feed (sirve para texto, link, foto, video publicado en el feed, etc.)
+             * /{post-id}?fields=reactions,comments,shares funciona con pages_read_engagement.
+             */
             $engagementTargetId = $fbId;
         } elseif ($looksNumeric && $isVideoType) {
-            // Es un video/reel: primero intentamos resolver el post del feed que lo referencia
+            /**
+             * VIDEO / REEL:
+             * Tenemos un ID de VIDEO (Graph node tipo Video) que NO soporta "reactions" directo.
+             * → resolvemos el POST del feed que embebe ese video y medimos sobre ese post.
+             */
             $resolvedPostId = $this->resolvePostIdFromVideo(
                 $fbId,
                 (int) $post->meta_page_id,
@@ -535,6 +546,7 @@ class MetaInsightsService
             if ($resolvedPostId) {
                 $engagementTargetId = $resolvedPostId;
                 $sources['resolved_post_id'] = $resolvedPostId;
+
                 Log::info('[metrics] engagement.post_id.resolved.from_video', $ctx + [
                     'video_id' => $fbId,
                     'post_id' => $resolvedPostId,
@@ -546,9 +558,30 @@ class MetaInsightsService
                     'hint' => 'Video/Reel sin post de feed asociado; se omiten métricas de engagement',
                 ]);
             }
-        } else {
-            // Id "raro" pero por compatibilidad lo intentamos como si fuera Post
+        } elseif ($looksNumeric && $isPhotoType) {
+            /**
+             * FOTO (photo/image):
+             * Para Photo, el NODO sí soporta reactions/comments/shares directo.
+             * Así que podemos medir engagement usando el ID numérico.
+             * /{photo-id}?fields=reactions(...),comments(...),shares
+             */
             $engagementTargetId = $fbId;
+            Log::info('[metrics] engagement.photo.direct', $ctx + [
+                'photo_id' => $fbId,
+            ]);
+        } else {
+            /**
+             * Fallback genérico:
+             * - Puede ser un ID numérico que en realidad es Photo.
+             * - Puede ser un post antiguo donde guardaste solo un object_id.
+             * Mientras NO sea Video (porque arriba ya tratamos video explícito),
+             * intentar medir directo sobre el objeto suele funcionar (post, comment, photo, etc).
+             */
+            $engagementTargetId = $fbId;
+            Log::info('[metrics] engagement.generic.direct', $ctx + [
+                'object_id' => $fbId,
+                'type' => $type,
+            ]);
         }
 
         if (!$engagementTargetId) {
@@ -605,6 +638,7 @@ class MetaInsightsService
 
         return true;
     }
+
 
 
 
