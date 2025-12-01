@@ -498,44 +498,75 @@ class MetaInsightsService
 
         // 2) Info del fb_post_id
         $fbId = (string) $post->fb_post_id;
-        $isFeedPostId = str_contains($fbId, '_');                // ej: 123456789_987654321
-        $looksNumeric = ctype_digit($fbId);                      // típico para video/photo object
-        $type = strtolower((string) $post->type);
+        $isFeedPostId = str_contains($fbId, '_');          // ej: 123456789_987654321
+        $looksNumeric = ctype_digit($fbId);                // típico para video/reel
+        $isVideoType = strtolower((string) $post->type) === 'video';
 
-        // marcadores por tipo de contenido
-        $isVideoType = in_array($type, ['video', 'reel'], true);
-        $isPhotoType = in_array($type, ['photo', 'image', 'photo_post', 'foto'], true);
-
-        // 3) Valores before (para log)
+        // 3) Valores "before" (para logs)
         $before = [
             'alcance_before' => $post->alcance,
             'visualizaciones_before' => $post->visualizaciones,
             'interacciones_before' => $post->interacciones,
         ];
 
+        // Valores de trabajo
+        $alcance = $post->alcance;
+        $visualizaciones = $post->visualizaciones;
+        $interacciones = $post->interacciones;
+
         $sources = [
-            'post_insights' => false,   // ya no usamos /insights oficiales
-            'video_insights' => false,
+            'post_insights' => false,
+            'video_insights' => false, // por compatibilidad
             'reactions_from' => null,
             'resolved_post_id' => null,
             'token_source' => $tokenSource,
         ];
 
-        // 4) Decidir SOBRE QUÉ ID vamos a leer engagement
+        $changed = false;
+
+        /**
+         * 4) INTENTAR ALCANCE / VISUALIZACIONES REALES (insights) PARA POSTS DEL FEED
+         *    - alcance  = post_impressions_unique (reach)
+         *    - visualiz = post_impressions (impressions)
+         */
+        if ($isFeedPostId) {
+            $insErr = null;
+            $ins = $this->fetchPostInsights($fbId, $pageToken, $insErr);
+
+            if (is_array($ins)) {
+                if (isset($ins['post_impressions_unique'])) {
+                    $alcance = (int) $ins['post_impressions_unique'];
+                }
+                if (isset($ins['post_impressions'])) {
+                    $visualizaciones = (int) $ins['post_impressions'];
+                }
+
+                $sources['post_insights'] = true;
+
+                Log::info('[metrics] post_insights.ok', $ctx + [
+                    'alcance' => $alcance,
+                    'visualizaciones' => $visualizaciones,
+                ]);
+            } elseif ($insErr) {
+                // Por ejemplo, falta read_insights → lo registramos y luego usamos fallback
+                Log::info('[metrics] post_insights.skip', $ctx + [
+                    'err' => $insErr,
+                ]);
+            }
+        }
+
+        /**
+         * 5) DECIDIR SOBRE QUÉ ID MEDIR ENGAGEMENT (reacciones+comentarios+shares)
+         *    - Fotos / posts normales: el propio fb_post_id
+         *    - Videos/Reels: resolver el post del feed que referencia al video y usar ese ID
+         */
         $engagementTargetId = null;
 
         if ($isFeedPostId) {
-            /**
-             * Caso normal: ID de POST del feed (sirve para texto, link, foto, video publicado en el feed, etc.)
-             * /{post-id}?fields=reactions,comments,shares funciona con pages_read_engagement.
-             */
+            // Caso normal: ya es un post del feed
             $engagementTargetId = $fbId;
         } elseif ($looksNumeric && $isVideoType) {
-            /**
-             * VIDEO / REEL:
-             * Tenemos un ID de VIDEO (Graph node tipo Video) que NO soporta "reactions" directo.
-             * → resolvemos el POST del feed que embebe ese video y medimos sobre ese post.
-             */
+            // Video/Reel: intentamos resolver el post del feed
             $resolvedPostId = $this->resolvePostIdFromVideo(
                 $fbId,
                 (int) $post->meta_page_id,
@@ -552,91 +583,86 @@ class MetaInsightsService
                     'post_id' => $resolvedPostId,
                 ]);
             } else {
-                // No encontramos post asociado → NO llamamos /{videoId}?fields=reactions(...)
                 Log::warning('[metrics] engagement.video.no-post', $ctx + [
                     'video_id' => $fbId,
                     'hint' => 'Video/Reel sin post de feed asociado; se omiten métricas de engagement',
                 ]);
             }
-        } elseif ($looksNumeric && $isPhotoType) {
-            /**
-             * FOTO (photo/image):
-             * Para Photo, el NODO sí soporta reactions/comments/shares directo.
-             * Así que podemos medir engagement usando el ID numérico.
-             * /{photo-id}?fields=reactions(...),comments(...),shares
-             */
-            $engagementTargetId = $fbId;
-            Log::info('[metrics] engagement.photo.direct', $ctx + [
-                'photo_id' => $fbId,
-            ]);
         } else {
-            /**
-             * Fallback genérico:
-             * - Puede ser un ID numérico que en realidad es Photo.
-             * - Puede ser un post antiguo donde guardaste solo un object_id.
-             * Mientras NO sea Video (porque arriba ya tratamos video explícito),
-             * intentar medir directo sobre el objeto suele funcionar (post, comment, photo, etc).
-             */
+            // ID raro pero lo intentamos como si fuera post
             $engagementTargetId = $fbId;
-            Log::info('[metrics] engagement.generic.direct', $ctx + [
-                'object_id' => $fbId,
-                'type' => $type,
-            ]);
         }
 
-        if (!$engagementTargetId) {
+        /**
+         * 6) LEER ENGAGEMENT (likes + comments + shares)
+         */
+        if ($engagementTargetId) {
+            $engagement = $this->fetchEngagementCounts($engagementTargetId, $pageToken);
+
+            if ($engagement !== null) {
+                $interacciones = (int) $engagement;
+                $sources['reactions_from'] = $engagementTargetId;
+
+                // Si NO logramos insights reales, usamos engagement como aproximación
+                if (!$sources['post_insights']) {
+                    $alcance = $interacciones;
+                    $visualizaciones = $interacciones;
+                }
+            } else {
+                // Falló el endpoint de engagement (permiso, error 400, etc.)
+                $sources['reactions_from'] = $engagementTargetId;
+
+                Log::warning('[metrics] engagement.fetch.null', $ctx + [
+                    'sources' => $sources,
+                ]);
+            }
+        } else {
             Log::info('[metrics] no-engagement-target', $ctx + [
                 'sources' => $sources,
             ]);
-
-            // No hubo error de código, simplemente no sabemos sobre qué objeto medir
-            return false;
         }
 
-        // 5) Leer engagement (likes + comments + shares) sobre el ID elegido
-        $engagement = $this->fetchEngagementCounts($engagementTargetId, $pageToken);
+        /**
+         * 7) Persistir cambios SOLO si algo cambió
+         */
+        if ($alcance !== $post->alcance) {
+            $post->alcance = $alcance;
+            $changed = true;
+        }
 
-        // Importante: null = fallo (permiso, error HTTP, etc.)
-        if ($engagement === null) {
-            $sources['reactions_from'] = $engagementTargetId;
+        if ($visualizaciones !== $post->visualizaciones) {
+            $post->visualizaciones = $visualizaciones;
+            $changed = true;
+        }
 
-            Log::warning('[metrics] engagement.fetch.null', $ctx + [
+        if ($interacciones !== $post->interacciones) {
+            $post->interacciones = $interacciones;
+            $changed = true;
+        }
+
+        if ($changed && Schema::hasColumn('meta_posts', 'last_insights_at')) {
+            $post->last_insights_at = now();
+        }
+
+        if ($changed) {
+            $post->saveQuietly();
+
+            Log::info('[metrics] updated', $ctx + $before + [
+                'alcance_after' => $post->alcance,
+                'visualizaciones_after' => $post->visualizaciones,
+                'interacciones_after' => $post->interacciones,
                 'sources' => $sources,
             ]);
-
+        } else {
             Log::info('[metrics] no-change', $ctx + $before + [
                 'alcance_after' => $post->alcance,
                 'visualizaciones_after' => $post->visualizaciones,
                 'interacciones_after' => $post->interacciones,
                 'sources' => $sources,
             ]);
-
-            return false;
         }
 
-        // 6) Tenemos un número (0 o más) → actualizar
-        $engagement = (int) $engagement;
-
-        $post->interacciones = $engagement;
-        $post->visualizaciones = $engagement; // aproximación
-        $post->alcance = $engagement; // aproximación
-        $sources['reactions_from'] = $engagementTargetId;
-
-        // 7) last_insights_at si existe
-        if (Schema::hasColumn('meta_posts', 'last_insights_at')) {
-            $post->last_insights_at = now();
-        }
-
-        $post->saveQuietly();
-
-        Log::info('[metrics] updated', $ctx + $before + [
-            'alcance_after' => $post->alcance,
-            'visualizaciones_after' => $post->visualizaciones,
-            'interacciones_after' => $post->interacciones,
-            'sources' => $sources,
-        ]);
-
-        return true;
+        return $changed;
     }
 
 
