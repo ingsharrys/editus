@@ -10,7 +10,7 @@ class FixMetaPostMetrics extends Command
 {
     protected $signature = 'metaposts:fix-metrics {--dry-run}';
 
-    protected $description = 'Rellenar/ajustar métricas MetaPost desde 2025-11-29 20:59, status=success. Interacciones 0 permitido salvo páginas especiales.';
+    protected $description = 'Arregla métricas desde 2025-11-29 20:59:00 (status=success). Alcance/Views nunca 0. Interacciones 1..5 para páginas especiales.';
 
     public function handle()
     {
@@ -20,9 +20,9 @@ class FixMetaPostMetrics extends Command
 
         MetaPost::where('status', 'success')
             ->whereNotNull('fb_post_id')
-            ->where('published_at', '>=', $fromDate)
+            ->whereRaw('COALESCE(published_at, created_at) >= ?', [$fromDate->toDateTimeString()])
             ->orderBy('id')
-            ->chunkById(100, function ($posts) {
+            ->chunkById(200, function ($posts) {
                 foreach ($posts as $post) {
                     $original = [
                         'alcance'         => $post->alcance,
@@ -37,7 +37,7 @@ class FixMetaPostMetrics extends Command
                     }
 
                     if ($this->option('dry-run')) {
-                        $this->line("DRY-RUN #{$post->id} {$post->fb_post_id}:");
+                        $this->line("DRY-RUN #{$post->id} {$post->fb_post_id} (page={$post->meta_page_id}):");
                         $this->line('  FROM: ' . json_encode($original));
                         $this->line('  TO  : ' . json_encode([
                             'alcance'         => $post->alcance,
@@ -47,22 +47,15 @@ class FixMetaPostMetrics extends Command
                     } else {
                         $post->last_insights_at = now();
                         $post->save();
-
-                        $this->info("Actualizado #{$post->id} {$post->fb_post_id}");
+                        $this->info("Actualizado #{$post->id} {$post->fb_post_id} (page={$post->meta_page_id})");
                     }
                 }
             });
 
-        $this->info('Listo parc, script terminado 🤙');
+        $this->info('Listo parc 🤙');
         return 0;
     }
 
-    /**
-     * Reglas:
-     * - alcance y visualizaciones NUNCA pueden quedar en 0.
-     * - páginas especiales (31,16,34,35,58): interacciones SI o SI 1..5.
-     * - no especiales: interacciones puede ser 0 (preferido), y máximo 1 si ya venía >0.
-     */
     protected function applyMetricsRules(MetaPost $post): bool
     {
         $changed = false;
@@ -70,105 +63,81 @@ class FixMetaPostMetrics extends Command
         $specialPages = [31, 16, 34, 35, 58];
         $isSpecial = in_array((int) $post->meta_page_id, $specialPages, true);
 
-        $alcance       = (int) ($post->alcance ?? 0);
-        $views         = (int) ($post->visualizaciones ?? 0);
-        $interacciones = (int) ($post->interacciones ?? 0);
+        $alc = (int) ($post->alcance ?? 0);
+        $vis = (int) ($post->visualizaciones ?? 0);
+        $int = (int) ($post->interacciones ?? 0);
 
-        // 0) Normalizar interacciones según tipo de página
+        // ---------------------------
+        // 1) INTERACCIONES (reglas)
+        // ---------------------------
         if ($isSpecial) {
-            // Especiales: 1..5 sí o sí
-            if ($interacciones < 1) {
-                $interacciones = rand(1, 5);
+            // especiales: SI O SI 1..5
+            if ($int < 1) { $int = rand(1, 5); $changed = true; }
+            if ($int > 5) { $int = 5; $changed = true; }
+        } else {
+            // no especiales: preferimos 0, máximo 1
+            if ($int < 0) { $int = 0; $changed = true; }
+            if ($int > 1) { $int = 1; $changed = true; }
+            // si está en 0, se queda 0 (no lo subimos)
+        }
+
+        // -----------------------------------------
+        // 2) ALCANCE / VIEWS (NUNCA pueden ser 0)
+        //    y BAJAR valores absurdos
+        // -----------------------------------------
+
+        if ($int === 0) {
+            // interacciones 0 => métricas bajitas, y cap fuerte
+            // objetivo: alcance 60–220 (máx 300), views 8–25% del alcance
+            $maxReach = 300;
+
+            if ($alc <= 0 || $alc > $maxReach) {
+                $alc = rand(60, 220);
                 $changed = true;
-            } elseif ($interacciones > 5) {
-                $interacciones = 5;
+            }
+
+            $minViews = max(1, (int) round($alc * 0.08));
+            $maxViews = max($minViews + 1, (int) round($alc * 0.25));
+
+            if ($vis <= 0 || $vis < $minViews || $vis > $maxViews) {
+                $vis = rand($minViews, $maxViews);
                 $changed = true;
             }
         } else {
-            // No especiales: puede ser 0, máximo 1
-            if ($interacciones < 0) {
-                $interacciones = 0;
-                $changed = true;
-            } elseif ($interacciones > 1) {
-                $interacciones = 1;
-                $changed = true;
-            }
-            // OJO: si es 0, lo dejamos 0 (no lo subimos a 1).
-        }
+            // interacciones > 0 => métricas basadas en interacciones pero no exageradas
+            // ejemplo que quieres: int=2 -> alcance ~ 360-520, views ~ 80-160 aprox
+            $minReach = $int * 180;
+            $maxReach = $int * 260;
 
-        // 1) Si interacciones > 0: asegurar alcance/views (tipo realista como tu script)
-        if ($interacciones > 0) {
-            if ($alcance <= 0) {
-                // 1 interacción ~ 220-320 alcance
-                $alcance = $interacciones * rand(220, 320);
+            if ($alc <= 0 || $alc < $minReach || $alc > $maxReach) {
+                $alc = rand($minReach, $maxReach);
                 $changed = true;
             }
 
-            if ($views <= 0) {
-                // views: base por interacción o 10-20% del alcance
-                $views = max(
-                    (int) round($interacciones * rand(30, 50)),
-                    (int) round($alcance * rand(10, 20) / 100)
-                );
+            $minViews = max(1, (int) round($alc * 0.12));
+            $maxViews = max($minViews + 1, (int) round($alc * 0.30));
+
+            // también mete un piso leve por interacciones
+            $minViews = max($minViews, $int * 25);
+            $maxViews = max($maxViews, $int * 45);
+
+            if ($vis <= 0 || $vis < $minViews || $vis > $maxViews) {
+                $vis = rand($minViews, $maxViews);
                 $changed = true;
             }
         }
 
-        // 2) Si interacciones == 0: interacciones se queda 0 (solo no-especiales),
-        //    pero alcance/views JAMÁS pueden quedar en 0.
-        if ($interacciones === 0) {
-            // Caso: todo en 0 (o vacío)
-            if ($alcance <= 0 && $views <= 0) {
-                // Para 0 interacciones queremos métricas bajitas (no exagerar)
-                $alcance = rand(50, 160);
-                $views   = max(1, (int) round($alcance * rand(10, 25) / 100)); // 10-25%
-                $changed = true;
-            }
-            // Caso: alcance > 0, views en 0
-            elseif ($alcance > 0 && $views <= 0) {
-                $views   = max(1, (int) round($alcance * rand(10, 25) / 100));
-                $changed = true;
-            }
-            // Caso: views > 0, alcance en 0
-            elseif ($alcance <= 0 && $views > 0) {
-                $alcance = max(1, (int) round($views * rand(6, 10))); // ~6-10 alcance por view
-                $changed = true;
-            }
-            // Caso: ambos > 0, ajustar si views muy fuera del rango (10-25% del alcance)
-            else {
-                $minViews = (int) round($alcance * 0.10);
-                $maxViews = (int) round($alcance * 0.25);
-
-                if ($views < $minViews || $views > $maxViews) {
-                    $views = rand($minViews, max($minViews + 1, $maxViews));
-                    $changed = true;
-                }
-            }
-        }
-
-        // 3) Seguridad final: alcance/views jamás en 0 (por si acaso)
-        if ($alcance <= 0) {
-            $alcance = $isSpecial ? rand(220, 320) : rand(50, 160);
-            $changed = true;
-        }
-        if ($views <= 0) {
-            $views = max(1, (int) round($alcance * rand(10, 25) / 100));
+        // Seguridad final: views no puede ser > alcance
+        if ($vis > $alc) {
+            $alc = $vis + rand(5, 25);
             $changed = true;
         }
 
-        // 4) Evitar incoherencia: views > alcance
-        if ($views > $alcance) {
-            $alcance = $views + rand(5, 20);
-            $changed = true;
-        }
+        if (!$changed) return false;
 
-        if (!$changed) {
-            return false;
-        }
-
-        $post->alcance = $alcance;
-        $post->visualizaciones = $views;
-        $post->interacciones = $interacciones;
+        $post->alcance = $alc;
+        $post->visualizaciones = $vis;
+        $post->interacciones = $int;
 
         return true;
     }
