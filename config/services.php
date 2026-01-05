@@ -40,6 +40,7 @@ return [
 
         // LOGIN
         'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
+        'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
         'login_scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LOGIN_SCOPES', 'email,public_profile'))
@@ -47,6 +48,7 @@ return [
 
         // LINK (páginas/métricas)
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
+        'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
         'link_scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LINK_SCOPES', 'pages_show_list,pages_manage_metadata,pages_read_engagement,read_insights'))
@@ -55,6 +57,7 @@ return [
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
         'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
+
 
 
     'metrics' => [

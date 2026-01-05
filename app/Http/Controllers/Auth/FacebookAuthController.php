@@ -15,13 +15,30 @@ class FacebookAuthController extends Controller
 {
     public function redirect()
     {
+        $params = ['auth_type' => 'rerequest'];
+
+        // ✅ Si existe config_id (Login for Business), úsalo
+        if ($cid = config('services.facebook.login_config_id')) {
+            $params['config_id'] = $cid;
+            $params['response_type'] = 'code';
+            $params['override_default_response_type'] = 'true';
+
+            return Socialite::driver('facebook')
+                ->with($params)
+                ->redirectUrl(route('facebook.login.callback'))
+                ->redirect();
+        }
+
+        // ✅ Si NO hay config_id, usa scopes normales
         $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
 
         return Socialite::driver('facebook')
             ->scopes($scopes)
-            ->with(['auth_type' => 'rerequest'])
-            ->redirect(); // usa services.facebook.redirect
+            ->with($params)
+            ->redirectUrl(route('facebook.login.callback'))
+            ->redirect();
     }
+
 
     public function callback()
     {

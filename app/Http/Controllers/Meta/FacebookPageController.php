@@ -769,14 +769,25 @@ class FacebookPageController extends Controller
     public function linkRedirect()
     {
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
-        $scopes = config('services.facebook.link_scopes', config('services.facebook.scopes', []));
+        $params = ['auth_type' => 'rerequest'];
+
+        if ($cid = config('services.facebook.link_config_id')) {
+            $params['config_id'] = $cid;
+            $params['response_type'] = 'code';
+            $params['override_default_response_type'] = 'true';
+
+            return Socialite::driver('facebook')
+                ->with($params)
+                ->redirectUrl($redirectUrl)
+                ->redirect();
+        }
+
+        $scopes = config('services.facebook.link_scopes', []);
 
         return Socialite::driver('facebook')
-            ->redirectUrl($redirectUrl)
             ->scopes($scopes)
-            ->with([
-                'auth_type' => 'rerequest',
-            ])
+            ->with($params)
+            ->redirectUrl($redirectUrl)
             ->redirect();
     }
 
