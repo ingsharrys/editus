@@ -3,37 +3,47 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Models\Role;
+use App\Models\SocialAccount;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
-use App\Models\User;
-use App\Models\SocialAccount;
-use App\Models\Role;
 
 class FacebookAuthController extends Controller
 {
     public function redirect()
     {
-        $scopes = config('services.facebook.scopes', []);
+        $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
+
         return Socialite::driver('facebook')
             ->scopes($scopes)
             ->with(['auth_type' => 'rerequest'])
-            ->redirect();
+            ->redirect(); // usa services.facebook.redirect
     }
 
     public function callback()
     {
-        $fbUser = \Laravel\Socialite\Facades\Socialite::driver('facebook')->stateless()->user();
+        $fbUser = Socialite::driver('facebook')->stateless()->user();
 
-        // Intercambia por token long-lived (mejor para /me/accounts estable)
-        $appId = config('services.facebook.client_id');
-        $appSecret = config('services.facebook.client_secret');
+        // 1) Si ya existe social account, loguea ese user
+        $existing = SocialAccount::where('provider', 'facebook')
+            ->where('provider_user_id', $fbUser->getId())
+            ->first();
 
-        $ex = \Illuminate\Support\Facades\Http::get('https://graph.facebook.com/v23.0/oauth/access_token', [
+        if ($existing && $existing->user) {
+            Auth::login($existing->user, true);
+            return redirect()->route('meta.pages.index');
+        }
+
+        // 2) Long-lived token (opcional pero recomendado)
+        $version = config('services.facebook.version', 'v23.0');
+
+        $ex = Http::get("https://graph.facebook.com/{$version}/oauth/access_token", [
             'grant_type' => 'fb_exchange_token',
-            'client_id' => $appId,
-            'client_secret' => $appSecret,
+            'client_id' => config('services.facebook.client_id'),
+            'client_secret' => config('services.facebook.client_secret'),
             'fb_exchange_token' => $fbUser->token,
         ]);
 
@@ -46,41 +56,42 @@ class FacebookAuthController extends Controller
             if (!empty($j['expires_in'])) {
                 $expiresAt = now()->addSeconds((int) $j['expires_in']);
             }
-        } elseif (property_exists($fbUser, 'expiresIn') && $fbUser->expiresIn) {
+        } elseif (!empty($fbUser->expiresIn)) {
             $expiresAt = now()->addSeconds((int) $fbUser->expiresIn);
         }
 
-        // Usuario local
-        $user = User::firstOrCreate(
-            ['email' => $fbUser->getEmail() ?: (Str::uuid() . '@no-email.local')],
-            [
+        // 3) User local (por email si viene)
+        $email = $fbUser->getEmail();
+
+        $user = $email ? User::where('email', $email)->first() : null;
+
+        if (!$user) {
+            $user = User::create([
                 'name' => $fbUser->getName() ?: $fbUser->getNickname() ?: 'FB User',
+                'email' => $email ?: ('fb_' . $fbUser->getId() . '@no-email.local'),
                 'password' => bcrypt(Str::random(32)),
                 'role_id' => optional(Role::where('slug', 'user')->first())->id,
-            ]
-        );
+            ]);
+        }
 
-        // Guarda/actualiza SocialAccount con el user token (long-lived si hubo)
-        SocialAccount::updateOrCreate(
-            ['provider' => 'facebook', 'provider_user_id' => $fbUser->getId()],
-            [
-                'user_id' => $user->id,
-                'access_token' => $userAccessToken,
-                'refresh_token' => $fbUser->refreshToken ?? null,
-                'expires_at' => $expiresAt,
-                'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
-            ]
-        );
+        SocialAccount::create([
+            'user_id' => $user->id,
+            'provider' => 'facebook',
+            'provider_user_id' => $fbUser->getId(),
+            'access_token' => $userAccessToken,
+            'refresh_token' => $fbUser->refreshToken ?? null,
+            'expires_at' => $expiresAt,
+            'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
+        ]);
 
-        Auth::login($user);
-        return redirect('/dashboard');
+        Auth::login($user, true);
+        return redirect()->route('meta.pages.index');
     }
-
-    // === Alias para rutas "Basic" (compatibilidad con prod) ===
     public function redirectBasic()
     {
         return $this->redirect();
     }
+
     public function callbackBasic()
     {
         return $this->callback();

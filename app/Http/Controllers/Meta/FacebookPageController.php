@@ -768,21 +768,49 @@ class FacebookPageController extends Controller
 
     public function linkRedirect()
     {
+        $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
+        $scopes = config('services.facebook.link_scopes', config('services.facebook.scopes', []));
+
         return Socialite::driver('facebook')
-            ->scopes(config('services.facebook.scopes')) // <-- usa lo del config
-            ->redirectUrl(config('services.facebook.link_redirect') ?: route('facebook.link.callback'))
+            ->redirectUrl($redirectUrl)
+            ->scopes($scopes)
+            ->with([
+                'auth_type' => 'rerequest',
+            ])
             ->redirect();
     }
 
     public function linkCallback()
     {
+        $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
+
+        // Si no te falla state, puedes dejar ->user() normal.
+        // Si te ha fallado con "Invalid state", usa stateless.
         $fbUser = Socialite::driver('facebook')
-            ->redirectUrl(config('services.facebook.link_redirect') ?: route('facebook.link.callback'))
+            ->redirectUrl($redirectUrl)
+            ->stateless()
             ->user();
+
+        // Intercambia por token long-lived (recomendado)
+        $version = config('services.facebook.version', 'v23.0');
+        $ex = \Illuminate\Support\Facades\Http::get("https://graph.facebook.com/{$version}/oauth/access_token", [
+            'grant_type' => 'fb_exchange_token',
+            'client_id' => config('services.facebook.client_id'),
+            'client_secret' => config('services.facebook.client_secret'),
+            'fb_exchange_token' => $fbUser->token,
+        ]);
+
+        $userAccessToken = $fbUser->token;
+        $expiresAt = isset($fbUser->expiresIn) ? now()->addSeconds((int) $fbUser->expiresIn) : null;
+
+        if ($ex->ok()) {
+            $j = $ex->json();
+            $userAccessToken = $j['access_token'] ?? $userAccessToken;
+            $expiresAt = !empty($j['expires_in']) ? now()->addSeconds((int) $j['expires_in']) : $expiresAt;
+        }
 
         $current = Auth::user();
 
-        // crear / actualizar SocialAccount
         $social = SocialAccount::updateOrCreate(
             [
                 'user_id' => $current->id,
@@ -792,11 +820,9 @@ class FacebookPageController extends Controller
             [
                 'name' => $fbUser->getName(),
                 'avatar' => $fbUser->getAvatar(),
-                'access_token' => $fbUser->token,
+                'access_token' => $userAccessToken, // <-- long-lived si se pudo
                 'refresh_token' => $fbUser->refreshToken ?? null,
-                'expires_at' => isset($fbUser->expiresIn)
-                    ? now()->addSeconds((int) $fbUser->expiresIn)
-                    : null,
+                'expires_at' => $expiresAt,
                 'raw' => method_exists($fbUser, 'user') ? $fbUser->user : null,
             ]
         );
@@ -807,6 +833,7 @@ class FacebookPageController extends Controller
             ->route('meta.pages.index')
             ->with('success', "Páginas sincronizadas: {$count}");
     }
+
 
     public function sync(Request $request)
     {

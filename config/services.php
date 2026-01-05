@@ -38,20 +38,24 @@ return [
         'client_id' => env('FACEBOOK_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
 
-        // Login normal (si lo usas)
+        // LOGIN
         'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
+        'login_scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_LOGIN_SCOPES', 'email,public_profile'))
+        ))),
 
-        // Redirect específico para el "link" de páginas
+        // LINK (páginas/métricas)
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
-
-        // Scopes que pedirá Socialite
-        'scopes' => array_map('trim', explode(',', env('FACEBOOK_SCOPES', 'email,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,read_insights,business_management'))),
+        'link_scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_LINK_SCOPES', 'pages_show_list,pages_manage_metadata,pages_read_engagement,read_insights'))
+        ))),
 
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
-
-        // Por si usas un system user token en otros lados
         'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
+
 
     'metrics' => [
         // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.

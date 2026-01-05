@@ -21,11 +21,12 @@ Route::get('/dashboard', fn() => view('dashboard'))
 | - Solo public_profile + email (para externos)
 |--------------------------------------------------------------------------
 */
-Route::get('/auth/facebook/login', [FacebookAuthController::class, 'redirectBasic'])
+Route::get('/auth/facebook/login', [FacebookAuthController::class, 'redirect'])
     ->name('facebook.login');
 
-Route::get('/auth/facebook/login/callback', [FacebookAuthController::class, 'callbackBasic'])
+Route::get('/auth/facebook/login/callback', [FacebookAuthController::class, 'callback'])
     ->name('facebook.login.callback');
+
 
 /*
 |--------------------------------------------------------------------------
@@ -51,6 +52,7 @@ Route::middleware(['auth', 'role:user'])->group(function () {
     Route::get('/panel', fn() => 'usuarios normales');
 });
 
+
 /*
 |--------------------------------------------------------------------------
 | Conectar y gestionar páginas (requiere sesión)
@@ -71,10 +73,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/meta/pages/repair-tokens/step', [FacebookPageController::class, 'repairTokensStep'])
         ->name('meta.pages.repairTokens.step');
 
-    // Iniciar flujo para pedir pages_* (conectar páginas)
-    Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.redirect');
-    // Callback del flujo pages_*
-    Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.callback');
+    Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.connect');
+    Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.connect.callback');
+
 
     // Aliases de compatibilidad
     Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])->name('facebook.link.redirect');
