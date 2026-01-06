@@ -16,18 +16,33 @@ class FacebookAuthController extends Controller
     public function redirect()
     {
         $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
+        $version = config('services.facebook.version', 'v23.0');
+
+        $with = []; // mientras pruebas, NO metas auth_type=rerequest
+
+        // Plan B (solo si tu app está en “Login for Business” y te toca usar config_id)
+        if ($cid = config('services.facebook.login_config_id')) {
+            $with['config_id'] = $cid;
+        }
 
         return Socialite::driver('facebook')
+            ->usingGraphVersion($version)
             ->scopes($scopes)
-            ->with(['auth_type' => 'rerequest'])
+            ->with($with)
             ->redirect();
     }
 
 
 
+
     public function callback()
     {
-        $fbUser = Socialite::driver('facebook')->stateless()->user();
+        $version = config('services.facebook.version', 'v23.0');
+
+        $fbUser = Socialite::driver('facebook')
+            ->usingGraphVersion($version)
+            ->stateless()
+            ->user();
 
         // 1) Si ya existe social account, loguea ese user
         $existing = SocialAccount::where('provider', 'facebook')
@@ -40,8 +55,6 @@ class FacebookAuthController extends Controller
         }
 
         // 2) Long-lived token (opcional pero recomendado)
-        $version = config('services.facebook.version', 'v23.0');
-
         $ex = Http::get("https://graph.facebook.com/{$version}/oauth/access_token", [
             'grant_type' => 'fb_exchange_token',
             'client_id' => config('services.facebook.client_id'),
@@ -64,7 +77,6 @@ class FacebookAuthController extends Controller
 
         // 3) User local (por email si viene)
         $email = $fbUser->getEmail();
-
         $user = $email ? User::where('email', $email)->first() : null;
 
         if (!$user) {
@@ -89,6 +101,25 @@ class FacebookAuthController extends Controller
         Auth::login($user, true);
         return redirect()->route('meta.pages.index');
     }
+
+    /**
+     * Ruta temporal para ver la URL exacta que genera Socialite.
+     * Úsala SOLO para debug y luego la borras.
+     */
+    public function debugUrl()
+    {
+        $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
+        $version = config('services.facebook.version', 'v23.0');
+
+        $url = Socialite::driver('facebook')
+            ->usingGraphVersion($version)
+            ->scopes($scopes)
+            ->redirect()
+            ->getTargetUrl();
+
+        dd($url);
+    }
+
     public function redirectBasic()
     {
         return $this->redirect();

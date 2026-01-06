@@ -34,28 +34,37 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    // config/services.php
     'facebook' => [
         'client_id' => env('FACEBOOK_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
-
-        // LOGIN
         'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
-        'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
+        'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
+
         'login_scopes' => array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LOGIN_SCOPES', 'email,public_profile'))
         ))),
 
-        // LINK (páginas/métricas)
-        'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
-        'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
-        'link_scopes' => array_values(array_filter(array_map(
-            'trim',
-            explode(',', env('FACEBOOK_LINK_SCOPES', 'pages_show_list,pages_manage_metadata,pages_read_engagement,read_insights'))
-        ))),
+        // opcional: por si luego tu app está en “Login for Business”
+        'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
+    ],
 
+    'facebook_login' => [
+        'client_id' => env('FACEBOOK_LOGIN_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_LOGIN_CLIENT_SECRET'),
+        'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
-        'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
+        'scopes' => array_filter(array_map('trim', explode(',', env('FACEBOOK_LOGIN_SCOPES', 'email,public_profile')))),
+    ],
+
+    'facebook_business' => [
+        'client_id' => env('FACEBOOK_BUSINESS_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_BUSINESS_CLIENT_SECRET'),
+        'redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
+        'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
+        'scopes' => array_filter(array_map('trim', explode(',', env('FACEBOOK_LINK_SCOPES', '')))),
+        'config_id' => env('FACEBOOK_LINK_CONFIG_ID'), // si algún día lo necesitas en business login
     ],
 
 
