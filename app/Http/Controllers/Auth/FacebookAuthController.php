@@ -15,12 +15,12 @@ class FacebookAuthController extends Controller
 {
     public function redirect()
     {
-        $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
         $version = config('services.facebook.version', 'v23.0');
+        $scopes = config('services.facebook.login_scopes', ['email', 'pages_show_list']);
 
-        $with = []; // mientras pruebas, NO metas auth_type=rerequest
+        $with = [];
 
-        // Plan B (solo si tu app está en “Login for Business” y te toca usar config_id)
+        // si tienes config_id (business login), lo mandas
         if ($cid = config('services.facebook.login_config_id')) {
             $with['config_id'] = $cid;
         }
@@ -31,9 +31,6 @@ class FacebookAuthController extends Controller
             ->with($with)
             ->redirect();
     }
-
-
-
 
     public function callback()
     {
