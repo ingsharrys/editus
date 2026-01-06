@@ -10,6 +10,9 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
 
 class FacebookAuthController extends Controller
 {
@@ -32,16 +35,39 @@ class FacebookAuthController extends Controller
             ->redirect();
     }
 
-    public function callback()
+    public function callback(Request $request)
     {
+        // Log de lo que llega desde Facebook (IMPORTANTE para ver si viene error o code)
+        Log::info('FB callback payload', [
+            'query' => $request->query(),
+            'full' => $request->all(),
+        ]);
+
+        // Si Facebook devolvió error (no hay code)
+        if ($request->has('error')) {
+            $desc = $request->get('error_description') ?: $request->get('error_reason') ?: $request->get('error');
+
+            return redirect()
+                ->route('facebook.login')
+                ->with('error', "Facebook OAuth error: {$desc}");
+        }
+
+        // Si NO vino el code, no intentes Socialite (evitas el 400 feo)
+        if (!$request->filled('code')) {
+            return redirect()
+                ->route('facebook.login')
+                ->with('error', 'Facebook no devolvió el parámetro "code". Revisa permisos/redirect. (Mira laravel.log)');
+        }
+
         $version = config('services.facebook.version', 'v23.0');
 
+        // TIP: para debug quita stateless; si te da InvalidStateException, ahí ya sabes que tu sesión/cookies están mal
         $fbUser = Socialite::driver('facebook')
             ->usingGraphVersion($version)
-            ->stateless()
             ->user();
 
-        // 1) Si ya existe social account, loguea ese user
+        // ---- de aquí para abajo dejas tu lógica tal cual ----
+
         $existing = SocialAccount::where('provider', 'facebook')
             ->where('provider_user_id', $fbUser->getId())
             ->first();
@@ -51,7 +77,6 @@ class FacebookAuthController extends Controller
             return redirect()->route('meta.pages.index');
         }
 
-        // 2) Long-lived token (opcional pero recomendado)
         $ex = Http::get("https://graph.facebook.com/{$version}/oauth/access_token", [
             'grant_type' => 'fb_exchange_token',
             'client_id' => config('services.facebook.client_id'),
@@ -72,7 +97,6 @@ class FacebookAuthController extends Controller
             $expiresAt = now()->addSeconds((int) $fbUser->expiresIn);
         }
 
-        // 3) User local (por email si viene)
         $email = $fbUser->getEmail();
         $user = $email ? User::where('email', $email)->first() : null;
 
