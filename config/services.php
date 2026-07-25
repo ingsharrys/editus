@@ -88,11 +88,9 @@ return [
         'enabled' => env('METRICS_ENABLED', false),
     ],
     // Integración con el sistema de noticias (backend.esnoticia.org):
-    // token compartido del endpoint /api/articulos/publicar y usuario
-    // al que se atribuyen los posts creados por API.
+    // token compartido del endpoint puente /api/articulos/publicar.
     'editus' => [
         'ingest_token' => env('EDITUS_INGEST_TOKEN'),
-        'api_user_id' => env('EDITUS_API_USER_ID', 1),
     ],
 
     'whatsapp' => [

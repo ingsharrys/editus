@@ -4,8 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
-use App\Models\MetaPost;
-use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -21,8 +19,13 @@ use Illuminate\Support\Str;
  *
  * El medio llega como slug (ej. "opanoticias") y se publica en todas
  * las páginas de meta_pages cuyo medio_slug coincida y tengan un token
- * activo. Se crea un MetaPost por página (mismo flujo y métricas que
- * las publicaciones hechas desde la interfaz).
+ * activo.
+ *
+ * editus actúa SOLO como puente: publica y devuelve éxito/falla por
+ * página. NO crea registros MetaPost — el historial de estas
+ * publicaciones se registra en el sistema de noticias (esnoticia).
+ * Las vistas de posts de editus quedan solo para lo publicado
+ * manualmente desde su interfaz.
  */
 class ArticlePublishController extends Controller
 {
@@ -44,15 +47,6 @@ class ArticlePublishController extends Controller
         ]);
 
         $medioSlug = Str::of($data['medio'])->lower()->trim()->toString();
-
-        // ── Usuario al que se atribuyen los posts creados por API ───
-        $apiUserId = (int) config('services.editus.api_user_id', 0);
-        if ($apiUserId <= 0 || !User::whereKey($apiUserId)->exists()) {
-            $apiUserId = (int) (User::orderBy('id')->value('id') ?? 0);
-        }
-        if ($apiUserId <= 0) {
-            return response()->json(['success' => false, 'error' => 'No hay usuario para atribuir el post'], 500);
-        }
 
         // ── Páginas del medio con token activo ──────────────────────
         $pages = MetaPage::where('medio_slug', $medioSlug)
@@ -80,27 +74,11 @@ class ArticlePublishController extends Controller
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
             if (!$pivot?->page_access_token) {
-                $resultados[] = ['pagina' => $page->name, 'ok' => false, 'error' => 'Sin token activo'];
+                $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => 'Sin token activo'];
                 continue;
             }
 
             $token = $pivot->page_access_token;
-
-            $postData = [
-                'batch_uuid' => $batch,
-                'user_id' => $apiUserId,
-                'meta_page_id' => $page->id,
-                'type' => 'text',
-                'message' => $mensaje,
-                'link' => $data['url'],
-                'local_media' => null,
-                'fb_media_ids' => null,
-                'status' => 'pending',
-                'published_at' => null,
-                'fb_post_id' => null,
-                'fb_permalink_url' => null,
-                'error' => null,
-            ];
 
             try {
                 $resp = Http::asForm()->post("https://graph.facebook.com/{$graphVersion}/{$page->page_id}/feed", [
@@ -111,24 +89,20 @@ class ArticlePublishController extends Controller
 
                 if ($resp->ok()) {
                     $postId = data_get($resp->json(), 'id');
-                    $postData['status'] = 'success';
-                    $postData['fb_post_id'] = $postId;
-                    $postData['published_at'] = now();
-                    $postData['fb_permalink_url'] = $this->fetchPermalink($postId, $token);
                     $publicados++;
-                    $resultados[] = ['pagina' => $page->name, 'ok' => true, 'fb_post_id' => $postId];
+                    $resultados[] = [
+                        'pagina' => $page->name,
+                        'red' => 'facebook',
+                        'ok' => true,
+                        'fb_post_id' => $postId,
+                        'permalink' => $this->fetchPermalink($postId, $token),
+                    ];
                 } else {
-                    $postData['status'] = 'fail';
-                    $postData['error'] = $resp->body();
-                    $resultados[] = ['pagina' => $page->name, 'ok' => false, 'error' => $resp->body()];
+                    $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => $resp->body()];
                 }
             } catch (\Throwable $e) {
-                $postData['status'] = 'fail';
-                $postData['error'] = $e->getMessage();
-                $resultados[] = ['pagina' => $page->name, 'ok' => false, 'error' => $e->getMessage()];
+                $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => $e->getMessage()];
             }
-
-            MetaPost::create($postData);
         }
 
         Log::info('[ARTICULOS] Artículo replicado en Facebook', [
