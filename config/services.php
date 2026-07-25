@@ -87,6 +87,14 @@ return [
         // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).
         'enabled' => env('METRICS_ENABLED', false),
     ],
+    // Integración con el sistema de noticias (backend.esnoticia.org):
+    // token compartido del endpoint /api/articulos/publicar y usuario
+    // al que se atribuyen los posts creados por API.
+    'editus' => [
+        'ingest_token' => env('EDITUS_INGEST_TOKEN'),
+        'api_user_id' => env('EDITUS_API_USER_ID', 1),
+    ],
+
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
