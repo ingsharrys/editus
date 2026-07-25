@@ -791,16 +791,38 @@ class FacebookPageController extends Controller
             ->redirect();
     }
 
-    public function linkCallback()
+    public function linkCallback(Request $request)
     {
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
 
+        // Si Facebook devolvió un error (usuario canceló, permisos denegados, etc.)
+        if ($request->has('error')) {
+            $desc = $request->get('error_description')
+                ?: $request->get('error_reason')
+                ?: $request->get('error');
+
+            Log::warning('[FB] linkCallback: error de Facebook', ['query' => $request->query()]);
+
+            return redirect()->route('meta.pages.index')
+                ->with('error', "Facebook devolvió un error: {$desc}");
+        }
+
         // Si no te falla state, puedes dejar ->user() normal.
         // Si te ha fallado con "Invalid state", usa stateless.
-        $fbUser = Socialite::driver('facebook')
-            ->redirectUrl($redirectUrl)
-            ->stateless()
-            ->user();
+        try {
+            $fbUser = Socialite::driver('facebook')
+                ->redirectUrl($redirectUrl)
+                ->stateless()
+                ->user();
+        } catch (\Throwable $e) {
+            Log::error('[FB] linkCallback: fallo al obtener el usuario de Facebook', [
+                'err' => $e->getMessage(),
+                'redirect_url' => $redirectUrl,
+            ]);
+
+            return redirect()->route('meta.pages.index')
+                ->with('error', 'No se pudo completar la conexión con Facebook. Verifica que la URL de callback esté registrada en la app de Meta e inténtalo de nuevo. Detalle: ' . $e->getMessage());
+        }
 
         // Intercambia por token long-lived (recomendado)
         $version = config('services.facebook.version', 'v23.0');
@@ -838,7 +860,15 @@ class FacebookPageController extends Controller
             ]
         );
 
-        $count = $this->performSync($current, $social);
+        try {
+            $count = $this->performSync($current, $social);
+        } catch (\Throwable $e) {
+            Log::error('[FB] linkCallback: fallo en performSync', ['err' => $e->getMessage()]);
+
+            return redirect()
+                ->route('meta.pages.index')
+                ->with('error', 'Cuenta conectada, pero la sincronización de páginas falló: ' . $e->getMessage());
+        }
 
         return redirect()
             ->route('meta.pages.index')
@@ -855,12 +885,39 @@ class FacebookPageController extends Controller
             ->first();
 
         if (!$social) {
-            return redirect()->route('facebook.redirect');
+            return redirect()->route('facebook.connect')
+                ->with('info', 'Primero conecta tu cuenta de Facebook para poder sincronizar páginas.');
         }
 
-        $count = $this->performSync($user, $social);
+        try {
+            $count = $this->performSync($user, $social);
+        } catch (\Throwable $e) {
+            Log::error('[FB] sync: fallo en performSync', [
+                'user_id' => $user->id,
+                'err' => $e->getMessage(),
+            ]);
+
+            if ($this->isExpiredTokenError($e->getMessage())) {
+                return redirect()->route('facebook.connect')
+                    ->with('error', 'Tu sesión de Facebook expiró. Vuelve a conectar tu cuenta.');
+            }
+
+            return back()->with('error', 'No se pudieron sincronizar las páginas: ' . $e->getMessage());
+        }
 
         return back()->with('success', "Páginas sincronizadas: {$count}");
+    }
+
+    /**
+     * Detecta si el error de Graph corresponde a un token de usuario
+     * expirado/invalidado (OAuthException código 190).
+     */
+    private function isExpiredTokenError(string $message): bool
+    {
+        return str_contains($message, '"code":190')
+            || str_contains($message, 'Session has expired')
+            || str_contains($message, 'The session has been invalidated')
+            || str_contains($message, 'Error validating access token');
     }
 
     private function performSync(User $user, SocialAccount $social): int
@@ -1266,7 +1323,7 @@ class FacebookPageController extends Controller
                 ->first();
 
             if (!$social) {
-                return redirect()->route('facebook.redirect')
+                return redirect()->route('facebook.connect')
                     ->with('info', 'Conecta tu Facebook y vuelve a intentar.');
             }
 

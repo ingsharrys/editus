@@ -48,6 +48,19 @@ return [
 
         // opcional: por si luego tu app está en “Login for Business”
         'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
+
+        // Conexión/sincronización de páginas (usadas por FacebookPageController)
+        'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
+        'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
+        'link_scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,read_insights,business_management'))
+        ))),
+        'scopes' => array_values(array_filter(array_map(
+            'trim',
+            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,read_insights,business_management'))
+        ))),
+        'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
 
     'facebook_login' => [
