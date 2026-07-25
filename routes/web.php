@@ -100,6 +100,7 @@ Route::middleware(['auth'])->group(function () {
     // Informe de publicaciones (explorador con filtros y exportación)
     Route::get('/informes/publicaciones', [\App\Http\Controllers\ReportsController::class, 'posts'])->name('reports.posts');
     Route::get('/informes/publicaciones/csv', [\App\Http\Controllers\ReportsController::class, 'exportCsv'])->name('reports.posts.csv');
+    Route::get('/informes/analisis', [\App\Http\Controllers\ReportsController::class, 'analytics'])->name('reports.analytics');
 
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');

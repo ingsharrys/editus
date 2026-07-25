@@ -9,10 +9,16 @@
                 <h2 class="font-semibold text-xl">Informe de publicaciones</h2>
                 <p class="text-xs text-gray-500">Explora, filtra y exporta todas las publicaciones de tu plataforma.</p>
             </div>
-            <a href="{{ route('reports.posts.csv', request()->query()) }}"
-               class="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
-                ⬇️ Exportar CSV (Excel)
-            </a>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('reports.analytics') }}"
+                   class="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-lg border border-indigo-300 text-indigo-700 hover:bg-indigo-50">
+                    📈 Análisis de rendimiento
+                </a>
+                <a href="{{ route('reports.posts.csv', request()->query()) }}"
+                   class="inline-flex items-center gap-2 text-xs px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">
+                    ⬇️ Exportar CSV (Excel)
+                </a>
+            </div>
         </div>
 
         {{-- KPIs del conjunto filtrado --}}

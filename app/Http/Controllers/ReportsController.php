@@ -77,6 +77,163 @@ class ReportsController extends Controller
     }
 
     /**
+     * Análisis de rendimiento: ranking de medios, mejores horas/días para
+     * publicar, comparación de formatos y redes, y conclusiones automáticas.
+     *
+     * Metodología: solo publicaciones exitosas con alcance registrado.
+     * Los promedios exigen un mínimo de muestras (n >= 3) para que una
+     * conclusión sea considerada confiable.
+     */
+    public function analytics(Request $request)
+    {
+        $user = Auth::user();
+
+        $days = in_array((int) $request->query('days'), [30, 90, 180, 365, 0], true)
+            ? (int) $request->query('days') : 90;
+        $network = in_array($request->query('network'), ['facebook', 'instagram'], true)
+            ? $request->query('network') : null;
+        $pageId = $request->query('page_id');
+
+        $pagesCatalog = ($user->isAdmin() ? MetaPage::query() : $user->metaPages())
+            ->orderBy('name')
+            ->get(['meta_pages.id', 'meta_pages.name']);
+
+        $query = MetaPost::query()
+            ->where('status', 'success')
+            ->whereNotNull('published_at')
+            ->where(fn($q) => $q->where('alcance', '>', 0)->orWhere('interacciones', '>', 0));
+
+        if (!$user->isAdmin()) {
+            $query->forUserPages($user->id);
+        }
+        if ($days > 0) {
+            $query->where('published_at', '>=', now()->subDays($days));
+        }
+        if ($network) {
+            $query->where('network', $network);
+        }
+        if ($pageId && $pagesCatalog->contains('id', (int) $pageId)) {
+            $query->where('meta_page_id', (int) $pageId);
+        }
+
+        $posts = $query->get(['id', 'meta_page_id', 'user_id', 'type', 'network', 'message', 'published_at', 'alcance', 'visualizaciones', 'interacciones', 'fb_permalink_url']);
+
+        $MIN_N = 3; // muestras mínimas para promediar con confianza
+
+        $agg = function ($group) {
+            $n = $group->count();
+            $reach = (int) $group->sum('alcance');
+            $inter = (int) $group->sum('interacciones');
+            return [
+                'n' => $n,
+                'reach' => $reach,
+                'inter' => $inter,
+                'avg_reach' => $n ? (int) round($reach / $n) : 0,
+                'avg_inter' => $n ? (int) round($inter / $n) : 0,
+                'engagement' => $reach > 0 ? round($inter / $reach * 100, 2) : null,
+            ];
+        };
+
+        // ----- Ranking de medios (páginas) -----
+        $pageNames = $pagesCatalog->pluck('name', 'id');
+        $byPage = $posts->groupBy('meta_page_id')
+            ->map(function ($g, $pid) use ($agg, $pageNames) {
+                $best = $g->sortByDesc('alcance')->first();
+                return $agg($g) + [
+                    'page_id' => (int) $pid,
+                    'name' => $pageNames[$pid] ?? '—',
+                    'best_post' => $best ? \Illuminate\Support\Str::limit($best->message ?: '(sin texto)', 60) : null,
+                    'best_reach' => (int) ($best->alcance ?? 0),
+                ];
+            })
+            ->sortByDesc('reach')
+            ->values();
+
+        // ----- Por hora del día (0-23) -----
+        $byHour = collect(range(0, 23))->map(function ($h) use ($posts, $agg) {
+            return ['hour' => $h] + $agg($posts->filter(fn($p) => (int) $p->published_at->format('G') === $h));
+        });
+
+        // ----- Por día de la semana (ISO: 1=Lun ... 7=Dom) -----
+        $dowLabels = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves', 5 => 'Viernes', 6 => 'Sábado', 7 => 'Domingo'];
+        $byDow = collect(range(1, 7))->map(function ($d) use ($posts, $agg, $dowLabels) {
+            return ['dow' => $d, 'label' => $dowLabels[$d]] + $agg($posts->filter(fn($p) => $p->published_at->dayOfWeekIso === $d));
+        });
+
+        // ----- Mapa de calor día × franja horaria (bloques de 3 horas) -----
+        $blocks = ['00-02', '03-05', '06-08', '09-11', '12-14', '15-17', '18-20', '21-23'];
+        $heatmap = [];
+        $heatMax = 1;
+        foreach (range(1, 7) as $d) {
+            foreach ($blocks as $bi => $label) {
+                $slice = $posts->filter(fn($p) => $p->published_at->dayOfWeekIso === $d
+                    && intdiv((int) $p->published_at->format('G'), 3) === $bi);
+                $n = $slice->count();
+                $avg = $n ? (int) round($slice->sum('alcance') / $n) : 0;
+                $heatmap[$d][$bi] = ['avg' => $avg, 'n' => $n];
+                $heatMax = max($heatMax, $avg);
+            }
+        }
+
+        // ----- Comparaciones por tipo y por red -----
+        $typeLabels = ['text' => '📝 Texto', 'photo' => '🖼️ Foto', 'video' => '🎬 Video'];
+        $byType = $posts->groupBy('type')->map(fn($g, $t) => $agg($g) + ['label' => $typeLabels[$t] ?? $t])->sortByDesc('avg_reach');
+        $byNetwork = $posts->groupBy('network')->map(fn($g, $n) => $agg($g) + ['label' => $n === 'instagram' ? '📸 Instagram' : '📘 Facebook'])->sortByDesc('avg_reach');
+
+        // ----- Top y peores publicaciones -----
+        $withReach = $posts->filter(fn($p) => (int) $p->alcance > 0);
+        $topPosts = $withReach->sortByDesc('alcance')->take(5)->values();
+        $worstPosts = $withReach->sortBy('alcance')->take(5)->values();
+
+        // ----- Conclusiones automáticas (con n mínimo) -----
+        $insights = [];
+
+        if ($best = $byPage->first(fn($r) => $r['n'] >= $MIN_N) ?? $byPage->first()) {
+            $insights[] = ['icon' => '🏆', 'title' => 'Mejor medio', 'value' => $best['name'],
+                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance por publicación ({$best['n']} publicaciones)"];
+        }
+        if ($best = $byHour->filter(fn($r) => $r['n'] >= $MIN_N)->sortByDesc('avg_reach')->first()) {
+            $insights[] = ['icon' => '⏰', 'title' => 'Mejor hora para publicar', 'value' => sprintf('%02d:00', $best['hour']),
+                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance ({$best['n']} publicaciones)"];
+        }
+        if ($best = $byDow->filter(fn($r) => $r['n'] >= $MIN_N)->sortByDesc('avg_reach')->first()) {
+            $insights[] = ['icon' => '📅', 'title' => 'Mejor día de la semana', 'value' => $best['label'],
+                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance ({$best['n']} publicaciones)"];
+        }
+        if (($best = $byType->filter(fn($r) => $r['n'] >= $MIN_N)->first()) && $byType->count() > 1) {
+            $insights[] = ['icon' => '🎨', 'title' => 'Mejor formato', 'value' => $best['label'],
+                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance por publicación"];
+        }
+        if ($byNetwork->count() > 1 && ($best = $byNetwork->filter(fn($r) => $r['n'] >= $MIN_N)->first())) {
+            $insights[] = ['icon' => '🌐', 'title' => 'Mejor red', 'value' => $best['label'],
+                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance vs " . number_format($byNetwork->last()['avg_reach'], 0, ',', '.')];
+        }
+        if ($eng = $byPage->filter(fn($r) => $r['n'] >= $MIN_N && $r['engagement'] !== null)->sortByDesc('engagement')->first()) {
+            $insights[] = ['icon' => '❤️', 'title' => 'Audiencia más participativa', 'value' => $eng['name'],
+                'detail' => "Tasa de interacción del {$eng['engagement']}% (interacciones/alcance)"];
+        }
+
+        return view('reports.analysis', [
+            'filters' => ['days' => $days, 'network' => $network, 'page_id' => $pageId],
+            'pagesCatalog' => $pagesCatalog,
+            'totalPosts' => $posts->count(),
+            'byPage' => $byPage,
+            'byHour' => $byHour,
+            'byDow' => $byDow,
+            'heatmap' => $heatmap,
+            'heatMax' => $heatMax,
+            'heatBlocks' => $blocks,
+            'dowLabels' => $dowLabels,
+            'byType' => $byType,
+            'byNetwork' => $byNetwork,
+            'topPosts' => $topPosts,
+            'worstPosts' => $worstPosts,
+            'insights' => $insights,
+            'minN' => $MIN_N,
+        ]);
+    }
+
+    /**
      * Exporta el conjunto filtrado actual a CSV (compatible con Excel).
      */
     public function exportCsv(Request $request): StreamedResponse
