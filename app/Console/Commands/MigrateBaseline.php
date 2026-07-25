@@ -24,8 +24,10 @@ class MigrateBaseline extends Command
         $done = DB::table('migrations')->pluck('migration')->all();
         $before = (string) $this->option('before');
 
+        // str_replace (no basename con sufijo): igual que el Migrator de Laravel,
+        // para que archivos con doble extensión .php.php queden con el mismo nombre.
         $pending = collect(glob(database_path('migrations/*.php')))
-            ->map(fn($f) => basename($f, '.php'))
+            ->map(fn($f) => str_replace('.php', '', basename($f)))
             ->reject(fn($name) => in_array($name, $done, true))
             ->filter(fn($name) => $before === '' || strcmp($name, $before) < 0)
             ->sort()

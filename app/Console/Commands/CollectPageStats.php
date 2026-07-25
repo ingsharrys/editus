@@ -35,14 +35,30 @@ class CollectPageStats extends Command
 
         $this->info("Recolectando estadísticas de {$pages->count()} página(s), últimos {$days} días...");
 
+        $firstError = null;
+
         foreach ($pages as $page) {
             try {
                 $daily = $stats->collectDaily($page, $since->copy(), $until->copy());
                 $audience = $stats->collectAudience($page);
                 $this->line("  [{$page->name}] días: {$daily}, audiencia: {$audience}");
+
+                if ($daily === 0 && $stats->lastError) {
+                    $reason = $this->shortGraphError($stats->lastError);
+                    $this->warn("    ↳ motivo: {$reason}");
+                    $firstError ??= $reason;
+                }
             } catch (\Throwable $e) {
                 Log::warning('[stats:collect] page.error', ['meta_page_id' => $page->id, 'err' => $e->getMessage()]);
                 $this->warn("  [{$page->name}] error: {$e->getMessage()}");
+            }
+        }
+
+        if ($firstError) {
+            $this->newLine();
+            $this->error('Hubo páginas sin datos. Motivo más común: ' . $firstError);
+            if (str_contains($firstError, 'read_insights') || str_contains($firstError, '(#10)') || str_contains($firstError, '(#200)')) {
+                $this->comment('El token no tiene el permiso read_insights: reconecta Facebook aceptando todos los permisos, o revisa que la configuración de "Login for Business" en Meta incluya read_insights.');
             }
         }
 
@@ -70,5 +86,17 @@ class CollectPageStats extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /** Extrae el mensaje de error legible de una respuesta de la Graph API. */
+    private function shortGraphError(string $body): string
+    {
+        $json = json_decode($body, true);
+        $msg = data_get($json, 'error.message');
+        $code = data_get($json, 'error.code');
+
+        return $msg
+            ? trim($msg . ($code ? " (código {$code})" : ''))
+            : mb_substr($body, 0, 200);
     }
 }

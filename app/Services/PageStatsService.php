@@ -27,6 +27,12 @@ class PageStatsService
 {
     protected array $tokenCache = [];
 
+    /** Métricas que la API rechazó como inválidas (se omiten en llamadas siguientes). */
+    protected array $invalidMetrics = [];
+
+    /** Último error devuelto por la API (para mostrarlo en consola). */
+    public ?string $lastError = null;
+
     /** Métricas diarias de página soportadas por Graph v23. */
     protected const DAILY_METRICS = [
         'page_impressions' => 'impressions',
@@ -75,46 +81,25 @@ class PageStatsService
             return 0;
         }
 
+        $this->lastError = null;
         $saved = 0;
         $cursor = $since->copy();
 
         while ($cursor->lt($until)) {
             $windowEnd = $cursor->copy()->addDays(30)->min($until);
 
-            [$json, $err] = $this->get("{$this->base()}/{$page->page_id}/insights", [
-                'metric' => implode(',', array_keys(self::DAILY_METRICS)),
-                'period' => 'day',
-                'since' => $cursor->toDateString(),
-                'until' => $windowEnd->copy()->addDay()->toDateString(),
-            ], $token);
+            [$byDate, $err] = $this->fetchDailyWindow($page, $cursor, $windowEnd, $token);
 
-            if (!$json) {
+            if ($err) {
+                $this->lastError = $err;
                 Log::warning('[stats] daily.fail', [
                     'meta_page_id' => $page->id,
                     'since' => $cursor->toDateString(),
-                    'err' => $err,
+                    'err' => mb_substr($err, 0, 500),
                 ]);
                 // si el token está muerto no insistas con más ventanas
-                if ($err && (str_contains($err, '"code":190') || str_contains($err, 'Error validating access token'))) {
+                if (str_contains($err, '"code":190') || str_contains($err, 'Error validating access token')) {
                     break;
-                }
-                $cursor = $windowEnd;
-                continue;
-            }
-
-            // Reorganiza: fecha => [columna => valor]
-            $byDate = [];
-            foreach ((array) data_get($json, 'data', []) as $metricRow) {
-                $column = self::DAILY_METRICS[$metricRow['name'] ?? ''] ?? null;
-                if (!$column) {
-                    continue;
-                }
-                foreach ((array) ($metricRow['values'] ?? []) as $v) {
-                    $date = isset($v['end_time']) ? Carbon::parse($v['end_time'])->subDay()->toDateString() : null;
-                    if (!$date) {
-                        continue;
-                    }
-                    $byDate[$date][$column] = (int) ($v['value'] ?? 0);
                 }
             }
 
@@ -130,6 +115,74 @@ class PageStatsService
         }
 
         return $saved;
+    }
+
+    /**
+     * Trae una ventana de métricas diarias. Si la llamada en lote falla por
+     * una métrica inválida (Meta la descontinuó), reintenta métrica por
+     * métrica y recuerda las inválidas para no volver a pedirlas.
+     *
+     * @return array{0: array<string, array<string,int>>, 1: ?string} [byDate, error]
+     */
+    protected function fetchDailyWindow(MetaPage $page, Carbon $since, Carbon $until, string $token): array
+    {
+        $metrics = array_values(array_diff(array_keys(self::DAILY_METRICS), $this->invalidMetrics));
+        if (empty($metrics)) {
+            return [[], 'Todas las métricas fueron marcadas inválidas por la API'];
+        }
+
+        $params = [
+            'period' => 'day',
+            'since' => $since->toDateString(),
+            'until' => $until->copy()->addDay()->toDateString(),
+        ];
+        $url = "{$this->base()}/{$page->page_id}/insights";
+
+        // 1) Intento en lote
+        [$json, $err] = $this->get($url, $params + ['metric' => implode(',', $metrics)], $token);
+        if ($json) {
+            return [$this->parseDailyValues($json), null];
+        }
+
+        // 2) Si el lote falló por métrica inválida (#100), probar una por una
+        $isInvalidMetric = $err && (str_contains($err, 'valid insights metric') || str_contains($err, '"code":100'));
+        if (!$isInvalidMetric) {
+            return [[], $err];
+        }
+
+        $byDate = [];
+        foreach ($metrics as $metric) {
+            [$j, $e] = $this->get($url, $params + ['metric' => $metric], $token);
+            if ($j) {
+                foreach ($this->parseDailyValues($j) as $date => $cols) {
+                    $byDate[$date] = ($byDate[$date] ?? []) + $cols;
+                }
+            } elseif ($e && (str_contains($e, 'valid insights metric') || str_contains($e, '"code":100'))) {
+                $this->invalidMetrics[] = $metric;
+                Log::warning('[stats] métrica descontinuada por Meta, se omite', ['metric' => $metric]);
+            }
+        }
+
+        return [$byDate, empty($byDate) ? $err : null];
+    }
+
+    /** Convierte la respuesta de /insights en fecha => [columna => valor]. */
+    protected function parseDailyValues(array $json): array
+    {
+        $byDate = [];
+        foreach ((array) data_get($json, 'data', []) as $metricRow) {
+            $column = self::DAILY_METRICS[$metricRow['name'] ?? ''] ?? null;
+            if (!$column) {
+                continue;
+            }
+            foreach ((array) ($metricRow['values'] ?? []) as $v) {
+                $date = isset($v['end_time']) ? Carbon::parse($v['end_time'])->subDay()->toDateString() : null;
+                if ($date !== null && is_numeric($v['value'] ?? null)) {
+                    $byDate[$date][$column] = (int) $v['value'];
+                }
+            }
+        }
+        return $byDate;
     }
 
     /**
@@ -156,7 +209,8 @@ class PageStatsService
         ], $token);
 
         if (!$json) {
-            Log::warning('[stats] audience.fail', ['meta_page_id' => $page->id, 'err' => $err]);
+            $this->lastError = $err;
+            Log::warning('[stats] audience.fail', ['meta_page_id' => $page->id, 'err' => mb_substr((string) $err, 0, 500)]);
             return 0;
         }
 
