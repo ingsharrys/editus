@@ -173,10 +173,26 @@
                                     </li>
                     
                                 @endif
-                    
+
+                                <!-- Estadísticas -->
+                                <li>
+                                    <a href="{{ route('stats.index') }}"
+                                       class="flex items-center gap-4 rounded-xl px-4 py-3
+                                              hover:bg-[#00024f] transition-all">
+
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-bar-chart-fill" color="white" viewBox="0 0 16 16"> <path d="M1 11a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1zm5-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm5-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1z" /> </svg>
+
+                                        <span class="whitespace-nowrap
+                                                     opacity-0 group-hover:opacity-100
+                                                     hidden group-hover:block text-sm transition-all duration-300">
+                                            Estadísticas
+                                        </span>
+                                    </a>
+                                </li>
+
                             </ul>
                         </div>
-                    
+
                         <!-- USER -->
                         <div class="border-t border-white/10 p-3 relative">
                     
