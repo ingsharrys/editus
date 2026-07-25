@@ -11,22 +11,38 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('inspire')
-    ->everyMinute()
-    ->timezone(config('app.timezone', 'America/Bogota'))
-    ->appendOutputTo(storage_path('logs/_probe.log'));
+/*
+|--------------------------------------------------------------------------
+| Tareas programadas
+|--------------------------------------------------------------------------
+| En el cron de cPanel debe existir UNA sola entrada:
+|   * * * * * cd /home/editus/public_html/app.editus.online && php artisan schedule:run >> /dev/null 2>&1
+| Todo lo demás se orquesta desde aquí.
+*/
 
-Schedule::call(fn() => Log::info('[probe] schedule tick', ['at' => now()->toDateTimeString()]))
+// Worker de cola sin acumulación de procesos: atiende los jobs pendientes
+// (fotos/videos/Instagram) y TERMINA. withoutOverlapping evita que se
+// apilen workers si una corrida tarda más de un minuto.
+Schedule::command('queue:work --stop-when-empty --tries=3 --max-time=50 --sleep=1')
     ->everyMinute()
-    ->timezone(config('app.timezone', 'America/Bogota'));
+    ->withoutOverlapping(10);
 
-// Estadísticas de páginas: métricas diarias + audiencia geográfica + reacciones.
-// Corre una vez al día en la madrugada (los datos de Meta cierran por día).
+// Estadísticas de páginas: métricas diarias + audiencia + reacciones.
+// Una vez al día en la madrugada (los datos de Meta cierran por día).
 Schedule::command('stats:collect --days=3')
     ->dailyAt('03:30')
     ->timezone(config('app.timezone', 'America/Bogota'))
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/stats.log'));
+
+// Métricas de posts recientes que aún no tienen datos (lote acotado).
+Schedule::command('meta:collect-metrics-simple --limit=150 --only-missing')
+    ->dailyAt('04:15')
+    ->timezone(config('app.timezone', 'America/Bogota'))
+    ->withoutOverlapping();
+
+// Higiene: limpiar trabajos fallidos de más de 7 días.
+Schedule::command('queue:prune-failed --hours=168')->weekly();
 
 // Artisan::command('meta:sync-page-tokens {--user-id=}', function () {
 //     $uid = (int) $this->option('user-id') ?: 2;

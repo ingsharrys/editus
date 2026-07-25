@@ -322,9 +322,10 @@ class MetaInsightsService
             'limit' => 50, // antes 100
         ];
 
-        // Circuit breakers
-        $maxTries = 5;   // antes 10
-        $maxScanned = 250; // tope global de posts inspeccionados
+        // Circuit breakers agresivos: este escaneo hace 1 llamada HTTP por
+        // post inspeccionado y saturaba el hosting compartido con topes altos.
+        $maxTries = 2;   // páginas de feed (antes 5)
+        $maxScanned = 50; // posts inspeccionados en total (antes 250)
 
         try {
             $url = $endpoint;

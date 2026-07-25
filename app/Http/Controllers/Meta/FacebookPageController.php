@@ -22,6 +22,7 @@ use App\Support\FacebookGraph;
 use App\Jobs\PublishVideoToFacebook;
 use App\Jobs\PublishPhotosToFacebook;
 use App\Jobs\PublishToInstagram;
+use App\Jobs\RefreshMetaPermalink;
 use Illuminate\Support\Facades\Cache;
 
 class FacebookPageController extends Controller
@@ -365,17 +366,21 @@ class FacebookPageController extends Controller
                         $postData['status'] = 'success';
                         $postData['fb_post_id'] = $postId;
                         $postData['published_at'] = now();
-
-                        try {
-                            $postData['fb_permalink_url'] = $this->fetchPermalink($postId, $token);
-                        } catch (\Throwable $e) {
-                        }
                     } else {
                         $postData['status'] = 'fail';
                         $postData['error'] = $resp->body();
                     }
 
-                    MetaPost::create($postData);
+                    $metaPost = MetaPost::create($postData);
+
+                    // El permalink se resuelve en segundo plano: hacerlo aquí
+                    // bloqueaba el request con hasta 3 llamadas HTTP por página.
+                    if ($ok) {
+                        RefreshMetaPermalink::dispatch([
+                            'meta_post_id' => $metaPost->id,
+                            'page_token' => $token,
+                        ])->onQueue('default')->delay(now()->addSeconds(20));
+                    }
                     $results[] = ['page' => $page->name, 'ok' => $ok, 'body' => $body, 'error' => $ok ? null : $resp->body()];
                     continue;
                 }
