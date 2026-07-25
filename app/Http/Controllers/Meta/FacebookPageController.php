@@ -240,6 +240,20 @@ class FacebookPageController extends Controller
 
     public function publish(Request $request)
     {
+        // Diagnóstico: registra qué llega realmente en cada intento de publicación.
+        // Revisar con: tail -50 storage/logs/laravel.log
+        Log::info('[FB] publish payload', [
+            'user_id' => auth()->id(),
+            'campos_recibidos' => array_keys($request->all()),
+            'type' => $request->input('type'),
+            'page_ids' => $request->input('page_ids'),
+            'tiene_fotos' => $request->hasFile('photos'),
+            'tiene_video' => $request->hasFile('video'),
+            'content_length' => $request->server('CONTENT_LENGTH'),
+            'post_max_size' => ini_get('post_max_size'),
+            'upload_max_filesize' => ini_get('upload_max_filesize'),
+        ]);
+
         // 1) Validación base
         $request->validate([
             'type' => ['required', 'in:text,photo,video'],
