@@ -150,10 +150,35 @@
             @endforeach
         </div>
 
+        {{-- Demografía (Instagram Business) --}}
+        <div class="grid lg:grid-cols-2 gap-4">
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+                <p class="font-semibold text-sm mb-1">Seguidores por sexo <span class="text-[10px] font-normal text-pink-600 bg-pink-50 rounded px-1.5 py-0.5 ml-1">Instagram</span></p>
+                @if ($audience['ig_gender']->isEmpty())
+                    <p class="text-sm text-gray-500 py-8 text-center">
+                        Sin datos aún. Requiere páginas con Instagram Business conectado
+                        y el permiso <code class="bg-gray-100 px-1 rounded">instagram_manage_insights</code>.
+                    </p>
+                @else
+                    <div class="h-56"><canvas id="genderChart"></canvas></div>
+                @endif
+            </div>
+
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+                <p class="font-semibold text-sm mb-1">Seguidores por edad <span class="text-[10px] font-normal text-pink-600 bg-pink-50 rounded px-1.5 py-0.5 ml-1">Instagram</span></p>
+                @if ($audience['ig_age']->isEmpty())
+                    <p class="text-sm text-gray-500 py-8 text-center">Sin datos de edad aún.</p>
+                @else
+                    <div class="h-56"><canvas id="ageChart"></canvas></div>
+                @endif
+            </div>
+        </div>
+
         <p class="text-[11px] text-gray-400">
             ℹ️ Meta eliminó de su API los desgloses por sexo y edad para páginas de Facebook (sept. 2023),
-            por lo que esa información solo está disponible dentro de Meta Business Suite.
-            La demografía por sexo/edad sí está disponible por API para cuentas de Instagram Business.
+            por lo que esos datos provienen de las cuentas de <strong>Instagram Business</strong> conectadas
+            a tus páginas (requieren mínimo 100 seguidores). La geografía por país/ciudad proviene de los
+            seguidores de la página de Facebook.
         </p>
 
         {{-- Ranking de páginas --}}
@@ -234,6 +259,8 @@
             const daily = @json($daily);
             const reactions = @json($reactions);
             const byType = @json($byType);
+            const igGender = @json($audience['ig_gender']);
+            const igAge = @json($audience['ig_age']);
 
             const fmt = new Intl.NumberFormat('es-CO');
             const gridColor = 'rgba(0,0,0,0.05)';
@@ -301,6 +328,60 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
+                        scales: {
+                            x: { grid: { display: false } },
+                            y: { grid: { color: gridColor }, ticks: { callback: v => fmt.format(v), font: { size: 10 } } },
+                        },
+                    },
+                });
+            }
+            const genderLabels = { F: 'Mujeres', M: 'Hombres', U: 'No especificado' };
+            const genderEntries = Object.entries(igGender || {});
+            if (genderEntries.length && document.getElementById('genderChart')) {
+                new Chart(document.getElementById('genderChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: genderEntries.map(([k]) => genderLabels[k] || k),
+                        datasets: [{
+                            data: genderEntries.map(([, v]) => +v),
+                            backgroundColor: ['#ec4899', '#2563eb', '#9ca3af'],
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                        const pct = total ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                                        return `${ctx.label}: ${fmt.format(ctx.parsed)} (${pct}%)`;
+                                    },
+                                },
+                            },
+                        },
+                    },
+                });
+            }
+
+            const ageEntries = Object.entries(igAge || {});
+            if (ageEntries.length && document.getElementById('ageChart')) {
+                new Chart(document.getElementById('ageChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: ageEntries.map(([k]) => k),
+                        datasets: [{
+                            label: 'Seguidores',
+                            data: ageEntries.map(([, v]) => +v),
+                            backgroundColor: '#8b5cf6',
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
                         scales: {
                             x: { grid: { display: false } },
                             y: { grid: { color: gridColor }, ticks: { callback: v => fmt.format(v), font: { size: 10 } } },

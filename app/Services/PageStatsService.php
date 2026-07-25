@@ -247,6 +247,78 @@ class PageStatsService
     }
 
     /**
+     * Demografía de seguidores vía Instagram Business (sexo, edad, país, ciudad).
+     * Requiere que la página tenga instagram_business_account_id, que el token
+     * incluya instagram_basic + instagram_manage_insights, y que la cuenta IG
+     * tenga al menos 100 seguidores (límite de Meta).
+     *
+     * @return int filas guardadas
+     */
+    public function collectInstagramDemographics(MetaPage $page): int
+    {
+        $this->lastError = null;
+
+        $igId = $page->instagram_business_account_id;
+        if (!$igId) {
+            return 0;
+        }
+
+        $token = $this->resolvePageToken($page->id);
+        if (!$token) {
+            return 0;
+        }
+
+        $breakdowns = [
+            'gender' => 'ig_gender',
+            'age' => 'ig_age',
+            'country' => 'ig_country',
+            'city' => 'ig_city',
+        ];
+
+        $today = now()->toDateString();
+        $saved = 0;
+
+        foreach ($breakdowns as $breakdown => $dimension) {
+            [$json, $err] = $this->get("{$this->base()}/{$igId}/insights", [
+                'metric' => 'follower_demographics',
+                'period' => 'lifetime',
+                'metric_type' => 'total_value',
+                'breakdown' => $breakdown,
+            ], $token);
+
+            if (!$json) {
+                $this->lastError = $err;
+                Log::debug('[stats] ig.demographics.fail', [
+                    'meta_page_id' => $page->id,
+                    'breakdown' => $breakdown,
+                    'err' => mb_substr((string) $err, 0, 300),
+                ]);
+                continue;
+            }
+
+            $results = (array) data_get($json, 'data.0.total_value.breakdowns.0.results', []);
+            foreach ($results as $r) {
+                $key = implode(' · ', (array) data_get($r, 'dimension_values', []));
+                if ($key === '') {
+                    continue;
+                }
+                MetaPageAudience::updateOrCreate(
+                    [
+                        'meta_page_id' => $page->id,
+                        'captured_date' => $today,
+                        'dimension' => $dimension,
+                        'key' => mb_substr($key, 0, 120),
+                    ],
+                    ['value' => (int) data_get($r, 'value', 0)]
+                );
+                $saved++;
+            }
+        }
+
+        return $saved;
+    }
+
+    /**
      * Reacciones por tipo (like, love, wow, haha, sorry, anger) de un post.
      */
     public function collectPostReactions(MetaPost $post): bool

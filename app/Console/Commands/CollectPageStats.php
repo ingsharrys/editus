@@ -49,7 +49,11 @@ class CollectPageStats extends Command
                 $audience = $tokenDead ? 0 : $stats->collectAudience($page);
                 $audienceError = $tokenDead ? null : $stats->lastError;
 
-                $this->line("  [{$page->name}] días: {$daily}, audiencia: {$audience}");
+                $ig = (!$tokenDead && $page->instagram_business_account_id)
+                    ? $stats->collectInstagramDemographics($page)
+                    : 0;
+
+                $this->line("  [{$page->name}] días: {$daily}, audiencia: {$audience}, demografía IG: {$ig}");
 
                 if ($tokenDead) {
                     $tokenDeadPages[] = $page->name;

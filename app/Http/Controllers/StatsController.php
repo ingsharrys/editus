@@ -116,7 +116,14 @@ class StatsController extends Controller
             ->groupBy('meta_page_id')
             ->pluck(DB::raw('MAX(captured_date) as d'), 'meta_page_id');
 
-        $audience = ['country' => collect(), 'city' => collect()];
+        $audience = [
+            'country' => collect(),
+            'city' => collect(),
+            'ig_gender' => collect(),
+            'ig_age' => collect(),
+            'ig_country' => collect(),
+            'ig_city' => collect(),
+        ];
 
         if ($latestAudienceDates->isNotEmpty()) {
             $rows = MetaPageAudience::whereIn('meta_page_id', $selectedIds)
@@ -127,12 +134,15 @@ class StatsController extends Controller
                 })
                 ->get(['dimension', 'key', 'value']);
 
-            foreach (['country', 'city'] as $dim) {
-                $audience[$dim] = $rows->where('dimension', $dim)
+            foreach (array_keys($audience) as $dim) {
+                $grouped = $rows->where('dimension', $dim)
                     ->groupBy('key')
-                    ->map(fn($g) => (int) $g->sum('value'))
-                    ->sortDesc()
-                    ->take(12);
+                    ->map(fn($g) => (int) $g->sum('value'));
+
+                // Edad y sexo ordenados por clave; el resto por volumen
+                $audience[$dim] = in_array($dim, ['ig_gender', 'ig_age'], true)
+                    ? $grouped->sortKeys()
+                    : $grouped->sortDesc()->take(12);
             }
         }
 
