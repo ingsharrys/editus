@@ -35,31 +35,51 @@ class CollectPageStats extends Command
 
         $this->info("Recolectando estadísticas de {$pages->count()} página(s), últimos {$days} días...");
 
-        $firstError = null;
+        $tokenDeadPages = [];
+        $otherErrors = 0;
+        $ok = 0;
 
         foreach ($pages as $page) {
             try {
                 $daily = $stats->collectDaily($page, $since->copy(), $until->copy());
-                $audience = $stats->collectAudience($page);
+                $dailyError = $stats->lastError;
+                $tokenDead = $dailyError && str_contains($dailyError, '"code":190');
+
+                // Con token muerto no tiene sentido gastar más llamadas
+                $audience = $tokenDead ? 0 : $stats->collectAudience($page);
+                $audienceError = $tokenDead ? null : $stats->lastError;
+
                 $this->line("  [{$page->name}] días: {$daily}, audiencia: {$audience}");
 
-                if ($daily === 0 && $stats->lastError) {
-                    $reason = $this->shortGraphError($stats->lastError);
-                    $this->warn("    ↳ motivo: {$reason}");
-                    $firstError ??= $reason;
+                if ($tokenDead) {
+                    $tokenDeadPages[] = $page->name;
+                    $this->warn('    ↳ token de página vencido (código 190): requiere sincronizar');
+                } elseif ($daily === 0 && $dailyError) {
+                    $this->warn('    ↳ métricas: ' . $this->shortGraphError($dailyError));
+                    $otherErrors++;
+                } else {
+                    $ok++;
+                    if ($audience === 0 && $audienceError) {
+                        $this->warn('    ↳ audiencia: ' . $this->shortGraphError($audienceError));
+                    }
                 }
             } catch (\Throwable $e) {
                 Log::warning('[stats:collect] page.error', ['meta_page_id' => $page->id, 'err' => $e->getMessage()]);
                 $this->warn("  [{$page->name}] error: {$e->getMessage()}");
+                $otherErrors++;
             }
         }
 
-        if ($firstError) {
-            $this->newLine();
-            $this->error('Hubo páginas sin datos. Motivo más común: ' . $firstError);
-            if (str_contains($firstError, 'read_insights') || str_contains($firstError, '(#10)') || str_contains($firstError, '(#200)')) {
-                $this->comment('El token no tiene el permiso read_insights: reconecta Facebook aceptando todos los permisos, o revisa que la configuración de "Login for Business" en Meta incluya read_insights.');
-            }
+        $this->newLine();
+        $this->info(sprintf(
+            'Resumen: %d página(s) con datos, %d con token vencido, %d con otros errores.',
+            $ok,
+            count($tokenDeadPages),
+            $otherErrors
+        ));
+
+        if ($tokenDeadPages !== []) {
+            $this->comment('Para renovar los tokens vencidos: entra a la app > Meta/Páginas y pulsa «Sincronizar» con la cuenta de Facebook que administra esas páginas. Las páginas de otros usuarios requieren que ESE usuario conecte su Facebook y sincronice.');
         }
 
         if (!$this->option('skip-reactions')) {

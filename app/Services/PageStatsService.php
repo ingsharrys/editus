@@ -193,6 +193,8 @@ class PageStatsService
      */
     public function collectAudience(MetaPage $page): int
     {
+        $this->lastError = null;
+
         $token = $this->resolvePageToken($page->id);
         if (!$token) {
             return 0;
