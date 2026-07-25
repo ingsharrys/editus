@@ -219,7 +219,7 @@
 
 
         @auth
-            @if (auth()->user()->role_id === 1)
+            @if (auth()->user()->isAdmin())
                 <form method="POST" action="{{ route('meta.pages.publish') }}" class="space-y-4" id="publishForm"
                     enctype="multipart/form-data">
                     @csrf
@@ -910,11 +910,35 @@
 
                     const hasMsg = (msg?.value || '').trim().length > 0;
                     if (!hasMsg) {
-                        +e.preventDefault();
+                        e.preventDefault();
                         alert('El mensaje es obligatorio.');
                         msg?.focus();
                         return;
                     }
+
+                    // Garantiza que las páginas seleccionadas viajen con el formulario,
+                    // aunque las casillas queden fuera del <form> en el DOM.
+                    form.querySelectorAll('input[data-injected-page]').forEach(el => el.remove());
+
+                    const selected = checkboxes().filter(cb => cb.checked && !cb.disabled);
+                    if (selected.length === 0) {
+                        e.preventDefault();
+                        alert('Selecciona al menos una página para publicar.');
+                        return;
+                    }
+
+                    selected.forEach(cb => {
+                        // El valor viaja como hidden input; se quita el name del checkbox
+                        // para que no se envíe duplicado si sí pertenece al form.
+                        cb.removeAttribute('name');
+                        const hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = 'page_ids[]';
+                        hidden.value = cb.value;
+                        hidden.setAttribute('data-injected-page', '1');
+                        form.appendChild(hidden);
+                    });
+
                     if (publishBtn) {
                         publishBtn.disabled = true;
                         publishBtn.textContent = 'Publicando...';
