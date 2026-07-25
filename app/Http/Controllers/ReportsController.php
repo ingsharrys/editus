@@ -92,11 +92,18 @@ class ReportsController extends Controller
             ? (int) $request->query('days') : 90;
         $network = in_array($request->query('network'), ['facebook', 'instagram'], true)
             ? $request->query('network') : null;
-        $pageId = $request->query('page_id');
 
         $pagesCatalog = ($user->isAdmin() ? MetaPage::query() : $user->metaPages())
             ->orderBy('name')
             ->get(['meta_pages.id', 'meta_pages.name']);
+
+        // Selección múltiple de medios para comparar (con compatibilidad
+        // hacia atrás con el parámetro simple page_id)
+        $pageIds = array_values(array_filter(array_map('intval', (array) $request->query('page_ids', []))));
+        if (empty($pageIds) && $request->query('page_id')) {
+            $pageIds = [(int) $request->query('page_id')];
+        }
+        $pageIds = array_values(array_intersect($pageIds, $pagesCatalog->pluck('id')->all()));
 
         $query = MetaPost::query()
             ->where('status', 'success')
@@ -112,8 +119,8 @@ class ReportsController extends Controller
         if ($network) {
             $query->where('network', $network);
         }
-        if ($pageId && $pagesCatalog->contains('id', (int) $pageId)) {
-            $query->where('meta_page_id', (int) $pageId);
+        if (!empty($pageIds)) {
+            $query->whereIn('meta_page_id', $pageIds);
         }
 
         $posts = $query->get(['id', 'meta_page_id', 'user_id', 'type', 'network', 'message', 'published_at', 'alcance', 'visualizaciones', 'interacciones', 'fb_permalink_url']);
@@ -213,8 +220,59 @@ class ReportsController extends Controller
                 'detail' => "Tasa de interacción del {$eng['engagement']}% (interacciones/alcance)"];
         }
 
+        // ----- Comparador por publicación (batch multi-medio) -----
+        $batchQ = trim((string) $request->query('batch_q', ''));
+
+        $batchCatalog = MetaPost::query()
+            ->when(!$user->isAdmin(), fn($q) => $q->forUserPages($user->id))
+            ->whereNotNull('batch_uuid')
+            ->whereNotNull('published_at')
+            ->when($batchQ !== '', fn($q) => $q->where('message', 'like', '%' . $batchQ . '%'))
+            ->groupBy('batch_uuid')
+            ->havingRaw('COUNT(DISTINCT meta_page_id) > 1')
+            ->orderByDesc(DB::raw('MAX(published_at)'))
+            ->limit(100)
+            ->get([
+                'batch_uuid',
+                DB::raw('MIN(message) as message'),
+                DB::raw('MAX(published_at) as published_at'),
+                DB::raw('COUNT(DISTINCT meta_page_id) as pages_count'),
+            ]);
+
+        $batchCompare = null;
+        if ($batchUuid = $request->query('batch')) {
+            $batchPosts = MetaPost::with('page:id,name')
+                ->when(!$user->isAdmin(), fn($q) => $q->forUserPages($user->id))
+                ->where('batch_uuid', $batchUuid)
+                ->get(['id', 'meta_page_id', 'network', 'status', 'message', 'published_at', 'alcance', 'visualizaciones', 'interacciones', 'fb_permalink_url']);
+
+            if ($batchPosts->isNotEmpty()) {
+                $rows = $batchPosts->map(fn($p) => [
+                    'page' => $p->page->name ?? '—',
+                    'network' => $p->network,
+                    'status' => $p->status,
+                    'alcance' => (int) $p->alcance,
+                    'visualizaciones' => (int) $p->visualizaciones,
+                    'interacciones' => (int) $p->interacciones,
+                    'engagement' => (int) $p->alcance > 0 ? round((int) $p->interacciones / (int) $p->alcance * 100, 2) : null,
+                    'permalink' => $p->fb_permalink_url,
+                ])->sortByDesc('alcance')->values();
+
+                $batchCompare = [
+                    'uuid' => $batchUuid,
+                    'message' => \Illuminate\Support\Str::limit($batchPosts->first()->message ?: '(sin texto)', 140),
+                    'date' => $batchPosts->first()->published_at,
+                    'rows' => $rows,
+                    'winner' => $rows->first(),
+                    'total_reach' => (int) $rows->sum('alcance'),
+                ];
+            }
+        }
+
         return view('reports.analysis', [
-            'filters' => ['days' => $days, 'network' => $network, 'page_id' => $pageId],
+            'filters' => ['days' => $days, 'network' => $network, 'page_ids' => $pageIds, 'batch_q' => $batchQ, 'batch' => $batchUuid ?? null],
+            'batchCatalog' => $batchCatalog,
+            'batchCompare' => $batchCompare,
             'pagesCatalog' => $pagesCatalog,
             'totalPosts' => $posts->count(),
             'byPage' => $byPage,
