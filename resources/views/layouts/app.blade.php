@@ -14,8 +14,8 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
 
-    <!-- Scripts -->
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <!-- Tailwind CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
         [x-cloak] {
@@ -26,102 +26,234 @@
 </head>
 
 <body class="font-sans antialiased">
-    <div class="flex min-h-screen bg-blue-400">
-        <!-- Sidebar -->
-        <div class="hidden lg:flex lg:w-56 lg:fixed lg:h-full lg:bg-white lg:shadow-lg">
-            @include('layouts.sidebar')
-        </div>
+@auth
+@php $roleId = auth()->user()->role_id; @endphp
 
-        <div class="flex-1 flex flex-col lg:ml-56">
-            @include('layouts.navigation')
+        
+    <!-- Wrapper -->
+<div class="flex h-screen bg-gray-100">
 
-            @if (isset($header))
-                <header class="bg-white">
-                    <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
-                        {{ $header }}
-                    </div>
-                </header>
-            @endif
+<!-- Overlay Mobile -->
+<div id="overlay"
+     class="fixed inset-0 bg-black/50 z-10 hidden lg:hidden"
+     onclick="toggleSidebar()"></div>
 
-            <main class="flex-1 p-6">
-                @yield('content')
-            </main>
-        </div>
-    </div>
-    @auth
-        @php $roleId = auth()->user()->role_id; @endphp
+    <!-- Contenido -->
+    <div class="flex-1 flex flex-col">
 
-        {{-- ===== MOBILE: FAB + Drawer (visible solo en < lg) ===== --}}
-        <div class="lg:hidden" x-data="{ open: false }" x-cloak>
-            {{-- FAB inferior derecha --}}
-            <button @click="open = true"
-                class="fixed z-[100] right-4 bottom-[calc(env(safe-area-inset-bottom)+16px)]
-           inline-flex items-center gap-2 px-4 py-3 rounded-full
-           bg-blue-600 text-white shadow-lg ring-1 ring-blue-200
-           hover:bg-blue-700 active:scale-[0.98]"
-                aria-label="Abrir menú">
-                <i class='bx bx-menu text-2xl'></i>
+        <!-- Topbar (mobile) -->
+        <header class="lg:hidden bg-white shadow p-4 flex items-center justify-between">
+            <button onclick="toggleSidebar()">
+                <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                    <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                    <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
             </button>
+            <img src="/img/logo-editus.png" class="w-20" alt="logo">
+        </header>
 
-            {{-- Overlay + Drawer --}}
-            <div x-show="open" x-transition.opacity class="fixed inset-0 z-[100]">
-                <div class="absolute inset-0 bg-black/40" @click="open=false" aria-hidden="true"></div>
-
-                <nav class="absolute left-0 top-0 h-full w-72 max-w-[85vw]
-                bg-white shadow-2xl p-3 overflow-y-auto"
-                    x-show="open" x-transition.origin.left>
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="flex items-center gap-2">
-                            <span
-                                class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-indigo-50 ring-1 ring-indigo-100">
-                                <i class='bx bxl-facebook text-xl text-blue-600'></i>
-                            </span>
-                            <span class="font-semibold">Navegación</span>
-                        </div>
-                        <button class="p-2 rounded hover:bg-gray-100" @click="open=false" aria-label="Cerrar">
-                            <i class='bx bx-x text-2xl'></i>
-                        </button>
-                    </div>
-
-                    <ul class="mt-2 space-y-1">
-                        <li>
-                            <a href="{{ route('meta.pages.index') }}"
-                                class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100">
-                                <i class='bx bxl-facebook-square text-xl text-blue-600'></i>
-                                <span class="text-sm">Mis Paginas</span>
-                            </a>
-                        </li>
-
-                        @if ($roleId === 1)
-                            <li>
-                                <a href="{{ route('meta.posts.index') }}"
-                                    class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100">
-                                    <i class='bx bx-spreadsheet text-xl'></i>
-                                    <span class="text-sm">Mis Publicaciones</span>
-                                </a>
-                            </li>
-                            <li>
-                                <a href="{{ route('informe.index') }}"
-                                    class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100">
-                                    <i class='bx bx-line-chart-down text-xl'></i>
-                                    <span class="text-sm">Informe</span>
-                                </a>
-                            </li>
-                        @elseif ($roleId === 2)
-                            <li>
-                                <a href="{{ route('mis-posts.index') }}"
-                                    class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100">
-                                    <i class='bx bx-notepad text-xl'></i>
-                                    <span class="text-sm">Mis Publicaciones</span>
-                                </a>
-                            </li>
-                        @endif
-                    </ul>
-                </nav>
+        <!-- Main -->
+        <main class="w-full p-2 sm:p-6" style="background: #e5e7eb;">
+            <!-- Logo -->
+            <div class="hidden lg:flex bg-white shadow p-4 items-center justify-center fixed top-0 left-0 w-full z-30">
+            
+                <!-- Logo -->
+                <nav class="flex items-center justify-between gap-4 mx-auto" style="width: 65rem;">
+                <!-- Logo -->
+                <div class="flex justify-center items-center">
+                  <img
+                    src="/img/isotipo-editus.png"
+                    alt="Editus"
+                    class="w-[100px]"
+                  />
+                </div>
+                <div>
+                
+                    <p class="inline-block px-5 py-1.5 text-[#1b1b18] rounded-sm text-sm leading-normal">
+                        Estrategía Profesional En Medios Digitales
+                    </p>
+                </div>
+            </nav>
+                     
             </div>
-        </div>
-    @endauth
+            
+            <div class="flex items-start justify-center flex-col sm:flex-row gap-4 w-full">
+                <div class="mt-20">
+                    <!-- Sidebar -->
+                    <aside id="sidebar"
+                        class="group fixed lg:static z-10
+                               w-20 hover:w-64 max-h-max
+                               bg-[#183EEB] text-white
+                               flex flex-col
+                               transition-all duration-300 ease-in-out
+                               overflow-hidden
+                                gap-10 rounded-xl
+                               -translate-x-full lg:translate-x-0">
+                    
+                        <!-- TOP -->
+                        <div style="margin-bottom: 4rem;">
+                    
+                            <!-- Menú -->
+                            <ul class="mt-6 space-y-2 px-3">
+                    
+                                <!-- Mis páginas -->
+                                <li>
+                                    <a href="{{ route('meta.pages.index') }}"
+                                       class="flex items-center gap-4 rounded-xl px-4 py-3
+                                              hover:bg-[#00024f] transition-all">
+                    
+                                        <!-- Icono -->
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-facebook" color="white" viewBox="0 0 16 16"> <path d="M16 8.049c0-4.446-3.582-8.05-8-8.05C3.58 0-.002 3.603-.002 8.05c0 4.017 2.926 7.347 6.75 7.951v-5.625h-2.03V8.05H6.75V6.275 c0-2.017 1.195-3.131 3.022-3.131.876 0 1.791.157 1.791.157v1.98h-1.009c-.993 0-1.303.621-1.303 1.258v1.51h2.218l-.354 2.326H9.25V16c3.824-.604 6.75-3.934 6.75-7.951" /> </svg>
+                    
+                                        <!-- Texto -->
+                                        <span class="whitespace-nowrap
+                                                     opacity-0 group-hover:opacity-100
+                                                     hidden group-hover:block text-sm transition-all duration-300">
+                                            Mis Páginas
+                                        </span>
+                                    </a>
+                                </li>
+                    
+                                @if ($roleId === 1)
+                    
+                                    <!-- Publicaciones -->
+                                    <li>
+                                        <a href="{{ route('meta.posts.index') }}"
+                                           class="flex items-center gap-4 rounded-xl px-4 py-3
+                                                  hover:bg-[#00024f] transition-all">
+                    
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-facebook" color="white" viewBox="0 0 16 16"> <path d="M11 8h2V6h-2z" /> <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm8.5.5a.5.5 0 0 0-1 0v7a.5.5 0 0 0 1 0zM2 5.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5M2.5 7a.5.5 0 0 0 0 1H6a.5.5 0 0 0 0-1zM2 9.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5m8-4v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5" /> </svg>
+                    
+                                            <span class="whitespace-nowrap
+                                                         opacity-0 group-hover:opacity-100
+                                                         hidden group-hover:block text-sm transition-all duration-300">
+                                                Mis Publicaciones
+                                            </span>
+                                        </a>
+                                    </li>
+                    
+                                    <!-- Informes -->
+                                    <li>
+                                        <a href="{{ route('informe.index') }}"
+                                           class="flex items-center gap-4 rounded-xl px-4 py-3
+                                                  hover:bg-[#00024f] transition-all">
+                    
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-graph-down" color="white" viewBox="0 0 16 16"> <path fill-rule="evenodd" d="M0 0h1v15h15v1H0zm14.817 11.887a.5.5 0 0 0 .07-.704l-4.5-5.5a.5.5 0 0 0-.74-.037L7.06 8.233 3.404 3.206a.5.5 0 0 0-.808.588l4 5.5a.5.5 0 0 0 .758.06l2.609-2.61 4.15 5.073a.5.5 0 0 0 .704.07" /> </svg>
+                    
+                                            <span class="whitespace-nowrap
+                                                         opacity-0 group-hover:opacity-100
+                                                         hidden group-hover:block text-sm transition-all duration-300">
+                                                Informes
+                                            </span>
+                                        </a>
+                                    </li>
+                    
+                                @elseif ($roleId === 2)
+                    
+                                    <li>
+                                        <a href="{{ route('mis-posts.index') }}"
+                                           class="flex items-center gap-4 rounded-xl px-4 py-3
+                                                  hover:bg-[#00024f] transition-all">
+                    
+                                            <svg xmlns="http://www.w3.org/2000/svg"
+                                                 width="22"
+                                                 height="22"
+                                                 fill="currentColor"
+                                                 class="shrink-0"
+                                                 viewBox="0 0 16 16">
+                                                <path d="M11 8h2V6h-2z"/>
+                                            </svg>
+                    
+                                            <span class="whitespace-nowrap
+                                                         opacity-0 group-hover:opacity-100
+                                                         hidden group-hover:block text-sm transition-all duration-300">
+                                                Mis Publicaciones
+                                            </span>
+                                        </a>
+                                    </li>
+                    
+                                @endif
+                    
+                            </ul>
+                        </div>
+                    
+                        <!-- USER -->
+                        <div class="border-t border-white/10 p-3 relative">
+                    
+                            <!-- Trigger -->
+                            <button onclick="toggleUserMenu()"
+                                class="w-full flex items-center gap-3 rounded-xl p-2
+                                       hover:bg-[#00024f] transition-all">
+                    
+                                <!-- Avatar -->
+                                <img src="{{ asset('img/icon-blanco.png') }}"
+                                     class="w-11 h-11 rounded-full object-cover shrink-0">
+                    
+                                <!-- Info -->
+                                <div class="opacity-0 group-hover:opacity-100
+                                            hidden group-hover:block
+                                            text-left transition-all duration-300">
+                    
+                                    <p class="text-sm font-semibold whitespace-nowrap">
+                                        {{ auth()->user()->name }}
+                                    </p>
+                    
+                                    <p class="text-xs text-gray-300 whitespace-nowrap">
+                                        {{ auth()->user()->role->name ?? 'Usuario' }}
+                                    </p>
+                                </div>
+                            </button>
+                    
+                            <!-- Dropdown -->
+                            <div id="userMenu"
+                                 class="hidden absolute bottom-20 left-3
+                                        w-52 rounded-2xl bg-white text-black
+                                        shadow-2xl overflow-hidden border border-gray-200">
+                    
+                                <a href="{{ route('profile.edit') }}"
+                                   class="block px-4 py-3 text-sm hover:bg-gray-100 transition">
+                                    Mi Perfil
+                                </a>
+                    
+                                <form method="POST" action="{{ route('logout') }}">
+                                    @csrf
+                    
+                                    <button type="submit"
+                                            class="w-full text-left px-4 py-3 text-sm hover:bg-gray-100 transition">
+                                        Cerrar Sesión
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+                <div class="px-2">
+                    <!-- Tu contenido -->
+                    @yield('content')
+                </div>
+            </div>
+        </main>
+
+    </div>
+
+</div>
+@endauth
     @yield('scripts')
+    
+    <script>
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('overlay');
+
+        sidebar.classList.toggle('-translate-x-full');
+        overlay.classList.toggle('hidden');
+    }
+
+    function toggleUserMenu() {
+        const menu = document.getElementById('userMenu');
+        menu.classList.toggle('hidden');
+    }
+</script>
 
 </body>
 

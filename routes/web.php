@@ -11,6 +11,12 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn() => view('welcome'));
 
+Route::view('/privacy', 'privacy')->name('privacy');
+
+Route::view('/terms', 'terms')->name('terms');
+
+Route::view('/data-deletion', 'data-deletion')->name('data-deletion');
+
 Route::get('/dashboard', fn() => view('dashboard'))
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
