@@ -283,6 +283,37 @@
             
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-6">
             
+                <!-- REDES DESTINO -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">Publicar en</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <label class="cursor-pointer">
+                            <input type="checkbox" name="networks[]" value="facebook" id="netFacebook" class="hidden peer" checked>
+                            <div class="flex items-center justify-center gap-2 px-3 py-3 rounded-xl border
+                                        border-gray-200 text-sm text-gray-700
+                                        peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-700
+                                        hover:border-gray-300 transition">
+                                📘 Facebook
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="checkbox" name="networks[]" value="instagram" id="netInstagram" class="hidden peer">
+                            <div class="flex items-center justify-center gap-2 px-3 py-3 rounded-xl border
+                                        border-gray-200 text-sm text-gray-700
+                                        peer-checked:border-pink-500 peer-checked:bg-pink-50 peer-checked:text-pink-700
+                                        hover:border-gray-300 transition">
+                                📸 Instagram
+                            </div>
+                        </label>
+                    </div>
+                    <p id="igTextWarning" class="hidden mt-2 text-[11px] text-amber-600">
+                        ⚠️ Instagram no permite publicaciones de solo texto: agrega una foto o video, o se publicará únicamente en Facebook.
+                    </p>
+                    <p class="mt-1 text-[11px] text-gray-500">
+                        Instagram publica solo en páginas con cuenta de Instagram Business conectada.
+                    </p>
+                </div>
+
                 <!-- TIPO DE PUBLICACIÓN -->
                 <div>
                     <h3 class="text-sm font-semibold text-gray-800 mb-3">Tipo de publicación</h3>
@@ -969,9 +1000,9 @@
                     updatePublishState();
                 }
 
-                typeText && typeText.addEventListener('change', refreshUI);
-                typePhoto && typePhoto.addEventListener('change', refreshUI);
-                typeVideo && typeVideo.addEventListener('change', refreshUI);
+                typeText && typeText.addEventListener('change', () => { refreshUI(); refreshNetworkHints(); });
+                typePhoto && typePhoto.addEventListener('change', () => { refreshUI(); refreshNetworkHints(); });
+                typeVideo && typeVideo.addEventListener('change', () => { refreshUI(); refreshNetworkHints(); });
 
                 // ====== PREVIEW IMÁGENES ======
                 function fmtSize(b) {
@@ -1089,6 +1120,19 @@
 
                 // Evita doble submit
 
+                // ====== REDES DESTINO ======
+                const netFacebook = document.getElementById('netFacebook');
+                const netInstagram = document.getElementById('netInstagram');
+                const igTextWarning = document.getElementById('igTextWarning');
+
+                function refreshNetworkHints() {
+                    const igOn = !!netInstagram?.checked;
+                    const isText = !!typeText?.checked;
+                    igTextWarning?.classList.toggle('hidden', !(igOn && isText));
+                }
+                netFacebook && netFacebook.addEventListener('change', refreshNetworkHints);
+                netInstagram && netInstagram.addEventListener('change', refreshNetworkHints);
+
                 form && form.addEventListener('submit', function(e) {
 
                     const hasMsg = (msg?.value || '').trim().length > 0;
@@ -1096,6 +1140,18 @@
                         e.preventDefault();
                         alert('El mensaje es obligatorio.');
                         msg?.focus();
+                        return;
+                    }
+
+                    if (netFacebook && netInstagram && !netFacebook.checked && !netInstagram.checked) {
+                        e.preventDefault();
+                        alert('Selecciona al menos una red (Facebook o Instagram).');
+                        return;
+                    }
+
+                    if (netInstagram?.checked && !netFacebook?.checked && typeText?.checked) {
+                        e.preventDefault();
+                        alert('Instagram no permite publicaciones de solo texto. Agrega una foto o video, o marca también Facebook.');
                         return;
                     }
 

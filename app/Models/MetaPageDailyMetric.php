@@ -9,6 +9,7 @@ class MetaPageDailyMetric extends Model
     protected $fillable = [
         'meta_page_id',
         'date',
+        'network',
         'impressions',
         'reach',
         'engagements',

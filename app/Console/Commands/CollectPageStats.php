@@ -49,11 +49,14 @@ class CollectPageStats extends Command
                 $audience = $tokenDead ? 0 : $stats->collectAudience($page);
                 $audienceError = $tokenDead ? null : $stats->lastError;
 
-                $ig = (!$tokenDead && $page->instagram_business_account_id)
-                    ? $stats->collectInstagramDemographics($page)
-                    : 0;
+                $igDaily = 0;
+                $ig = 0;
+                if (!$tokenDead && $page->instagram_business_account_id) {
+                    $igDaily = $stats->collectInstagramDaily($page, $since->copy(), $until->copy());
+                    $ig = $stats->collectInstagramDemographics($page);
+                }
 
-                $this->line("  [{$page->name}] días: {$daily}, audiencia: {$audience}, demografía IG: {$ig}");
+                $this->line("  [{$page->name}] FB días: {$daily}, audiencia: {$audience} | IG días: {$igDaily}, demografía: {$ig}");
 
                 if ($tokenDead) {
                     $tokenDeadPages[] = $page->name;
@@ -98,7 +101,10 @@ class CollectPageStats extends Command
             $ok = 0;
             foreach ($posts as $post) {
                 try {
-                    if ($stats->collectPostReactions($post)) {
+                    $updated = $post->network === 'instagram'
+                        ? $stats->collectInstagramPostMetrics($post)
+                        : $stats->collectPostReactions($post);
+                    if ($updated) {
                         $ok++;
                     }
                 } catch (\Throwable $e) {
@@ -106,7 +112,7 @@ class CollectPageStats extends Command
                 }
                 usleep(200_000); // 200ms entre posts para no golpear rate limits
             }
-            $this->info("Reacciones actualizadas en {$ok}/{$posts->count()} posts.");
+            $this->info("Métricas de posts actualizadas en {$ok}/{$posts->count()}.");
         }
 
         return self::SUCCESS;

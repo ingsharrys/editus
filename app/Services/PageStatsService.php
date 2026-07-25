@@ -105,7 +105,7 @@ class PageStatsService
 
             foreach ($byDate as $date => $columns) {
                 MetaPageDailyMetric::updateOrCreate(
-                    ['meta_page_id' => $page->id, 'date' => $date],
+                    ['meta_page_id' => $page->id, 'date' => $date, 'network' => 'facebook'],
                     $columns
                 );
                 $saved++;
@@ -115,6 +115,128 @@ class PageStatsService
         }
 
         return $saved;
+    }
+
+    /**
+     * Métricas diarias de la cuenta de Instagram Business conectada:
+     * alcance diario (serie) + seguidores actuales (snapshot del día).
+     */
+    public function collectInstagramDaily(MetaPage $page, Carbon $since, Carbon $until): int
+    {
+        $this->lastError = null;
+
+        $igId = $page->instagram_business_account_id;
+        if (!$igId) {
+            return 0;
+        }
+        $token = $this->resolvePageToken($page->id);
+        if (!$token) {
+            return 0;
+        }
+
+        $saved = 0;
+        $cursor = $since->copy();
+
+        while ($cursor->lt($until)) {
+            $windowEnd = $cursor->copy()->addDays(30)->min($until);
+
+            [$json, $err] = $this->get("{$this->base()}/{$igId}/insights", [
+                'metric' => 'reach',
+                'period' => 'day',
+                'since' => $cursor->toDateString(),
+                'until' => $windowEnd->copy()->addDay()->toDateString(),
+            ], $token);
+
+            if (!$json) {
+                $this->lastError = $err;
+                Log::debug('[stats] ig.daily.fail', [
+                    'meta_page_id' => $page->id,
+                    'err' => mb_substr((string) $err, 0, 300),
+                ]);
+                if ($err && str_contains($err, '"code":190')) {
+                    break;
+                }
+            } else {
+                foreach ((array) data_get($json, 'data.0.values', []) as $v) {
+                    $date = isset($v['end_time']) ? Carbon::parse($v['end_time'])->subDay()->toDateString() : null;
+                    if ($date !== null && is_numeric($v['value'] ?? null)) {
+                        MetaPageDailyMetric::updateOrCreate(
+                            ['meta_page_id' => $page->id, 'date' => $date, 'network' => 'instagram'],
+                            ['reach' => (int) $v['value']]
+                        );
+                        $saved++;
+                    }
+                }
+            }
+
+            $cursor = $windowEnd;
+        }
+
+        // Snapshot de seguidores de Instagram (total actual)
+        [$json] = $this->get("{$this->base()}/{$igId}", ['fields' => 'followers_count'], $token);
+        $followers = (int) data_get($json, 'followers_count', 0);
+        if ($followers > 0) {
+            MetaPageDailyMetric::updateOrCreate(
+                ['meta_page_id' => $page->id, 'date' => now()->toDateString(), 'network' => 'instagram'],
+                ['fans' => $followers]
+            );
+            $saved++;
+        }
+
+        return $saved;
+    }
+
+    /**
+     * Métricas de una publicación de Instagram (alcance, vistas, interacciones).
+     */
+    public function collectInstagramPostMetrics(MetaPost $post): bool
+    {
+        if ($post->network !== 'instagram' || empty($post->fb_post_id)) {
+            return false;
+        }
+        $token = $this->resolvePageToken($post->meta_page_id);
+        if (!$token) {
+            return false;
+        }
+
+        $vals = [];
+
+        [$json, $err] = $this->get("{$this->base()}/{$post->fb_post_id}/insights", [
+            'metric' => 'reach,views,total_interactions',
+        ], $token);
+
+        if ($json) {
+            foreach ((array) data_get($json, 'data', []) as $row) {
+                $vals[$row['name'] ?? ''] = (int) data_get($row, 'values.0.value', 0);
+            }
+        } else {
+            $this->lastError = $err;
+        }
+
+        // Fallback con campos básicos del medio
+        if (empty($vals)) {
+            [$j2] = $this->get("{$this->base()}/{$post->fb_post_id}", [
+                'fields' => 'like_count,comments_count',
+            ], $token);
+            if ($j2) {
+                $vals['total_interactions'] = (int) data_get($j2, 'like_count', 0)
+                    + (int) data_get($j2, 'comments_count', 0);
+            }
+        }
+
+        if (empty($vals)) {
+            return false;
+        }
+
+        $updates = array_filter([
+            'alcance' => $vals['reach'] ?? null,
+            'visualizaciones' => $vals['views'] ?? null,
+            'interacciones' => $vals['total_interactions'] ?? null,
+        ], fn($v) => $v !== null);
+
+        $post->forceFill($updates)->saveQuietly();
+
+        return true;
     }
 
     /**

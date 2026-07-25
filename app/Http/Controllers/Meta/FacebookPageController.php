@@ -21,6 +21,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use App\Support\FacebookGraph;
 use App\Jobs\PublishVideoToFacebook;
 use App\Jobs\PublishPhotosToFacebook;
+use App\Jobs\PublishToInstagram;
 use Illuminate\Support\Facades\Cache;
 
 class FacebookPageController extends Controller
@@ -269,6 +270,22 @@ class FacebookPageController extends Controller
             'video' => ['nullable', 'file', 'mimetypes:video/mp4,video/quicktime', 'mimes:mp4,mov', 'max:1024000'],
         ]);
 
+        // Redes destino: facebook (por defecto) y/o instagram
+        $networks = array_values(array_intersect(
+            (array) $request->input('networks', ['facebook']),
+            ['facebook', 'instagram']
+        ));
+        if (empty($networks)) {
+            $networks = ['facebook'];
+        }
+
+        // Instagram no acepta publicaciones de solo texto
+        if ($request->type === 'text' && !in_array('facebook', $networks, true)) {
+            return back()
+                ->withErrors(['networks' => 'Instagram no permite publicaciones de solo texto. Selecciona Facebook o agrega una foto/video.'])
+                ->withInput();
+        }
+
         if ($request->type === 'text') {
             $request->validate(['message' => ['required', 'string', 'max:63206']]);
         } elseif ($request->type === 'photo') {
@@ -303,11 +320,23 @@ class FacebookPageController extends Controller
             $pageId = $page->page_id;
             $token = $pivot->page_access_token;
 
+            $doFb = in_array('facebook', $networks, true);
+            $doIg = in_array('instagram', $networks, true) && $request->type !== 'text';
+
+            // ===== INSTAGRAM (foto/video, en cola) =====
+            if ($doIg) {
+                $this->queueInstagramPost($request, $page, $token, $batch, $results);
+                if (!$doFb) {
+                    continue;
+                }
+            }
+
             $postData = [
                 'batch_uuid' => $batch,
                 'user_id' => auth()->id(),
                 'meta_page_id' => $page->id,
                 'type' => $request->type,
+                'network' => 'facebook',
                 'message' => $request->message,
                 'link' => $request->link,
                 'local_media' => null,
@@ -521,6 +550,141 @@ class FacebookPageController extends Controller
     }
 
 
+
+    /**
+     * Crea el MetaPost de Instagram y despacha el job de publicación.
+     * Instagram exige medios (foto/video) con URL pública, e imágenes JPEG.
+     */
+    private function queueInstagramPost(Request $request, MetaPage $page, string $token, string $batch, array &$results): void
+    {
+        $label = $page->name . ' (Instagram)';
+
+        if (empty($page->instagram_business_account_id)) {
+            $results[] = ['page' => $label, 'ok' => false, 'error' => 'La página no tiene Instagram Business conectado. Sincroniza para detectarlo.'];
+            return;
+        }
+
+        $postData = [
+            'batch_uuid' => $batch,
+            'user_id' => auth()->id(),
+            'meta_page_id' => $page->id,
+            'type' => $request->type,
+            'network' => 'instagram',
+            'message' => $request->message,
+            'status' => 'pending',
+        ];
+
+        try {
+            if ($request->type === 'photo') {
+                $urls = [];
+                $rels = [];
+                $abss = [];
+
+                foreach ($request->file('photos', []) as $file) {
+                    $res = $this->storePhotoForInstagramTmp($file);
+                    if (!($res['ok'] ?? false)) {
+                        $results[] = ['page' => $label, 'ok' => false, 'error' => $res['error'] ?? 'No se pudo preparar una imagen para Instagram.'];
+                        return;
+                    }
+                    $urls[] = $res['url'];
+                    $rels[] = $res['cleanup_rel'] ?? null;
+                    $abss[] = $res['cleanup_abs'] ?? null;
+                }
+
+                if (empty($urls)) {
+                    $results[] = ['page' => $label, 'ok' => false, 'error' => 'No se pudo preparar ninguna imagen para Instagram.'];
+                    return;
+                }
+
+                $postData['local_media'] = json_encode(['photo_urls' => $urls]);
+                $metaPost = MetaPost::create($postData);
+
+                PublishToInstagram::dispatch([
+                    'meta_post_id' => $metaPost->id,
+                    'ig_user_id' => (string) $page->instagram_business_account_id,
+                    'page_token' => $token,
+                    'kind' => 'photos',
+                    'photo_urls' => $urls,
+                    'caption' => $request->message,
+                    'cleanup_rel' => $rels,
+                    'cleanup_abs' => $abss,
+                ])->onQueue('default');
+
+                $results[] = ['page' => $label, 'ok' => true, 'body' => ['queued' => true, 'meta_post_id' => $metaPost->id]];
+                return;
+            }
+
+            if ($request->type === 'video') {
+                // Copia propia del video para IG (los jobs limpian sus archivos al terminar)
+                $pub = $this->storeVideoPublicTmp($request->file('video'));
+                if (!($pub['ok'] ?? false)) {
+                    $results[] = ['page' => $label, 'ok' => false, 'error' => $pub['error'] ?? 'No se pudo preparar el video para Instagram.'];
+                    return;
+                }
+
+                $postData['local_media'] = json_encode(['public_url' => $pub['url']]);
+                $metaPost = MetaPost::create($postData);
+
+                PublishToInstagram::dispatch([
+                    'meta_post_id' => $metaPost->id,
+                    'ig_user_id' => (string) $page->instagram_business_account_id,
+                    'page_token' => $token,
+                    'kind' => 'video',
+                    'video_url' => $pub['url'],
+                    'caption' => $request->message,
+                    'cleanup_rel' => array_filter([$pub['cleanup_rel'] ?? null]),
+                    'cleanup_abs' => array_filter([$pub['cleanup_abs'] ?? null]),
+                ])->onQueue('default');
+
+                $results[] = ['page' => $label, 'ok' => true, 'body' => ['queued' => true, 'meta_post_id' => $metaPost->id]];
+                return;
+            }
+        } catch (\Throwable $e) {
+            Log::error('[IG] queueInstagramPost: exception', ['err' => $e->getMessage()]);
+            $postData['status'] = 'fail';
+            $postData['error'] = $e->getMessage();
+            MetaPost::create($postData);
+            $results[] = ['page' => $label, 'ok' => false, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Guarda una foto como JPEG público temporal (Instagram solo acepta JPEG).
+     */
+    private function storePhotoForInstagramTmp(\Illuminate\Http\UploadedFile $file): array
+    {
+        try {
+            $name = (string) \Illuminate\Support\Str::uuid() . '.jpg';
+            $path = 'images/tmp/' . $name;
+            $disk = \Illuminate\Support\Facades\Storage::disk('public');
+
+            if (!$disk->exists('images/tmp')) {
+                $disk->makeDirectory('images/tmp');
+            }
+
+            // Convertir a JPEG con Intervention (ya instalado en el proyecto)
+            $jpeg = \Intervention\Image\Laravel\Facades\Image::read($file->getRealPath())
+                ->toJpeg(quality: 88);
+
+            if (!$disk->put($path, (string) $jpeg)) {
+                return ['ok' => false, 'error' => 'No se pudo escribir la imagen JPEG para Instagram.'];
+            }
+
+            return [
+                'ok' => true,
+                'url' => url(\Illuminate\Support\Facades\Storage::url($path)),
+                'cleanup_rel' => 'public/' . $path,
+                'cleanup_abs' => null,
+            ];
+        } catch (\Throwable $e) {
+            // Fallback: usa el almacenamiento normal (funciona si la foto ya es JPEG)
+            $res = $this->storePhotoPublicTmp($file);
+            if (($res['ok'] ?? false) && in_array(strtolower($file->getClientOriginalExtension()), ['jpg', 'jpeg'], true)) {
+                return $res;
+            }
+            return ['ok' => false, 'error' => 'No se pudo convertir la imagen a JPEG: ' . $e->getMessage()];
+        }
+    }
 
     /**
      * Guarda el video en un URL público temporal.

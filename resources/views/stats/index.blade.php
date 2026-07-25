@@ -33,7 +33,8 @@
 
         {{-- Filtros --}}
         <form method="GET" action="{{ route('stats.index') }}"
-              class="rounded-xl border border-gray-200 bg-white p-4 flex flex-wrap items-end gap-3">
+              class="rounded-xl border border-gray-200 bg-white p-4 flex flex-wrap items-end gap-4">
+            <input type="hidden" name="network" value="{{ $network }}">
             <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Página</label>
                 <select name="page_id" onchange="this.form.submit()"
@@ -41,10 +42,21 @@
                     <option value="">Todas las páginas</option>
                     @foreach ($pages as $p)
                         <option value="{{ $p->id }}" {{ $selectedPageId === $p->id ? 'selected' : '' }}>
-                            {{ $p->name }}
+                            {{ $p->name }}{{ $p->instagram_business_account_id ? ' 📸' : '' }}
                         </option>
                     @endforeach
                 </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Red</label>
+                <div class="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                    @foreach (['all' => '🌐 Todas', 'facebook' => '📘 Facebook', 'instagram' => '📸 Instagram'] as $net => $label)
+                        <a href="{{ route('stats.index', array_merge(request()->except('network'), ['network' => $net])) }}"
+                           class="px-3 py-2 text-xs {{ $network === $net ? ($net === 'instagram' ? 'bg-pink-600 text-white' : 'bg-blue-600 text-white') : 'bg-white text-gray-700 hover:bg-gray-50' }}">
+                            {{ $label }}
+                        </a>
+                    @endforeach
+                </div>
             </div>
             <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Período</label>
@@ -61,24 +73,34 @@
 
         {{-- KPIs --}}
         @php
+            $showSplit = $network === 'all';
+            $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
             $kpis = [
-                ['label' => 'Alcance', 'value' => $totals['reach'], 'var' => $kpiVariation['reach']],
-                ['label' => 'Impresiones', 'value' => $totals['impressions'], 'var' => $kpiVariation['impressions']],
-                ['label' => 'Interacciones', 'value' => $totals['engagements'], 'var' => $kpiVariation['engagements']],
-                ['label' => 'Vistas de video', 'value' => $totals['video_views'], 'var' => null],
-                ['label' => 'Seguidores', 'value' => $fansTotal, 'var' => null],
-                ['label' => 'Publicaciones', 'value' => $postsCount, 'var' => null],
+                ['label' => 'Alcance', 'value' => $totals['reach'], 'var' => $kpiVariation['reach'], 'fb' => $perNetwork['facebook']['reach'], 'ig' => $perNetwork['instagram']['reach']],
+                ['label' => 'Impresiones', 'value' => $totals['impressions'], 'var' => $kpiVariation['impressions'], 'fb' => $perNetwork['facebook']['impressions'], 'ig' => null],
+                ['label' => 'Interacciones', 'value' => $totals['engagements'], 'var' => $kpiVariation['engagements'], 'fb' => $perNetwork['facebook']['engagements'], 'ig' => null],
+                ['label' => 'Vistas de video', 'value' => $totals['video_views'], 'var' => null, 'fb' => $perNetwork['facebook']['video_views'], 'ig' => null],
+                ['label' => 'Seguidores', 'value' => $fansTotal, 'var' => null, 'fb' => $fansByNetwork['facebook'], 'ig' => $fansByNetwork['instagram']],
+                ['label' => 'Publicaciones', 'value' => $postsCount, 'var' => null, 'fb' => $postsByNetwork['facebook'], 'ig' => $postsByNetwork['instagram']],
             ];
         @endphp
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             @foreach ($kpis as $kpi)
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
                     <div class="text-[11px] uppercase tracking-wide text-gray-500">{{ $kpi['label'] }}</div>
-                    <div class="mt-1 text-2xl font-semibold">{{ number_format($kpi['value'], 0, ',', '.') }}</div>
+                    <div class="mt-1 text-2xl font-semibold">{{ $fmt($kpi['value']) }}</div>
                     @if (!is_null($kpi['var']))
                         <div class="mt-1 text-[11px] {{ $kpi['var'] >= 0 ? 'text-emerald-600' : 'text-red-600' }}">
                             {{ $kpi['var'] >= 0 ? '▲' : '▼' }} {{ number_format(abs($kpi['var']), 1, ',', '.') }}%
                             <span class="text-gray-400">vs período anterior</span>
+                        </div>
+                    @endif
+                    @if ($showSplit)
+                        <div class="mt-1 text-[11px] text-gray-500 space-x-1">
+                            <span class="text-blue-600">📘 {{ $fmt($kpi['fb']) }}</span>
+                            @if (!is_null($kpi['ig']))
+                                <span class="text-pink-600">📸 {{ $fmt($kpi['ig']) }}</span>
+                            @endif
                         </div>
                     @endif
                 </div>
@@ -88,12 +110,18 @@
         {{-- Evolución diaria --}}
         <div class="rounded-xl border border-gray-200 bg-white p-4">
             <div class="flex items-center justify-between mb-3">
-                <p class="font-semibold text-sm">Evolución diaria</p>
-                <p class="text-[11px] text-gray-400">Alcance · Impresiones · Interacciones</p>
+                <p class="font-semibold text-sm">Evolución diaria
+                    @if ($network !== 'all')
+                        <span class="text-[10px] font-normal {{ $network === 'instagram' ? 'text-pink-600 bg-pink-50' : 'text-blue-600 bg-blue-50' }} rounded px-1.5 py-0.5 ml-1 capitalize">{{ $network }}</span>
+                    @endif
+                </p>
+                <p class="text-[11px] text-gray-400">
+                    {{ $network === 'all' ? 'Comparativo Facebook vs Instagram' : 'Alcance · Interacciones' }}
+                </p>
             </div>
-            @if ($daily->isEmpty())
+            @if (empty($chart['labels']))
                 <p class="text-sm text-gray-500 py-8 text-center">
-                    Aún no hay datos recolectados.
+                    Aún no hay datos recolectados para este filtro.
                     @if (auth()->user()->isAdmin())
                         Usa «Actualizar datos ahora» o ejecuta <code class="bg-gray-100 px-1 rounded">php artisan stats:collect --days=30</code>.
                     @endif
@@ -106,7 +134,7 @@
         <div class="grid lg:grid-cols-2 gap-4">
             {{-- Reacciones por tipo --}}
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="font-semibold text-sm mb-3">Reacciones por tipo</p>
+                <p class="font-semibold text-sm mb-3">Reacciones por tipo <span class="text-[10px] font-normal text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 ml-1">Facebook</span></p>
                 @if ($reactions->isEmpty())
                     <p class="text-sm text-gray-500 py-8 text-center">Sin datos de reacciones en el período.</p>
                 @else
@@ -129,7 +157,7 @@
         <div class="grid lg:grid-cols-2 gap-4">
             @foreach (['country' => 'Seguidores por país', 'city' => 'Seguidores por ciudad'] as $dim => $title)
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
-                    <p class="font-semibold text-sm mb-3">{{ $title }}</p>
+                    <p class="font-semibold text-sm mb-3">{{ $title }} <span class="text-[10px] font-normal text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 ml-1">Facebook</span></p>
                     @if ($audience[$dim]->isEmpty())
                         <p class="text-sm text-gray-500 py-6 text-center">Sin datos de audiencia aún.</p>
                     @else
@@ -220,6 +248,7 @@
                     <thead>
                         <tr class="text-left text-xs text-gray-500 border-b">
                             <th class="py-2 pr-3">Publicación</th>
+                            <th class="py-2 pr-3">Red</th>
                             <th class="py-2 pr-3">Tipo</th>
                             <th class="py-2 pr-3">Fecha</th>
                             <th class="py-2 pr-3 text-right">Alcance</th>
@@ -240,6 +269,13 @@
                                         {{ \Illuminate\Support\Str::limit($post->message ?: '(sin texto)', 60) }}
                                     @endif
                                 </td>
+                                <td class="py-2 pr-3">
+                                    @if ($post->network === 'instagram')
+                                        <span class="text-[10px] text-pink-700 bg-pink-50 border border-pink-200 rounded px-1.5 py-0.5 whitespace-nowrap">📸 Instagram</span>
+                                    @else
+                                        <span class="text-[10px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-1.5 py-0.5 whitespace-nowrap">📘 Facebook</span>
+                                    @endif
+                                </td>
                                 <td class="py-2 pr-3 capitalize">{{ $post->type }}</td>
                                 <td class="py-2 pr-3 whitespace-nowrap">{{ optional($post->published_at)->format('d/m/Y') }}</td>
                                 <td class="py-2 pr-3 text-right">{{ number_format((int) $post->alcance, 0, ',', '.') }}</td>
@@ -256,7 +292,7 @@
     <script src="{{ asset('js/chart.umd.min.js') }}"></script>
     <script>
         (function () {
-            const daily = @json($daily);
+            const chartData = @json($chart);
             const reactions = @json($reactions);
             const byType = @json($byType);
             const igGender = @json($audience['ig_gender']);
@@ -265,17 +301,10 @@
             const fmt = new Intl.NumberFormat('es-CO');
             const gridColor = 'rgba(0,0,0,0.05)';
 
-            if (daily.length && document.getElementById('dailyChart')) {
+            if (chartData.labels.length && document.getElementById('dailyChart')) {
                 new Chart(document.getElementById('dailyChart'), {
                     type: 'line',
-                    data: {
-                        labels: daily.map(d => d.date.slice(0, 10)),
-                        datasets: [
-                            { label: 'Alcance', data: daily.map(d => +d.reach), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,.08)', fill: true, tension: .3, pointRadius: 0 },
-                            { label: 'Impresiones', data: daily.map(d => +d.impressions), borderColor: '#7c3aed', tension: .3, pointRadius: 0 },
-                            { label: 'Interacciones', data: daily.map(d => +d.engagements), borderColor: '#059669', tension: .3, pointRadius: 0 },
-                        ],
-                    },
+                    data: chartData,
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
