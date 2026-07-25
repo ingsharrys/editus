@@ -20,7 +20,7 @@ class WhatsappWebhookController extends Controller
         $token     = $request->query('hub.verify_token', $request->query('hub_verify_token'));
         $challenge = $request->query('hub.challenge', $request->query('hub_challenge'));
 
-        if ($mode === 'subscribe' && $token === env('WHATSAPP_VERIFY_TOKEN')) {
+        if ($mode === 'subscribe' && $token === config('services.whatsapp.verify_token')) {
             return response($challenge, Response::HTTP_OK)
                 ->header('Content-Type', 'text/plain');
         }
@@ -36,7 +36,7 @@ class WhatsappWebhookController extends Controller
     public function handle(Request $request)
     {
         // 1) Verificación de firma HMAC (opcional pero recomendada)
-        $appSecret = env('WHATSAPP_APP_SECRET');
+        $appSecret = config('services.whatsapp.app_secret');
         if (!empty($appSecret)) {
             $signatureHeader = $request->header('X-Hub-Signature-256'); // "sha256=<hex>"
             $rawBody = $request->getContent();

@@ -81,7 +81,8 @@ class ArticlePublishController extends Controller
             $token = $pivot->page_access_token;
 
             try {
-                $resp = Http::asForm()->post("https://graph.facebook.com/{$graphVersion}/{$page->page_id}/feed", [
+                $resp = Http::asForm()->timeout(20)->connectTimeout(8)
+                    ->post("https://graph.facebook.com/{$graphVersion}/{$page->page_id}/feed", [
                     'message' => $mensaje,
                     'link' => $data['url'],
                     'access_token' => $token,
@@ -95,7 +96,7 @@ class ArticlePublishController extends Controller
                         'red' => 'facebook',
                         'ok' => true,
                         'fb_post_id' => $postId,
-                        'permalink' => $this->fetchPermalink($postId, $token),
+                        'permalink' => $this->permalinkFromPostId($postId),
                     ];
                 } else {
                     $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => $resp->body()];
@@ -120,20 +121,21 @@ class ArticlePublishController extends Controller
         ], 200);
     }
 
-    private function fetchPermalink(?string $objectId, string $token): ?string
+    /**
+     * Construye el permalink sin llamada extra a la Graph API:
+     * los IDs de feed tienen formato {page_id}_{post_id}.
+     */
+    private function permalinkFromPostId(?string $postId): ?string
     {
-        if (!$objectId) {
+        if (!$postId) {
             return null;
         }
 
-        try {
-            $resp = Http::get("https://graph.facebook.com/v20.0/{$objectId}", [
-                'fields' => 'permalink_url',
-                'access_token' => $token,
-            ]);
-            return $resp->ok() ? data_get($resp->json(), 'permalink_url') : null;
-        } catch (\Throwable) {
-            return null;
+        if (str_contains($postId, '_')) {
+            [$pageId, $id] = explode('_', $postId, 2);
+            return "https://www.facebook.com/{$pageId}/posts/{$id}";
         }
+
+        return "https://www.facebook.com/{$postId}";
     }
 }

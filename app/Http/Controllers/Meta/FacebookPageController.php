@@ -356,7 +356,8 @@ class FacebookPageController extends Controller
                     if ($request->filled('link'))
                         $payload['link'] = $request->link;
 
-                    $resp = Http::asForm()->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                    $resp = Http::asForm()->timeout(20)->connectTimeout(8)
+                        ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
 
                     $ok = $resp->ok();
                     $body = $resp->json();
