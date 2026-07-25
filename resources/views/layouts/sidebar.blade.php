@@ -62,6 +62,13 @@
             </a>
           </li>
         @endif
+        <li>
+          <a href="{{ route('stats.index') }}"
+             class="flex items-center gap-2 px-3 py-2 rounded hover:bg-gray-100">
+            <i class='bx bx-bar-chart-alt-2 text-xl text-indigo-600'></i>
+            <span class="text-sm">Estadísticas</span>
+          </a>
+        </li>
 
         @if ($roleId === 2)
           <li>
@@ -121,6 +128,16 @@
           </a>
         </li>
       @endif
+      <li>
+        <a href="{{ route('stats.index') }}"
+           class="flex flex-row items-center pl-2 pr-4 h-12 transform hover:translate-x-2 transition-transform ease-in duration-200  text-gray-500 hover:text-gray-800">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+               class="bi bi-bar-chart" color="blue" viewBox="0 0 16 16">
+            <path d="M4 11H2v3h2zm5-4H7v7h2zm5-5v12h-2V2zm-2-1a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1zM6 7a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1zm-5 4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1z" />
+          </svg>
+          <span class="text-sm font-medium text-black ml-2">Estadísticas</span>
+        </a>
+      </li>
 
       @if ($roleId === 2)
         <li>

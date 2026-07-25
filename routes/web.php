@@ -93,6 +93,10 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/meta/pages/{metaPage}/unlink', [FacebookPageController::class, 'unlinkPage'])->name('meta.pages.unlink');
     Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])->name('meta.pages.link');
 
+    // Estadísticas (dashboard)
+    Route::get('/estadisticas', [\App\Http\Controllers\StatsController::class, 'index'])->name('stats.index');
+    Route::post('/estadisticas/collect', [\App\Http\Controllers\StatsController::class, 'collect'])->name('stats.collect');
+
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
     Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');

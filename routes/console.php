@@ -20,6 +20,14 @@ Schedule::call(fn() => Log::info('[probe] schedule tick', ['at' => now()->toDate
     ->everyMinute()
     ->timezone(config('app.timezone', 'America/Bogota'));
 
+// Estadísticas de páginas: métricas diarias + audiencia geográfica + reacciones.
+// Corre una vez al día en la madrugada (los datos de Meta cierran por día).
+Schedule::command('stats:collect --days=3')
+    ->dailyAt('03:30')
+    ->timezone(config('app.timezone', 'America/Bogota'))
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/stats.log'));
+
 // Artisan::command('meta:sync-page-tokens {--user-id=}', function () {
 //     $uid = (int) $this->option('user-id') ?: 2;
 
