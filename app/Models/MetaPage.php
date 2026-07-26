@@ -10,6 +10,7 @@ class MetaPage extends Model
         'page_id',
         'name',
         'category',
+        'medio_slug',
         'instagram_business_account_id',
         'picture_url',
         'tasks'
