@@ -12,6 +12,7 @@ class MetaPost extends Model
         'batch_uuid',
         'meta_page_id',
         'user_id',
+        'campaign_id',
         'type',              // text|photo|video
         'network',           // facebook|instagram
         'message',
@@ -46,6 +47,10 @@ class MetaPost extends Model
     public function page()
     {
         return $this->belongsTo(MetaPage::class, 'meta_page_id');
+    }
+    public function campaign()
+    {
+        return $this->belongsTo(Campaign::class);
     }
     public function user()
     {

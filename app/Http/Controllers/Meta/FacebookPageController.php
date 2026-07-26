@@ -110,7 +110,10 @@ class FacebookPageController extends Controller
             ->pluck('meta_page_id')
             ->all();
 
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds'));
+        // Campañas seleccionables al publicar (activas y no de sistema)
+        $campaigns = \App\Models\Campaign::selectable()->get(['id', 'name']);
+
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns'));
     }
     public function saveFavorites(Request $request)
     {
@@ -258,6 +261,10 @@ class FacebookPageController extends Controller
 
         // 1) Validación base
         $request->validate([
+            'campaign_id' => [
+                'required',
+                Rule::exists('campaigns', 'id')->where('is_active', 1)->where('is_system', 0),
+            ],
             'type' => ['required', 'in:text,photo,video'],
             'page_ids' => ['required', 'array', 'min:1'],
             'page_ids.*' => [Rule::exists('meta_pages', 'id')],
@@ -335,6 +342,7 @@ class FacebookPageController extends Controller
             $postData = [
                 'batch_uuid' => $batch,
                 'user_id' => auth()->id(),
+                'campaign_id' => (int) $request->campaign_id,
                 'meta_page_id' => $page->id,
                 'type' => $request->type,
                 'network' => 'facebook',
@@ -573,6 +581,7 @@ class FacebookPageController extends Controller
         $postData = [
             'batch_uuid' => $batch,
             'user_id' => auth()->id(),
+            'campaign_id' => (int) $request->campaign_id,
             'meta_page_id' => $page->id,
             'type' => $request->type,
             'network' => 'instagram',

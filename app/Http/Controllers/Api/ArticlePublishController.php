@@ -71,10 +71,39 @@ class ArticlePublishController extends Controller
         $resultados = [];
         $publicados = 0;
 
+        // Todos los artículos automáticos quedan bajo la campaña de sistema
+        // "Esnoticia", para poder medirlos por separado en los informes.
+        $campaign = \App\Models\Campaign::esnoticia();
+        $systemUserId = \App\Models\User::whereHas('role', fn($q) => $q->where('slug', 'admin'))->orderBy('id')->value('id')
+            ?? \App\Models\User::orderBy('id')->value('id');
+
+        $registrar = function (MetaPage $page, bool $ok, ?string $postId, ?string $permalink, ?string $error) use ($batch, $campaign, $systemUserId, $mensaje, $data) {
+            try {
+                \App\Models\MetaPost::create([
+                    'batch_uuid' => $batch,
+                    'user_id' => $systemUserId,
+                    'campaign_id' => $campaign->id,
+                    'meta_page_id' => $page->id,
+                    'type' => 'text',
+                    'network' => 'facebook',
+                    'message' => $mensaje,
+                    'link' => $data['url'],
+                    'status' => $ok ? 'success' : 'fail',
+                    'fb_post_id' => $postId,
+                    'fb_permalink_url' => $permalink,
+                    'published_at' => $ok ? now() : null,
+                    'error' => $error,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('[ARTICULOS] No se pudo registrar MetaPost', ['err' => $e->getMessage()]);
+            }
+        };
+
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
             if (!$pivot?->page_access_token) {
                 $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => 'Sin token activo'];
+                $registrar($page, false, null, null, 'Sin token activo');
                 continue;
             }
 
@@ -90,19 +119,23 @@ class ArticlePublishController extends Controller
 
                 if ($resp->ok()) {
                     $postId = data_get($resp->json(), 'id');
+                    $permalink = $this->permalinkFromPostId($postId);
                     $publicados++;
                     $resultados[] = [
                         'pagina' => $page->name,
                         'red' => 'facebook',
                         'ok' => true,
                         'fb_post_id' => $postId,
-                        'permalink' => $this->permalinkFromPostId($postId),
+                        'permalink' => $permalink,
                     ];
+                    $registrar($page, true, $postId, $permalink, null);
                 } else {
                     $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => $resp->body()];
+                    $registrar($page, false, null, null, mb_substr($resp->body(), 0, 5000));
                 }
             } catch (\Throwable $e) {
                 $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => $e->getMessage()];
+                $registrar($page, false, null, null, $e->getMessage());
             }
         }
 

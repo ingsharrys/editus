@@ -53,6 +53,17 @@
                     </div>
                 </div>
                 <div>
+                    <label class="block text-[11px] font-medium text-gray-600 mb-1">Campaña</label>
+                    <select name="campaign_id" onchange="this.form.submit()" class="w-full rounded-lg border-gray-200 text-sm">
+                        <option value="">Todas</option>
+                        @foreach ($campaigns as $c)
+                            <option value="{{ $c->id }}" {{ (string) $filters['campaign_id'] === (string) $c->id ? 'selected' : '' }}>
+                                {{ $c->name }}{{ $c->is_system ? ' ⚙️' : '' }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
                     <label class="block text-[11px] font-medium text-gray-600 mb-1">Página</label>
                     <select name="page_id" onchange="this.form.submit()" class="w-full rounded-lg border-gray-200 text-sm">
                         <option value="">Todas</option>
@@ -148,6 +159,7 @@
                 <thead>
                     <tr class="text-left text-xs text-gray-500 border-b bg-gray-50">
                         <th class="py-2.5 px-3">Publicación</th>
+                        <th class="py-2.5 px-3">Campaña</th>
                         <th class="py-2.5 px-3">Página</th>
                         <th class="py-2.5 px-3">Red</th>
                         <th class="py-2.5 px-3">Tipo</th>
@@ -176,6 +188,11 @@
                                         {{ \Illuminate\Support\Str::limit($post->error, 80) }}
                                     </div>
                                 @endif
+                            </td>
+                            <td class="py-2 px-3">
+                                <span class="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5 whitespace-nowrap">
+                                    {{ $post->campaign->name ?? 'Sin campaña' }}
+                                </span>
                             </td>
                             <td class="py-2 px-3 whitespace-nowrap max-w-[160px] truncate">{{ $post->page->name ?? '—' }}</td>
                             <td class="py-2 px-3">
@@ -207,7 +224,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="py-10 text-center text-sm text-gray-500">
+                            <td colspan="11" class="py-10 text-center text-sm text-gray-500">
                                 No hay publicaciones que coincidan con los filtros.
                             </td>
                         </tr>

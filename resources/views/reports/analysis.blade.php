@@ -39,6 +39,17 @@
                 </select>
             </div>
             <div>
+                <label class="block text-[11px] font-medium text-gray-600 mb-1">Campaña</label>
+                <select name="campaign_id" onchange="this.form.submit()" class="rounded-lg border-gray-200 text-sm">
+                    <option value="">Todas</option>
+                    @foreach ($campaignsCatalog as $c)
+                        <option value="{{ $c->id }}" {{ (string) $filters['campaign_id'] === (string) $c->id ? 'selected' : '' }}>
+                            {{ $c->name }}{{ $c->is_system ? ' ⚙️' : '' }}
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+            <div>
                 <label class="block text-[11px] font-medium text-gray-600 mb-1">Medios a comparar</label>
                 <details class="relative" id="mediosDropdown">
                     <summary class="cursor-pointer select-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-w-[220px] list-none">
@@ -200,6 +211,39 @@
                     @endforeach
                 </div>
             </div>
+
+            {{-- Rendimiento por campaña --}}
+            @if ($byCampaign->count() > 1)
+                <div class="rounded-xl border border-gray-200 bg-white p-4 overflow-x-auto">
+                    <p class="font-semibold text-sm mb-3">🎯 Rendimiento por campaña</p>
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-xs text-gray-500 border-b bg-gray-50">
+                                <th class="py-2 px-3">#</th>
+                                <th class="py-2 px-3">Campaña</th>
+                                <th class="py-2 px-3 text-right">Publicaciones</th>
+                                <th class="py-2 px-3 text-right">Alcance total</th>
+                                <th class="py-2 px-3 text-right">Alcance promedio</th>
+                                <th class="py-2 px-3 text-right">Interacc. promedio</th>
+                                <th class="py-2 px-3 text-right">Tasa interacción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($byCampaign as $i => $row)
+                                <tr class="border-b last:border-0 {{ $i === 0 ? 'bg-indigo-50/50' : '' }}">
+                                    <td class="py-2 px-3 text-gray-400">{{ $i === 0 ? '🥇' : $i + 1 }}</td>
+                                    <td class="py-2 px-3 font-medium">{{ $row['name'] }}</td>
+                                    <td class="py-2 px-3 text-right">{{ $fmt($row['n']) }}</td>
+                                    <td class="py-2 px-3 text-right font-semibold">{{ $fmt($row['reach']) }}</td>
+                                    <td class="py-2 px-3 text-right">{{ $fmt($row['avg_reach']) }}</td>
+                                    <td class="py-2 px-3 text-right">{{ $fmt($row['avg_inter']) }}</td>
+                                    <td class="py-2 px-3 text-right">{{ $row['engagement'] !== null ? number_format($row['engagement'], 2, ',', '.') . '%' : '—' }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
 
             {{-- Ranking de medios --}}
             <div class="rounded-xl border border-gray-200 bg-white p-4">

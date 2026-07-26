@@ -102,6 +102,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/informes/publicaciones/csv', [\App\Http\Controllers\ReportsController::class, 'exportCsv'])->name('reports.posts.csv');
     Route::get('/informes/analisis', [\App\Http\Controllers\ReportsController::class, 'analytics'])->name('reports.analytics');
 
+    // Campañas (gestión, solo admin — validado en el controlador)
+    Route::get('/campanas', [\App\Http\Controllers\CampaignController::class, 'index'])->name('campaigns.index');
+    Route::post('/campanas', [\App\Http\Controllers\CampaignController::class, 'store'])->name('campaigns.store');
+    Route::post('/campanas/{campaign}', [\App\Http\Controllers\CampaignController::class, 'update'])->name('campaigns.update');
+    Route::post('/campanas/{campaign}/toggle', [\App\Http\Controllers\CampaignController::class, 'toggle'])->name('campaigns.toggle');
+
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
     Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');

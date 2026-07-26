@@ -58,7 +58,7 @@ class ReportsController extends Controller
 
         // ----- Tabla paginada -----
         $posts = (clone $query)
-            ->with(['page:id,name,page_id', 'user:id,name'])
+            ->with(['page:id,name,page_id', 'user:id,name', 'campaign:id,name'])
             ->orderBy($filters['sort'], $filters['dir'])
             ->orderByDesc('id')
             ->paginate($filters['per_page'])
@@ -69,11 +69,13 @@ class ReportsController extends Controller
             ->orderBy('name')
             ->get(['meta_pages.id', 'meta_pages.name']);
 
+        $campaigns = \App\Models\Campaign::orderBy('name')->get(['id', 'name', 'is_system']);
+
         $authors = $user->isAdmin()
             ? User::whereIn('id', MetaPost::query()->distinct()->pluck('user_id'))->orderBy('name')->get(['id', 'name'])
             : collect();
 
-        return view('reports.posts', compact('posts', 'kpis', 'activity', 'byNetwork', 'byType', 'pages', 'authors', 'filters'));
+        return view('reports.posts', compact('posts', 'kpis', 'activity', 'byNetwork', 'byType', 'pages', 'authors', 'campaigns', 'filters'));
     }
 
     /**
@@ -99,6 +101,9 @@ class ReportsController extends Controller
 
         // Selección múltiple de medios para comparar (con compatibilidad
         // hacia atrás con el parámetro simple page_id)
+        $campaignId = $request->query('campaign_id');
+        $campaignsCatalog = \App\Models\Campaign::orderBy('name')->get(['id', 'name', 'is_system']);
+
         $pageIds = array_values(array_filter(array_map('intval', (array) $request->query('page_ids', []))));
         if (empty($pageIds) && $request->query('page_id')) {
             $pageIds = [(int) $request->query('page_id')];
@@ -122,8 +127,11 @@ class ReportsController extends Controller
         if (!empty($pageIds)) {
             $query->whereIn('meta_page_id', $pageIds);
         }
+        if ($campaignId && $campaignsCatalog->contains('id', (int) $campaignId)) {
+            $query->where('campaign_id', (int) $campaignId);
+        }
 
-        $posts = $query->get(['id', 'meta_page_id', 'user_id', 'type', 'network', 'message', 'published_at', 'alcance', 'visualizaciones', 'interacciones', 'fb_permalink_url']);
+        $posts = $query->get(['id', 'meta_page_id', 'user_id', 'campaign_id', 'type', 'network', 'message', 'published_at', 'alcance', 'visualizaciones', 'interacciones', 'fb_permalink_url']);
 
         $MIN_N = 3; // muestras mínimas para promediar con confianza
 
@@ -186,6 +194,13 @@ class ReportsController extends Controller
         $typeLabels = ['text' => '📝 Texto', 'photo' => '🖼️ Foto', 'video' => '🎬 Video'];
         $byType = $posts->groupBy('type')->map(fn($g, $t) => $agg($g) + ['label' => $typeLabels[$t] ?? $t])->sortByDesc('avg_reach');
         $byNetwork = $posts->groupBy('network')->map(fn($g, $n) => $agg($g) + ['label' => $n === 'instagram' ? '📸 Instagram' : '📘 Facebook'])->sortByDesc('avg_reach');
+
+        // Comparación entre campañas
+        $campaignNames = $campaignsCatalog->pluck('name', 'id');
+        $byCampaign = $posts->groupBy('campaign_id')
+            ->map(fn($g, $cid) => $agg($g) + ['name' => $campaignNames[$cid] ?? 'Sin campaña'])
+            ->sortByDesc('reach')
+            ->values();
 
         // ----- Top y peores publicaciones -----
         $withReach = $posts->filter(fn($p) => (int) $p->alcance > 0);
@@ -270,7 +285,9 @@ class ReportsController extends Controller
         }
 
         return view('reports.analysis', [
-            'filters' => ['days' => $days, 'network' => $network, 'page_ids' => $pageIds, 'batch_q' => $batchQ, 'batch' => $batchUuid ?? null],
+            'filters' => ['days' => $days, 'network' => $network, 'page_ids' => $pageIds, 'batch_q' => $batchQ, 'batch' => $batchUuid ?? null, 'campaign_id' => $campaignId],
+            'campaignsCatalog' => $campaignsCatalog,
+            'byCampaign' => $byCampaign,
             'batchCatalog' => $batchCatalog,
             'batchCompare' => $batchCompare,
             'pagesCatalog' => $pagesCatalog,
@@ -306,15 +323,16 @@ class ReportsController extends Controller
             // BOM para que Excel abra los acentos correctamente
             fwrite($out, "\xEF\xBB\xBF");
 
-            fputcsv($out, ['Fecha', 'Página', 'Red', 'Tipo', 'Estado', 'Autor', 'Mensaje', 'Alcance', 'Impresiones', 'Interacciones', 'Enlace'], ';');
+            fputcsv($out, ['Fecha', 'Campaña', 'Página', 'Red', 'Tipo', 'Estado', 'Autor', 'Mensaje', 'Alcance', 'Impresiones', 'Interacciones', 'Enlace'], ';');
 
-            $query->with(['page:id,name', 'user:id,name'])
+            $query->with(['page:id,name', 'user:id,name', 'campaign:id,name'])
                 ->orderBy($filters['sort'], $filters['dir'])
                 ->orderByDesc('id')
                 ->chunk(500, function ($rows) use ($out) {
                     foreach ($rows as $p) {
                         fputcsv($out, [
                             optional($p->published_at)->format('Y-m-d H:i') ?? optional($p->created_at)->format('Y-m-d H:i'),
+                            $p->campaign->name ?? '',
                             $p->page->name ?? '',
                             $p->network === 'instagram' ? 'Instagram' : 'Facebook',
                             ucfirst($p->type),
@@ -344,6 +362,7 @@ class ReportsController extends Controller
             'q' => trim((string) $request->query('q', '')),
             'page_id' => $request->query('page_id'),
             'network' => in_array($request->query('network'), ['facebook', 'instagram'], true) ? $request->query('network') : null,
+            'campaign_id' => $request->query('campaign_id'),
             'type' => in_array($request->query('type'), ['text', 'photo', 'video'], true) ? $request->query('type') : null,
             'status' => in_array($request->query('status'), ['success', 'fail', 'pending'], true) ? $request->query('status') : null,
             'user_id' => $user->isAdmin() ? $request->query('user_id') : null,
@@ -369,6 +388,7 @@ class ReportsController extends Controller
             }))
             ->when($filters['page_id'], fn($q, $v) => $q->where('meta_page_id', $v))
             ->when($filters['network'], fn($q, $v) => $q->where('network', $v))
+            ->when($filters['campaign_id'], fn($q, $v) => $q->where('campaign_id', $v))
             ->when($filters['type'], fn($q, $v) => $q->where('type', $v))
             ->when($filters['user_id'], fn($q, $v) => $q->where('user_id', $v))
             ->when($filters['from'], fn($q, $v) => $q->where('published_at', '>=', $v->startOfDay()))

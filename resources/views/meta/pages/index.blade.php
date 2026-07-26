@@ -283,6 +283,28 @@
             
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-6">
             
+                <!-- CAMPAÑA (obligatoria) -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-2">
+                        Campaña <span class="text-red-500">*</span>
+                    </h3>
+                    <select name="campaign_id" id="campaignSelect" required
+                            class="w-full sm:max-w-md rounded-xl border-gray-200 text-sm">
+                        <option value="">— Selecciona la campaña de esta publicación —</option>
+                        @foreach ($campaigns ?? [] as $c)
+                            <option value="{{ $c->id }}" {{ (string) old('campaign_id') === (string) $c->id ? 'selected' : '' }}>
+                                {{ $c->name }}
+                            </option>
+                        @endforeach
+                    </select>
+                    <p class="mt-1 text-[11px] text-gray-500">
+                        Toda publicación debe pertenecer a una campaña para poder medirla en los informes.
+                        @if (auth()->user()->isAdmin())
+                            <a href="{{ route('campaigns.index') }}" class="text-blue-600 hover:underline">Gestionar campañas</a>
+                        @endif
+                    </p>
+                </div>
+
                 <!-- REDES DESTINO -->
                 <div>
                     <h3 class="text-sm font-semibold text-gray-800 mb-3">Publicar en</h3>
@@ -1134,6 +1156,14 @@
                 netInstagram && netInstagram.addEventListener('change', refreshNetworkHints);
 
                 form && form.addEventListener('submit', function(e) {
+
+                    const campaignSelect = document.getElementById('campaignSelect');
+                    if (campaignSelect && !campaignSelect.value) {
+                        e.preventDefault();
+                        alert('Debes seleccionar una campaña antes de publicar.');
+                        campaignSelect.focus();
+                        return;
+                    }
 
                     const hasMsg = (msg?.value || '').trim().length > 0;
                     if (!hasMsg) {
