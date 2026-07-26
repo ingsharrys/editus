@@ -105,21 +105,36 @@ class ArticlePublishController extends Controller
 
         foreach ($pages as $page) {
             $pivot = $page->users->first()?->pivot;
-            if (!$pivot?->page_access_token) {
-                $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => 'Sin token activo'];
+
+            // Token guardado o, si no hay, uno fresco vía Usuario de Sistema
+            $token = $pivot?->page_access_token ?: $this->tokenViaUsuarioSistema($page->page_id, $graphVersion);
+
+            if (!$token) {
+                $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => 'Sin token activo (ni Usuario de Sistema disponible)'];
                 $registrar($page, false, null, null, 'Sin token activo');
                 continue;
             }
 
-            $token = $pivot->page_access_token;
-
             try {
-                $resp = Http::asForm()->timeout(20)->connectTimeout(8)
+                $publicarFeed = fn($tok) => Http::asForm()->timeout(20)->connectTimeout(8)
                     ->post("https://graph.facebook.com/{$graphVersion}/{$page->page_id}/feed", [
                     'message' => $mensaje,
                     'link' => $data['url'],
-                    'access_token' => $token,
+                    'access_token' => $tok,
                 ]);
+
+                $resp = $publicarFeed($token);
+
+                // Token vencido o sin permisos (OAuth 190): pedir uno fresco
+                // vía Usuario de Sistema de Business Manager y reintentar
+                if (!$resp->ok() && str_contains($resp->body(), '"code":190')) {
+                    $fresco = $this->tokenViaUsuarioSistema($page->page_id, $graphVersion);
+                    if ($fresco && $fresco !== $token) {
+                        Log::info('[ARTICULOS] Token 190: reintentando con token de Usuario de Sistema', ['pagina' => $page->name]);
+                        $token = $fresco; // también lo usará Instagram más abajo
+                        $resp = $publicarFeed($token);
+                    }
+                }
 
                 if ($resp->ok()) {
                     $postId = data_get($resp->json(), 'id');
@@ -175,6 +190,29 @@ class ArticlePublishController extends Controller
             'publicados' => $publicados,
             'resultados' => $resultados,
         ], 200);
+    }
+
+    /**
+     * Pide a Facebook un token fresco de la página usando el token del
+     * Usuario de Sistema de Business Manager (FACEBOOK_SYSTEM_USER_TOKEN).
+     * Es el mismo mecanismo de respaldo que usan las métricas de editus.
+     */
+    private function tokenViaUsuarioSistema(string $pageId, string $graphVersion): ?string
+    {
+        $sys = config('services.facebook.system_user_token');
+        if (!$sys) {
+            return null;
+        }
+
+        try {
+            $r = Http::timeout(15)->get("https://graph.facebook.com/{$graphVersion}/{$pageId}", [
+                'fields' => 'access_token',
+                'access_token' => $sys,
+            ]);
+            return $r->ok() ? data_get($r->json(), 'access_token') : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
