@@ -445,6 +445,20 @@
                 </span>
             </div>
         
+            @if (auth()->user()->isAdmin())
+                <!-- Publicación automática desde esnoticia -->
+                <div class="mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+                    <p class="text-sm font-semibold text-blue-900">📰 Publicación automática de esnoticia</p>
+                    <p class="mt-1 text-xs text-blue-800 leading-relaxed">
+                        En cada página verás el selector <strong>«Medio esnoticia»</strong>. Elige el medio que le
+                        corresponde y guarda solo con seleccionarlo: desde ese momento, cada artículo publicado en ese
+                        medio desde la app de noticias se publicará automáticamente en la página de Facebook
+                        (como enlace con vista previa) y en su Instagram Business conectado (imagen + titular).
+                        Para desactivar una página, selecciona «— Sin medio —».
+                    </p>
+                </div>
+            @endif
+
             <!-- Lista -->
             <div id="pagesGrid" class="space-y-3">
         
@@ -546,6 +560,27 @@
                                 </span>
         
                             </label>
+        
+                            @if ($isAdmin)
+                                <!-- Medio esnoticia (guarda al seleccionar) -->
+                                <div class="flex flex-col">
+                                    <label class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
+                                        Medio esnoticia
+                                    </label>
+                                    <select name="medio_slug"
+                                            form="medio-{{ $p->id }}"
+                                            onchange="document.getElementById('medio-{{ $p->id }}').submit()"
+                                            class="mt-0.5 rounded-lg border-gray-300 text-xs py-1 pr-7
+                                                   {{ $p->medio_slug ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">
+                                        <option value="">— Sin medio —</option>
+                                        @foreach (config('services.editus.medios', []) as $slug => $nombre)
+                                            <option value="{{ $slug }}" {{ $p->medio_slug === $slug ? 'selected' : '' }}>
+                                                {{ $nombre }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            @endif
         
                         </div>
         
@@ -652,6 +687,11 @@
             <form id="unlink-{{ $p->id }}" method="POST" action="{{ route('meta.pages.unlink', $p) }}"
                 class="hidden">
                 @csrf @method('DELETE')
+            </form>
+
+            <form id="medio-{{ $p->id }}" method="POST" action="{{ route('meta.pages.medio', $p) }}"
+                class="hidden">
+                @csrf
             </form>
         @endforeach
 

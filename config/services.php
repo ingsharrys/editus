@@ -91,6 +91,20 @@ return [
     // token compartido del endpoint puente /api/articulos/publicar.
     'editus' => [
         'ingest_token' => env('EDITUS_INGEST_TOKEN'),
+
+        // Medios del sistema de noticias (los slugs que envía esnoticia)
+        'medios' => [
+            'opanoticias' => 'Opanoticias',
+            'depindo' => 'De Pindo',
+            'labalsa' => 'La Balsa',
+            'elcivico' => 'El Cívico',
+            'prensayuma' => 'Prensa Yuma',
+            'greengonews' => 'Greengo News',
+            'neiva24' => 'Neiva 24',
+            'lasurco' => 'La Surco',
+            'latinreds' => 'Latin Reds',
+            'neivaaldia' => 'Neiva al Día',
+        ],
     ],
 
     'whatsapp' => [

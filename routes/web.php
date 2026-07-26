@@ -73,6 +73,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/meta/pages/publish', [FacebookPageController::class, 'publish'])
         ->middleware('role:admin')->name('meta.pages.publish');
 
+    // Vincular página con un medio de esnoticia (publicación automática)
+    Route::post('/meta/pages/{metaPage}/medio', [FacebookPageController::class, 'updateMedio'])
+        ->middleware('role:admin')->name('meta.pages.medio');
+
     // reparar tokens caducados o inválidos
     Route::post('/meta/pages/repair-tokens/start', [FacebookPageController::class, 'startRepairTokens'])
         ->name('meta.pages.repairTokens.start');

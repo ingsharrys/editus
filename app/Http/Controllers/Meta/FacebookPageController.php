@@ -238,6 +238,29 @@ class FacebookPageController extends Controller
         return null;
     }
 
+    /**
+     * Vincular/desvincular una página con un medio de esnoticia.
+     * Cuando el sistema de noticias publica un artículo de ese medio,
+     * lo replica automáticamente en esta página (FB + IG conectado).
+     */
+    public function updateMedio(Request $request, MetaPage $metaPage)
+    {
+        $medios = array_keys(config('services.editus.medios', []));
+
+        $request->validate([
+            'medio_slug' => ['nullable', 'string', \Illuminate\Validation\Rule::in(array_merge([''], $medios))],
+        ]);
+
+        $slug = $request->input('medio_slug') ?: null;
+        $metaPage->update(['medio_slug' => $slug]);
+
+        $nombreMedio = $slug ? (config('services.editus.medios')[$slug] ?? $slug) : null;
+
+        return back()->with('success', $slug
+            ? "«{$metaPage->name}» quedó vinculada al medio {$nombreMedio}: los artículos de ese medio se publicarán aquí automáticamente."
+            : "«{$metaPage->name}» quedó sin medio: ya no recibirá publicaciones automáticas.");
+    }
+
     public function publish(Request $request)
     {
         // 1) Validación base
