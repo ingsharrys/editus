@@ -34,6 +34,53 @@
             </div>
         @endif
 
+        {{-- Detalle por página del último intento de publicación --}}
+        @if (session('publish_results'))
+            @php
+                $prettyError = function ($err) {
+                    if (!$err) return 'Error desconocido';
+                    $json = json_decode((string) $err, true);
+                    $msg = data_get($json, 'error.message', (string) $err);
+                    $code = (int) data_get($json, 'error.code', 0);
+                    if ($code === 190 || str_contains($msg, 'access token') || str_contains($msg, 'Sin token activo') || $msg === 'Sin token activo') {
+                        return 'Token de la página vencido o ausente → pulsa «Sincronizar» arriba (o «Vincular» en la tarjeta de esta página) y vuelve a intentar.';
+                    }
+                    if ($code === 200 || str_contains($msg, 'permission')) {
+                        return 'Falta un permiso de Meta para esta página: ' . \Illuminate\Support\Str::limit($msg, 140);
+                    }
+                    return \Illuminate\Support\Str::limit($msg, 180);
+                };
+                $resultados = collect(session('publish_results'));
+            @endphp
+            <div class="rounded-xl border border-gray-200 bg-white p-4 mb-3">
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-sm font-semibold text-gray-800">Detalle del último envío por página</p>
+                    <span class="text-[11px] text-gray-500">
+                        ✅ {{ $resultados->where('ok', true)->count() }} ·
+                        ❌ {{ $resultados->where('ok', false)->count() }}
+                    </span>
+                </div>
+                <div class="space-y-1.5 max-h-72 overflow-auto pr-1">
+                    @foreach ($resultados as $r)
+                        <div class="flex items-start gap-2 text-xs">
+                            @if ($r['ok'] ?? false)
+                                <span class="shrink-0 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
+                                    {{ data_get($r, 'body.queued') ? '⏳ En cola' : '✅ Publicado' }}
+                                </span>
+                                <span class="font-medium text-gray-800 pt-0.5">{{ $r['page'] ?? '—' }}</span>
+                            @else
+                                <span class="shrink-0 text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">❌ Falló</span>
+                                <div class="min-w-0 pt-0.5">
+                                    <span class="font-medium text-gray-800">{{ $r['page'] ?? '—' }}:</span>
+                                    <span class="text-gray-600">{{ $prettyError($r['error'] ?? null) }}</span>
+                                </div>
+                            @endif
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
+
         @php
             $hasFb = \App\Models\SocialAccount::where('user_id', auth()->id())
                 ->where('provider', 'facebook')
