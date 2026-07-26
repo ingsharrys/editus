@@ -342,14 +342,17 @@ class FacebookPageController extends Controller
         $batch = (string) Str::uuid();
 
         foreach ($pages as $page) {
-            $pivot = $page->users->first()?->pivot;
-            if (!$pivot?->page_access_token) {
-                $results[] = ['page' => $page->name, 'ok' => false, 'error' => 'Sin token activo'];
+            $token = $this->resolvePublishToken($page);
+            if (!$token) {
+                $results[] = [
+                    'page' => $page->name,
+                    'ok' => false,
+                    'error' => 'Sin token activo (y el Usuario de Sistema tampoco tiene acceso a esta página). El administrador de la página en Facebook debe conectar su cuenta y sincronizar, o agrega la página al Business Manager.',
+                ];
                 continue;
             }
 
             $pageId = $page->page_id;
-            $token = $pivot->page_access_token;
 
             $doFb = in_array('facebook', $networks, true);
             $doIg = in_array('instagram', $networks, true) && $request->type !== 'text';
@@ -392,6 +395,20 @@ class FacebookPageController extends Controller
 
                     $ok = $resp->ok();
                     $body = $resp->json();
+
+                    // Token guardado vencido (190): reintento único con token
+                    // fresco derivado del Usuario de Sistema (Business Manager).
+                    if (!$ok && (int) data_get($body, 'error.code') === 190) {
+                        $fresh = $this->resolvePublishToken($page, forceFresh: true);
+                        if ($fresh && $fresh !== $token) {
+                            $token = $fresh;
+                            $payload['access_token'] = $fresh;
+                            $resp = Http::asForm()->timeout(20)->connectTimeout(8)
+                                ->post("https://graph.facebook.com/v23.0/{$pageId}/feed", $payload);
+                            $ok = $resp->ok();
+                            $body = $resp->json();
+                        }
+                    }
 
                     if ($ok) {
                         $postId = data_get($body, 'id');
@@ -587,6 +604,48 @@ class FacebookPageController extends Controller
     }
 
 
+
+    /**
+     * Token para publicar en una página: usa la pivote activa más reciente;
+     * si no hay token (o con forceFresh, p. ej. tras un error 190), lo deriva
+     * del Usuario de Sistema de Business Manager y lo persiste en la pivote
+     * del admin actual para los próximos envíos.
+     */
+    private function resolvePublishToken(MetaPage $page, bool $forceFresh = false): ?string
+    {
+        if (!$forceFresh) {
+            $pivot = $page->users->first()?->pivot;
+            if (!empty($pivot?->page_access_token)) {
+                return $pivot->page_access_token;
+            }
+        }
+
+        $sys = config('services.facebook.system_user_token');
+        if (!$sys) {
+            return null;
+        }
+
+        $fresh = $this->derivePageToken((string) $page->page_id, $sys);
+        if (!$fresh) {
+            return null;
+        }
+
+        try {
+            auth()->user()->metaPages()->syncWithoutDetaching([
+                $page->id => [
+                    'page_access_token' => $fresh,
+                    'is_active' => 1,
+                    'updated_at' => now(),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::debug('[publish] no se pudo persistir token fresco', ['page_id' => $page->id, 'err' => $e->getMessage()]);
+        }
+
+        Log::info('[publish] token fresco derivado del Usuario de Sistema', ['meta_page_id' => $page->id]);
+
+        return $fresh;
+    }
 
     /**
      * Crea el MetaPost de Instagram y despacha el job de publicación.
