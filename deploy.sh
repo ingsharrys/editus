@@ -11,7 +11,7 @@
 set -e
 cd "$(dirname "$0")"
 
-RAMA="${1:-claude/upload-app-to-repo-z5jl1x}"
+RAMA="${1:-claude/publicar-articulos-noticias}"
 
 echo "→ Trayendo cambios de ${RAMA}..."
 git fetch origin "$RAMA"
