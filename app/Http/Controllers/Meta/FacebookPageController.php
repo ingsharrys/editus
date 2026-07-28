@@ -614,9 +614,18 @@ class FacebookPageController extends Controller
     private function resolvePublishToken(MetaPage $page, bool $forceFresh = false): ?string
     {
         if (!$forceFresh) {
-            $pivot = $page->users->first()?->pivot;
-            if (!empty($pivot?->page_access_token)) {
-                return $pivot->page_access_token;
+            // El token activo MÁS RECIENTE de cualquier usuario (no el primero
+            // por orden de inserción, que suele ser el más viejo y vencido).
+            $token = DB::table('meta_page_user')
+                ->where('meta_page_id', $page->id)
+                ->where('is_active', 1)
+                ->whereNotNull('page_access_token')
+                ->where('page_access_token', '!=', '')
+                ->orderByDesc('updated_at')
+                ->value('page_access_token');
+
+            if ($token) {
+                return $token;
             }
         }
 
