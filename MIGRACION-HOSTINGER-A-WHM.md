@@ -1,221 +1,207 @@
-# Guía: Migrar sitio de Hostinger a servidor WHM/cPanel usando Git
+# Guía: Migrar "Consultorio Jurídico USCO" del VPS Hostinger al servidor WHM
 
-Migración del sitio **juridicousco** desde Hostinger hacia un servidor propio con WHM/cPanel,
-usando el repositorio `https://github.com/ingsharrys/juridicousco` como puente.
+Escenario real detectado en el VPS de Hostinger (`srv892565`, AlmaLinux):
 
-> **IMPORTANTE antes de empezar:**
-> 1. El repositorio en GitHub debe ser **PRIVADO** (el sitio contiene archivos de configuración con credenciales).
-> 2. GitHub no acepta archivos mayores a **100 MB**. Si el sitio tiene videos o backups grandes, hay que excluirlos y pasarlos aparte (ver sección 6).
-> 3. Necesitas un **Personal Access Token (PAT)** de GitHub: GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic) con permiso `repo`. GitHub ya no acepta tu contraseña normal en la terminal.
+| Componente | Ubicación | Servicio systemd |
+|---|---|---|
+| Backend principal Spring Boot (puerto 8089) | `/opt/consultorio-backend` | `consultorio-backend.service` |
+| Backend notificaciones | `/opt/notificacion-backend` | `notificacion-backend.service` |
+| Backend Digiturno | `/opt/digiturno-backend` | `digiturno.service` |
+| Frontend web | `/var/www/consultoriojuridicousco.com` | Apache `httpd` + `php-fpm` |
+| Bases de datos MariaDB | `consultoriojuridicodb`, `noticonsultoriodb`, `digiturno` | `mariadb` |
+| Java | `/opt/java` | — |
+
+Repositorio puente: `https://github.com/ingsharrys/juridicousco` (**debe ser PRIVADO**).
+
+> **REGLAS DE ORO**
+> 1. **NUNCA subir secretos a GitHub**: contraseñas de BD, JWT_SECRET y en especial
+>    llaves AWS (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`). GitHub y AWS las
+>    detectan y AWS puede suspender la cuenta. Los archivos `.service` se suben
+>    "sanitizados" (con placeholders) y los valores reales se reescriben a mano
+>    en el servidor destino.
+> 2. Si las llaves AWS fueron expuestas en algún chat/log: **rotarlas** en
+>    IAM → Security credentials.
+> 3. GitHub rechaza archivos > 100 MB. Verificar tamaños antes del push.
+> 4. En el servidor WHM se necesita **acceso root por SSH** (no basta la terminal
+>    de cPanel de una cuenta) porque hay que instalar Java y crear servicios systemd.
 
 ---
 
-## PARTE 1 — En la terminal de HOSTINGER (subir el sitio a GitHub)
+## PARTE 1 — En el VPS de Hostinger: empaquetar y subir a GitHub
 
-### 1.1 Entrar por SSH
-En hPanel: **Avanzado → SSH** (activa el acceso si está desactivado) o usa el **Navegador de terminal**.
-
+### 1.1 Preparar carpeta de staging
 ```bash
-# Ubicar la carpeta del sitio (en Hostinger suele ser así):
-cd ~/domains/TUDOMINIO.com/public_html
-# o si es cuenta antigua:
-# cd ~/public_html
+mkdir -p ~/migracion && cd ~/migracion
 
-ls -la   # verifica que aquí están los archivos del sitio
+# Binarios/artefactos de cada backend
+cp -a /opt/consultorio-backend  backend
+cp -a /opt/notificacion-backend notificaciones
+cp -a /opt/digiturno-backend    digiturno
+
+# Frontend
+cp -a /var/www/consultoriojuridicousco.com frontend
+
+# Configuración
+mkdir -p config/systemd config/httpd
+cp /etc/systemd/system/consultorio-backend.service  config/systemd/
+cp /etc/systemd/system/notificacion-backend.service config/systemd/
+cp /etc/systemd/system/digiturno.service            config/systemd/
+cp -a /etc/httpd/conf.d/. config/httpd/
 ```
 
-### 1.2 Identificar el tipo de sitio
+### 1.2 Sanitizar secretos en los .service copiados
 ```bash
-# ¿Es WordPress?
-ls wp-config.php 2>/dev/null && echo "Es WordPress"
-# ¿Es Laravel?
-ls artisan 2>/dev/null && echo "Es Laravel"
+sed -i -E \
+  -e 's/(DB_PASSWORD=).*/\1__REEMPLAZAR__/' \
+  -e 's/(JWT_SECRET=).*/\1__REEMPLAZAR__/' \
+  -e 's/(AWS_ACCESS_KEY_ID=).*/\1__REEMPLAZAR__/' \
+  -e 's/(AWS_SECRET_ACCESS_KEY=).*/\1__REEMPLAZAR__/' \
+  config/systemd/*.service
+
+grep -RE "PASSWORD|SECRET|KEY" config/systemd/   # verificar que no quedó nada real
+```
+Guarda los valores reales en un lugar seguro (gestor de contraseñas); los
+necesitarás al recrear los servicios en el servidor WHM.
+
+### 1.3 Exportar bases de datos frescas
+```bash
+mkdir -p db
+mysqldump -u root -p --routines --triggers consultoriojuridicodb > db/consultoriojuridicodb.sql
+mysqldump -u root -p --routines --triggers noticonsultoriodb     > db/noticonsultoriodb.sql
+mysqldump -u root -p --routines --triggers digiturno             > db/digiturno.sql
 ```
 
-### 1.3 Inicializar Git y excluir archivos sensibles/pesados
+### 1.4 Verificar tamaños (límite GitHub: 100 MB por archivo)
 ```bash
-git config --global user.name  "ingsharrys"
-git config --global user.email "dario.charry.ramos@gmail.com"
-
-git init
-git branch -M main
+du -sh ~/migracion/*
+find ~/migracion -type f -size +90M
 ```
+Lo que pase de 90 MB: agregarlo a `.gitignore` y transferirlo por `scp` directo
+al servidor WHM (ver 3.6).
 
-Crea un `.gitignore` (ajusta según tu caso):
+### 1.5 Subir a GitHub
+Necesitas un Personal Access Token (GitHub → Settings → Developer settings →
+Personal access tokens → classic, permiso `repo`).
 ```bash
+cd ~/migracion
+git init && git branch -M main
 cat > .gitignore << 'EOF'
-error_log
 *.log
-.cache/
-# Si el sitio es WordPress y la carpeta uploads pesa mucho (>500MB),
-# descomenta la siguiente línea y pásala aparte con zip (sección 6):
-# wp-content/uploads/
+logs/
 EOF
-```
-
-> **Si es WordPress:** deja `wp-config.php` DENTRO del repo solo si el repo es privado.
-> **Si es Laravel:** el `.env` normalmente se excluye, pero para una migración a repo privado puedes incluirlo temporalmente o copiarlo aparte.
-
-Verifica que no haya archivos gigantes antes de subir:
-```bash
-find . -type f -size +90M -not -path "./.git/*"
-# Todo lo que aparezca aquí hay que agregarlo al .gitignore y pasarlo por zip (sección 6)
-```
-
-### 1.4 Exportar la base de datos
-Busca las credenciales:
-```bash
-# WordPress:
-grep -E "DB_NAME|DB_USER|DB_PASSWORD|DB_HOST" wp-config.php
-# Laravel:
-grep -E "DB_DATABASE|DB_USERNAME|DB_PASSWORD|DB_HOST" .env
-```
-
-Exporta (reemplaza con tus datos reales):
-```bash
-mysqldump -h localhost -u USUARIO_BD -p NOMBRE_BD > base_datos_juridicousco.sql
-# Te pedirá la contraseña de la BD
-ls -lh base_datos_juridicousco.sql   # verifica que no esté vacío ni pese >100MB
-```
-
-### 1.5 Subir todo a GitHub
-```bash
 git add -A
-git commit -m "Migracion sitio juridicousco desde Hostinger"
-
+git commit -m "Migracion Consultorio Juridico USCO desde VPS Hostinger"
 git remote add origin https://github.com/ingsharrys/juridicousco.git
 git push -u origin main
-# Usuario: ingsharrys
-# Contraseña: pega aquí tu Personal Access Token (NO tu contraseña de GitHub)
+# Usuario: ingsharrys — Contraseña: el Personal Access Token
 ```
 
-Si el push falla por tamaño, revisa la sección 6.
-
 ---
 
-## PARTE 2 — En WHM (preparar la cuenta)
+## PARTE 2 — En WHM: preparar la cuenta del dominio
 
-1. **WHM → Account Functions → Create a New Account**: crea la cuenta para el dominio
-   (ej. `juridicousco.com`, usuario `juridico`).
-2. **WHM → MultiPHP Manager**: asigna la misma versión de PHP que usaba Hostinger
-   (verifícala en hPanel o con `php -v` en la terminal de Hostinger).
-3. **WHM → Feature Manager**: asegúrate de que la cuenta tenga habilitado **Terminal**
-   y **Git Version Control** (opcional).
+1. **Create a New Account**: dominio `consultoriojuridicousco.com`, usuario p.ej. `consjur`.
+2. **MultiPHP Manager**: versión de PHP similar a la del VPS (`php -v` en el VPS).
+3. Verificar en **Feature Manager** que la cuenta tenga Terminal habilitada
+   (para la parte del frontend).
 
----
-
-## PARTE 3 — En la terminal de CPANEL (descargar el sitio)
-
-Entra a cPanel de la cuenta nueva → **Avanzado → Terminal**.
+## PARTE 3 — En el servidor WHM **como root por SSH**: instalar todo
 
 ### 3.1 Clonar el repositorio
 ```bash
-cd ~
-# public_html ya existe y puede tener un index por defecto; clonamos aparte y copiamos:
-git clone https://github.com/ingsharrys/juridicousco.git sitio_tmp
-# Usuario: ingsharrys / Contraseña: tu Personal Access Token
-
-# Vaciar public_html y copiar el sitio (incluye archivos ocultos como .htaccess):
-rm -rf ~/public_html/*
-cp -a ~/sitio_tmp/. ~/public_html/
-rm -rf ~/public_html/.git      # opcional: quitar el repo de la carpeta pública
+cd /root
+git clone https://github.com/ingsharrys/juridicousco.git migracion
+cd migracion
 ```
 
-### 3.2 Crear e importar la base de datos
-En cPanel → **Bases de datos MySQL**:
-1. Crea la base de datos (quedará como `usuario_nombre`, ej. `juridico_db`).
-2. Crea un usuario de BD con contraseña fuerte.
-3. Asigna el usuario a la BD con **TODOS LOS PRIVILEGIOS**.
-
-Luego en la Terminal:
+### 3.2 Instalar Java (misma versión que el VPS: verificar con `java -version` allá)
 ```bash
-cd ~/public_html
-mysql -u juridico_dbuser -p juridico_db < base_datos_juridicousco.sql
+dnf install -y java-17-openjdk   # ajustar versión según corresponda
 ```
 
-### 3.3 Actualizar la configuración
-
-**Si es WordPress** — edita `wp-config.php`:
-```php
-define( 'DB_NAME',     'juridico_db' );
-define( 'DB_USER',     'juridico_dbuser' );
-define( 'DB_PASSWORD', 'LA_NUEVA_CONTRASEÑA' );
-define( 'DB_HOST',     'localhost' );
-```
-
-**Si es Laravel** — edita `.env` con los nuevos `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, y luego:
+### 3.3 Backends
 ```bash
-php artisan config:clear && php artisan cache:clear
+cp -a backend        /opt/consultorio-backend
+cp -a notificaciones /opt/notificacion-backend
+cp -a digiturno      /opt/digiturno-backend
+
+cp config/systemd/*.service /etc/systemd/system/
+# EDITAR cada .service y poner los valores reales donde diga __REEMPLAZAR__:
+#   nano /etc/systemd/system/consultorio-backend.service  (etc.)
+# Ajustar también DB_URL si el nombre/usuario de BD cambia en el nuevo servidor.
+
+systemctl daemon-reload
+systemctl enable --now consultorio-backend notificacion-backend digiturno
+systemctl status consultorio-backend --no-pager
 ```
 
-### 3.4 Permisos
+### 3.4 Bases de datos
+En cPanel de la cuenta → MySQL Databases: crear las BD y el usuario
+(quedarán con prefijo, ej. `consjur_juridicodb`), o como root crear las BD
+con los mismos nombres originales para no tocar los `.service`:
 ```bash
-cd ~/public_html
-find . -type d -exec chmod 755 {} \;
-find . -type f -exec chmod 644 {} \;
+mysql -u root -e "CREATE DATABASE consultoriojuridicodb; CREATE DATABASE noticonsultoriodb; CREATE DATABASE digiturno;"
+mysql -u root -e "CREATE USER 'cons_admin'@'localhost' IDENTIFIED BY 'NUEVA_CONTRASEÑA_FUERTE'; GRANT ALL ON consultoriojuridicodb.* TO 'cons_admin'@'localhost'; GRANT ALL ON noticonsultoriodb.* TO 'cons_admin'@'localhost'; GRANT ALL ON digiturno.* TO 'cons_admin'@'localhost'; FLUSH PRIVILEGES;"
+
+mysql -u root consultoriojuridicodb < db/consultoriojuridicodb.sql
+mysql -u root noticonsultoriodb     < db/noticonsultoriodb.sql
+mysql -u root digiturno             < db/digiturno.sql
+```
+> Nota: el VPS usa MariaDB 10.11. Si el WHM trae MySQL 8, la importación normal
+> funciona en la mayoría de los casos; si aparece un error de collation
+> (`utf8mb4_uca1400_...`), reemplazarla en el .sql por `utf8mb4_unicode_ci`:
+> `sed -i 's/utf8mb4_uca1400_ai_ci/utf8mb4_unicode_ci/g' archivo.sql`
+
+### 3.5 Frontend + proxy inverso hacia los backends
+```bash
+# Copiar el frontend a la cuenta cPanel
+cp -a frontend/. /home/consjur/public_html/
+chown -R consjur:consjur /home/consjur/public_html
 ```
 
-### 3.5 (Solo WordPress) Verificar URLs
-Si el dominio no cambia, no hace falta nada. Si cambia (o usas un dominio temporal), con WP-CLI:
+Revisar en `config/httpd/` cómo estaba configurado Apache en el VPS
+(qué rutas se proxyaban a qué puerto, ej. `/api → 127.0.0.1:8089`,
+`/notificaciones → puerto del backend de notificaciones`) y replicarlo en
+cPanel con includes de userdata:
 ```bash
-wp search-replace 'https://dominio-viejo.com' 'https://dominio-nuevo.com' --skip-columns=guid
+mkdir -p /etc/apache2/conf.d/userdata/ssl/2_4/consjur/consultoriojuridicousco.com
+cat > /etc/apache2/conf.d/userdata/ssl/2_4/consjur/consultoriojuridicousco.com/proxy.conf << 'EOF'
+ProxyPreserveHost On
+ProxyPass        /api http://127.0.0.1:8089/api
+ProxyPassReverse /api http://127.0.0.1:8089/api
+# Agregar aquí las rutas de notificaciones y digiturno con sus puertos reales
+EOF
+# Repetir el mismo archivo en .../userdata/std/2_4/... para HTTP
+/scripts/rebuildhttpdconf && systemctl restart httpd
+```
+
+### 3.6 Archivos grandes excluidos de Git (si los hubo)
+Desde el VPS de Hostinger, directo al WHM:
+```bash
+scp /ruta/al/archivo_grande root@IP_DEL_WHM:/root/migracion/
 ```
 
 ---
 
-## PARTE 4 — DNS y SSL
+## PARTE 4 — DNS, SSL y verificación
 
-1. En el registrador del dominio (o en Hostinger si el DNS está ahí), cambia el
-   **registro A** del dominio y de `www` a la **IP de tu servidor WHM**.
-   (O cambia los nameservers a los de tu servidor.)
-2. Espera la propagación (minutos a 24h). Puedes probar antes editando el archivo
-   `hosts` de tu PC: `IP_DEL_SERVIDOR juridicousco.com`.
-3. Cuando el dominio ya apunte al servidor: **WHM → SSL/TLS → Manage AutoSSL → Run AutoSSL**
-   para emitir el certificado gratuito.
-4. Verifica el sitio completo (páginas, imágenes, formularios, admin).
-5. **No canceles Hostinger** hasta confirmar que todo funciona varios días.
-
----
-
-## PARTE 5 — Correos (si aplica)
-
-Si el dominio tiene cuentas de correo en Hostinger, créalas también en cPanel
-(**Email Accounts**) antes de cambiar el DNS, y respalda los correos existentes
-(por IMAP con Thunderbird/Outlook o con herramientas como imapsync).
-
----
-
-## PARTE 6 — Archivos grandes (si Git no alcanza)
-
-Para carpetas pesadas (ej. `wp-content/uploads` con muchos GB) es más práctico un zip directo:
-
-**En Hostinger:**
-```bash
-cd ~/domains/TUDOMINIO.com/public_html
-zip -r ~/uploads.zip wp-content/uploads
-```
-
-**En cPanel (si el servidor WHM tiene IP/SSH accesible desde Hostinger):**
-```bash
-# Desde la terminal de Hostinger, enviar directo al servidor:
-scp ~/uploads.zip usuario_cpanel@IP_DEL_SERVIDOR:~/
-```
-O descarga el zip por el Administrador de Archivos de Hostinger y súbelo por el
-Administrador de Archivos de cPanel. Luego en la terminal de cPanel:
-```bash
-cd ~/public_html && unzip ~/uploads.zip
-```
-
----
+1. Cambiar el registro **A** de `consultoriojuridicousco.com` y `www` a la IP del WHM.
+2. Probar antes de propagar editando el archivo `hosts` local del PC.
+3. **WHM → Manage AutoSSL → Run AutoSSL** cuando el DNS ya apunte al servidor.
+4. Verificar: frontend, login (JWT), subida de documentos (S3), notificaciones,
+   digiturno, y revisar logs: `journalctl -u consultorio-backend -f`.
+5. Ajustar `CORS_ALLOWED_ORIGINS` y `NOT_URL` en los `.service` si cambia algo.
+6. **No apagar el VPS de Hostinger** hasta varios días de funcionamiento estable;
+   hacer un último `mysqldump` + import justo antes del cambio de DNS para no
+   perder datos recientes.
 
 ## Checklist final
 
-- [ ] Repo GitHub privado creado y con el código subido
-- [ ] Base de datos exportada e importada
-- [ ] Configuración (wp-config.php / .env) actualizada con las credenciales nuevas
-- [ ] Versión de PHP igualada en WHM
-- [ ] Permisos 755/644 aplicados
-- [ ] DNS apuntando al servidor nuevo
-- [ ] SSL emitido con AutoSSL
-- [ ] Correos migrados (si aplica)
-- [ ] Sitio verificado antes de cancelar Hostinger
+- [ ] Repo privado con artefactos, frontend, dumps y configs sanitizadas
+- [ ] Llaves AWS rotadas (si estuvieron expuestas) y NUNCA subidas a Git
+- [ ] Java instalado en WHM, 3 servicios systemd activos
+- [ ] Bases de datos importadas y usuario `cons_admin` recreado
+- [ ] Frontend en `public_html` + ProxyPass configurado y `rebuildhttpdconf`
+- [ ] DNS cambiado, AutoSSL emitido
+- [ ] Dump final de BD importado justo antes del corte
+- [ ] Sitio verificado antes de cancelar el VPS
