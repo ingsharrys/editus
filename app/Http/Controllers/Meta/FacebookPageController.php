@@ -1209,50 +1209,65 @@ class FacebookPageController extends Controller
         $version = config('services.facebook.version', 'v23.0');
         $base = "https://graph.facebook.com/{$version}";
 
-        $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
+        $fieldsFull = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
+        // Sin el campo de Instagram: para tokens que aún no tienen instagram_basic,
+        // Facebook rechaza la llamada completa si se pide ese campo.
+        $fieldsBasic = 'id,name,category,access_token,tasks';
 
-        $http = Http::withToken($social->access_token);
+        $http = Http::withToken($social->access_token)->timeout(30)->connectTimeout(10);
         $pages = [];
 
-        // 1) Páginas "clásicas" del usuario: /me/accounts
-        $url = "{$base}/me/accounts?fields={$fields}";
+        /**
+         * Recorre un edge paginado. Si Facebook rechaza los campos completos
+         * (error #100 por campo/permiso), reintenta con los básicos.
+         * @return array{0: array, 1: ?string} [páginas, error]
+         */
+        $fetchEdge = function (string $edge) use ($http, $base, $fieldsFull, $fieldsBasic): array {
+            foreach ([$fieldsFull, $fieldsBasic] as $attempt => $fields) {
+                $rows = [];
+                $url = "{$base}/me/{$edge}?fields={$fields}&limit=100";
+                $failed = null;
 
-        while ($url) {
-            $resp = $http->get($url);
+                while ($url) {
+                    $resp = $http->get($url);
+                    if (!$resp->ok()) {
+                        $failed = $resp->body();
+                        break;
+                    }
+                    $json = $resp->json();
+                    $rows = array_merge($rows, (array) data_get($json, 'data', []));
+                    $url = data_get($json, 'paging.next');
+                }
 
-            if (!$resp->ok()) {
-                Log::error('FB /me/accounts error', [
-                    'status' => $resp->status(),
-                    'body' => $resp->body(),
-                ]);
-                throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
+                if ($failed === null) {
+                    return [$rows, null];
+                }
+
+                $code = (int) data_get(json_decode($failed, true), 'error.code');
+                $isFieldError = $code === 100 || str_contains($failed, 'nonexisting field') || str_contains($failed, 'instagram');
+                if ($attempt === 0 && $isFieldError) {
+                    Log::info('[sync] campos completos rechazados, reintentando con básicos', ['edge' => $edge]);
+                    continue;
+                }
+
+                return [[], $failed];
             }
 
-            $json = $resp->json();
-            $data = data_get($json, 'data', []);
-            $pages = array_merge($pages, $data);
-            $url = data_get($json, 'paging.next');
+            return [[], null];
+        };
+
+        // 1) Páginas "clásicas" del usuario: /me/accounts
+        [$pages, $err] = $fetchEdge('accounts');
+        if ($err !== null) {
+            Log::error('FB /me/accounts error', ['body' => $err]);
+            throw new \RuntimeException('No se pudieron obtener las páginas: ' . $this->graphErrorMessage($err));
         }
 
         // 2) Fallback: páginas asignadas vía Business Manager: /me/assigned_pages
         if (empty($pages)) {
-            $url = "{$base}/me/assigned_pages?fields={$fields}";
-
-            while ($url) {
-                $resp = $http->get($url);
-
-                if (!$resp->ok()) {
-                    Log::warning('FB /me/assigned_pages error', [
-                        'status' => $resp->status(),
-                        'body' => $resp->body(),
-                    ]);
-                    break;
-                }
-
-                $json = $resp->json();
-                $data = data_get($json, 'data', []);
-                $pages = array_merge($pages, $data);
-                $url = data_get($json, 'paging.next');
+            [$pages, $err] = $fetchEdge('assigned_pages');
+            if ($err !== null) {
+                Log::warning('FB /me/assigned_pages error', ['body' => $err]);
             }
         }
 
@@ -1264,9 +1279,11 @@ class FacebookPageController extends Controller
 - Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
         }
 
-        // 4) Tu lógica de guardado, igual a la que ya tenías
-        DB::transaction(function () use ($pages, $user, $social, $base, $http) {
-            foreach ($pages as $page) {
+        // 4) Guardado página por página: un fallo en una no bloquea a las demás
+        $saved = 0;
+        foreach ($pages as $page) {
+            try {
+            DB::transaction(function () use ($page, $user, $social, $base, $http) {
                 $pageId = (string) data_get($page, 'id');
                 $name = data_get($page, 'name');
                 $category = data_get($page, 'category');
@@ -1323,10 +1340,27 @@ class FacebookPageController extends Controller
                         'tasks' => $tasks,
                     ]);
                 }
+            });
+            $saved++;
+            } catch (\Throwable $e) {
+                Log::warning('[sync] página no guardada', [
+                    'page' => data_get($page, 'id'),
+                    'name' => data_get($page, 'name'),
+                    'err' => $e->getMessage(),
+                ]);
             }
-        });
+        }
 
-        return count($pages);
+        return $saved;
+    }
+
+    /** Mensaje legible a partir del cuerpo de error de la Graph API. */
+    private function graphErrorMessage(string $body): string
+    {
+        $json = json_decode($body, true);
+        $msg = data_get($json, 'error.message');
+        $code = data_get($json, 'error.code');
+        return $msg ? trim($msg . ($code ? " (código {$code})" : '')) : mb_substr($body, 0, 300);
     }
 
     public function startRepairTokens(Request $request)

@@ -104,10 +104,16 @@ class ArticlePublishController extends Controller
         };
 
         foreach ($pages as $page) {
-            $pivot = $page->users->first()?->pivot;
-
-            // Token guardado o, si no hay, uno fresco vía Usuario de Sistema
-            $token = $pivot?->page_access_token ?: $this->tokenViaUsuarioSistema($page->page_id, $graphVersion);
+            // Token activo MÁS RECIENTE de cualquier usuario (no el vínculo más
+            // viejo); si no hay, uno fresco vía Usuario de Sistema, que se guarda
+            // para que los próximos artículos publiquen directo.
+            $token = $this->tokenGuardadoMasReciente($page);
+            if (!$token) {
+                $token = $this->tokenViaUsuarioSistema($page->page_id, $graphVersion);
+                if ($token) {
+                    $this->guardarTokenPagina($page, $token, $systemUserId);
+                }
+            }
 
             if (!$token) {
                 $resultados[] = ['pagina' => $page->name, 'red' => 'facebook', 'ok' => false, 'error' => 'Sin token activo (ni Usuario de Sistema disponible)'];
@@ -125,14 +131,18 @@ class ArticlePublishController extends Controller
 
                 $resp = $publicarFeed($token);
 
-                // Token vencido o sin permisos (OAuth 190): pedir uno fresco
-                // vía Usuario de Sistema de Business Manager y reintentar
-                if (!$resp->ok() && str_contains($resp->body(), '"code":190')) {
+                // Token vencido (190) o sin permisos (200/10): pedir uno fresco
+                // vía Usuario de Sistema de Business Manager, reintentar y guardarlo
+                $errCode = (int) data_get($resp->json(), 'error.code', 0);
+                if (!$resp->ok() && in_array($errCode, [190, 200, 10], true)) {
                     $fresco = $this->tokenViaUsuarioSistema($page->page_id, $graphVersion);
                     if ($fresco && $fresco !== $token) {
-                        Log::info('[ARTICULOS] Token 190: reintentando con token de Usuario de Sistema', ['pagina' => $page->name]);
+                        Log::info('[ARTICULOS] Token rechazado, reintentando con Usuario de Sistema', ['pagina' => $page->name, 'code' => $errCode]);
                         $token = $fresco; // también lo usará Instagram más abajo
                         $resp = $publicarFeed($token);
+                        if ($resp->ok()) {
+                            $this->guardarTokenPagina($page, $fresco, $systemUserId);
+                        }
                     }
                 }
 
@@ -190,6 +200,34 @@ class ArticlePublishController extends Controller
             'publicados' => $publicados,
             'resultados' => $resultados,
         ], 200);
+    }
+
+    /** Token activo con updated_at más reciente entre todos los vínculos de la página. */
+    private function tokenGuardadoMasReciente(MetaPage $page): ?string
+    {
+        return \Illuminate\Support\Facades\DB::table('meta_page_user')
+            ->where('meta_page_id', $page->id)
+            ->where('is_active', 1)
+            ->whereNotNull('page_access_token')
+            ->where('page_access_token', '!=', '')
+            ->orderByDesc('updated_at')
+            ->value('page_access_token') ?: null;
+    }
+
+    /** Persiste un token fresco en el vínculo del usuario de sistema de editus. */
+    private function guardarTokenPagina(MetaPage $page, string $token, ?int $userId): void
+    {
+        if (!$userId) {
+            return;
+        }
+        try {
+            \Illuminate\Support\Facades\DB::table('meta_page_user')->updateOrInsert(
+                ['meta_page_id' => $page->id, 'user_id' => $userId],
+                ['page_access_token' => $token, 'is_active' => 1, 'expires_at' => null, 'updated_at' => now(), 'created_at' => now()]
+            );
+        } catch (\Throwable $e) {
+            Log::debug('[ARTICULOS] no se pudo guardar token fresco', ['page' => $page->id, 'err' => $e->getMessage()]);
+        }
     }
 
     /**
