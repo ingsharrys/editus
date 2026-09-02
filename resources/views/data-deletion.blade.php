@@ -11,7 +11,7 @@
         <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 
     <!-- Tailwind CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <meta name="description" content="Instrucciones para solicitar la eliminación de datos personales de la plataforma Editus.">
     <meta name="robots" content="index,follow">
   </head>

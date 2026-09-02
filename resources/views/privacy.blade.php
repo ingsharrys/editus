@@ -11,7 +11,7 @@
         <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
 
     <!-- Tailwind CDN -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
     <meta name="description" content="Política de Privacidad de Editus, plataforma desarrollada por Sharrys Tech para la gestión e integración con Facebook.">
     <meta name="robots" content="index,follow">
   </head>
