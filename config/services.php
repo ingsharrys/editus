@@ -82,6 +82,12 @@ return [
 
 
 
+    // API de integración (backend esnoticia → editus). El backend manda el
+    // mismo valor en el header X-Editus-Token.
+    'editus' => [
+        'ingest_token' => env('EDITUS_INGEST_TOKEN'),
+    ],
+
     'metrics' => [
         // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.
         // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).
