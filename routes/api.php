@@ -18,6 +18,8 @@ Route::post('/webhooks/whatsapp', [WhatsappWebhookController::class, 'handle'])
 Route::middleware('editus.token')->group(function () {
     Route::get('/paginas', [\App\Http\Controllers\Api\PublicacionesController::class, 'paginas'])
         ->name('api.paginas');
+    Route::get('/plantillas', [\App\Http\Controllers\Api\PublicacionesController::class, 'plantillas'])
+        ->name('api.plantillas');
     Route::post('/publicaciones/foto', [\App\Http\Controllers\Api\PublicacionesController::class, 'foto'])
         ->name('api.publicaciones.foto');
 });

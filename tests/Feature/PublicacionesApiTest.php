@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\MetaPage;
 use App\Models\MetaPost;
+use App\Models\PlantillaEditor;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
@@ -43,7 +44,14 @@ class PublicacionesApiTest extends TestCase
         });
         Schema::create('meta_pages', function (Blueprint $t) {
             $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable();
-            $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->timestamps();
+            $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable();
+            $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->timestamps();
+        });
+        Schema::create('plantillas_editor', function (Blueprint $t) {
+            $t->id(); $t->string('nombre', 120); $t->string('logo_path')->nullable(); $t->string('logo_texto', 60)->nullable(); $t->boolean('logo_tintar')->default(true);
+            $t->string('etiqueta', 40)->nullable(); $t->string('pie', 80)->nullable(); $t->string('hashtag', 60)->nullable();
+            $t->string('color_titulo', 7)->default('#FFFFFF'); $t->string('color_logo', 7)->default('#FFFFFF'); $t->string('color_etiqueta', 7)->default('#C8102E');
+            $t->boolean('predeterminada')->default(false); $t->boolean('activa')->default(true); $t->unsignedInteger('orden')->default(0); $t->timestamps();
         });
         Schema::create('meta_page_user', function (Blueprint $t) {
             $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->foreignId('social_account_id')->nullable();
@@ -84,6 +92,37 @@ class PublicacionesApiTest extends TestCase
         $r->assertJsonPath('paginas.0.page_id', '111')
           ->assertJsonPath('paginas.0.instagram', true)
           ->assertJsonPath('paginas.0.nombre', 'Página 111');
+    }
+
+    public function test_solo_lista_paginas_visibles_en_la_app_y_su_medio(): void
+    {
+        $visible = $this->paginaConectada('111', '222');
+        $visible->update(['medio_slug' => 'opanoticias']);
+        $oculta = $this->paginaConectada('444', null);
+        $oculta->update(['visible_en_editor' => false]);
+
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/paginas');
+        $r->assertOk()->assertJsonCount(1, 'paginas')
+          ->assertJsonPath('paginas.0.page_id', '111')
+          ->assertJsonPath('paginas.0.medio', 'opanoticias');
+    }
+
+    public function test_lista_plantillas_activas(): void
+    {
+        PlantillaEditor::create(['nombre' => 'Judicial', 'logo_texto' => 'OPA Noticias', 'etiqueta' => 'JUDICIAL', 'pie' => 'Opanoticias.com', 'hashtag' => '#EsNoticia', 'color_etiqueta' => '#0057B8', 'predeterminada' => true, 'orden' => 2]);
+        PlantillaEditor::create(['nombre' => 'Vieja', 'activa' => false]);
+        PlantillaEditor::create(['nombre' => 'Con logo', 'logo_path' => 'plantillas-editor/logo.png', 'orden' => 1]);
+
+        $this->getJson('/api/plantillas')->assertStatus(401);
+
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/plantillas');
+        $r->assertOk()->assertJsonCount(2, 'plantillas')
+          ->assertJsonPath('plantillas.0.nombre', 'Con logo')
+          ->assertJsonPath('plantillas.1.nombre', 'Judicial')
+          ->assertJsonPath('plantillas.1.color_etiqueta', '#0057B8')
+          ->assertJsonPath('plantillas.1.predeterminada', true)
+          ->assertJsonPath('plantillas.1.logo_url', null);
+        $this->assertStringEndsWith('/storage/plantillas-editor/logo.png', $r->json('plantillas.0.logo_url'));
     }
 
     public function test_publica_foto_en_facebook_e_instagram(): void

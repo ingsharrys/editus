@@ -4,16 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
+use App\Models\PlantillaEditor;
 use App\Services\SocialPhotoPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
  * API de integración para el backend de esnoticia (sección "Redes" de la
  * app). Protegida con X-Editus-Token (middleware editus.token).
  *
- *   GET  /api/paginas             → páginas conectadas con token activo
+ *   GET  /api/paginas             → páginas conectadas con token activo y visibles en la app
+ *   GET  /api/plantillas          → plantillas de imagen activas
  *   POST /api/publicaciones/foto  → foto + texto en Facebook / Instagram
  */
 class PublicacionesController extends Controller
@@ -22,6 +25,7 @@ class PublicacionesController extends Controller
     {
         $paginas = MetaPage::query()
             ->whereHas('users', fn($q) => $q->where('meta_page_user.is_active', 1)->whereNotNull('meta_page_user.page_access_token'))
+            ->when(Schema::hasColumn('meta_pages', 'visible_en_editor'), fn($q) => $q->where('visible_en_editor', 1))
             ->orderBy('name')
             ->get()
             ->map(fn(MetaPage $p) => [
@@ -32,10 +36,27 @@ class PublicacionesController extends Controller
                 'foto' => $p->pictureUrl('small'),
                 'instagram' => !empty($p->instagram_business_account_id),
                 'instagram_id' => $p->instagram_business_account_id,
+                'medio' => $p->medio_slug ?: null,
             ])
             ->values();
 
         return response()->json(['success' => true, 'paginas' => $paginas]);
+    }
+
+    /** Plantillas de imagen activas (Configuración → App del editor). */
+    public function plantillas(): JsonResponse
+    {
+        if (!Schema::hasTable('plantillas_editor')) {
+            return response()->json(['success' => true, 'plantillas' => []]);
+        }
+        $plantillas = PlantillaEditor::query()
+            ->where('activa', 1)
+            ->orderBy('orden')->orderBy('id')
+            ->get()
+            ->map(fn(PlantillaEditor $t) => $t->paraApi())
+            ->values();
+
+        return response()->json(['success' => true, 'plantillas' => $plantillas]);
     }
 
     public function foto(Request $request, SocialPhotoPublisher $publisher): JsonResponse

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\EditorAppController;
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\InformeController;
 use App\Http\Controllers\Meta\FacebookPageController;
@@ -114,6 +115,13 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/admin/informe', [InformeController::class, 'index'])->name('informe.index');
         Route::get('/admin/informe/{key}', [InformeController::class, 'show'])->name('informe.show');
         Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->name('informe.pdf'); // << NUEVO
+
+        // Módulo: App del editor (páginas visibles en la app móvil + plantillas de imagen)
+        Route::get('/admin/app-editor', [EditorAppController::class, 'index'])->name('editor-app.index');
+        Route::post('/admin/app-editor/paginas', [EditorAppController::class, 'paginas'])->name('editor-app.paginas');
+        Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
+        Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
+        Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
     });
 });
 // routes/web.php

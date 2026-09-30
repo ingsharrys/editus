@@ -12,11 +12,14 @@ class MetaPage extends Model
         'category',
         'instagram_business_account_id',
         'picture_url',
-        'tasks'
+        'tasks',
+        'visible_en_editor',
+        'medio_slug',
     ];
 
     protected $casts = [
         'tasks' => 'array',
+        'visible_en_editor' => 'boolean',
     ];
 
     // MetaPage.php
