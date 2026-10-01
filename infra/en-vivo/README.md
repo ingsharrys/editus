@@ -13,6 +13,31 @@ editus crea el Live en Facebook (Graph API), la sala y el egress, y le pasa a
 la app la URL y el token de LiveKit. La plantilla se cambia en tiempo real
 desde la app (metadata de la sala → la escena la redibuja al instante).
 
+## 0. Instalación automática (VPS Ubuntu 22.04 / 24.04)
+
+Con un VPS limpio (Hostinger, por ejemplo) todo lo de abajo lo hace un solo
+script. Antes crea el registro DNS `A` del subdominio apuntando a la IP del VPS.
+
+```bash
+ssh root@IP-DEL-VPS
+apt-get install -y git
+git clone https://github.com/ingsharrys/editus.git /opt/editus-src
+bash /opt/editus-src/infra/en-vivo/instalar-ubuntu.sh live.esnoticia.org tu-correo@dominio.com
+```
+
+Al final imprime `LIVEKIT_URL`, `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET` para
+el `.env` de editus (también quedan en `/opt/livekit/claves.txt`). Si prefieres
+hacerlo a mano, sigue las secciones siguientes.
+
+## Cámaras remotas (invitados)
+
+Desde la app, en una transmisión activa, "Crear y compartir enlace" genera una
+URL `https://app.editus.online/en-vivo/invitado/CODIGO`. Quien la abre (celular
+o computador, sin instalar nada) toca "Enviar mi cámara" y aparece en el
+estudio de la app; el director elige el diseño (una cámara, dos, imagen en
+imagen, cuadrícula), quién sale al aire y puede sacar a cualquiera. La
+invitación deja de servir cuando la transmisión termina.
+
 ## 1. Requisitos en el servidor
 
 - Docker y Docker Compose (root o sudo).
