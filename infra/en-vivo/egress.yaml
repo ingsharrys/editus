@@ -1,0 +1,10 @@
+# Egress de LiveKit: compone la escena (Chrome sin cabeza) y la envía por RTMP.
+api_key: APIcambiame
+api_secret: secretocambiame-debe-tener-al-menos-32-caracteres
+ws_url: ws://127.0.0.1:7880
+redis:
+  address: 127.0.0.1:6379
+logging:
+  level: info
+# Un solo egress a la vez por transmisión; con varias transmisiones simultáneas
+# sube cpu_cost_* o agrega otro contenedor egress.

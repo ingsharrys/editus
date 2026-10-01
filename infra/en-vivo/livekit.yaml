@@ -1,0 +1,20 @@
+# Configuración de LiveKit (servidor propio). Cambia las claves (ver README).
+port: 7880
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+redis:
+  address: 127.0.0.1:6379
+keys:
+  # api_key: api_secret  (genera ambos con: docker run --rm livekit/livekit-server generate-keys)
+  APIcambiame: secretocambiame-debe-tener-al-menos-32-caracteres
+turn:
+  enabled: true
+  domain: live.TU-DOMINIO.com
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true   # el TLS lo termina el proxy (Apache/Nginx) en 443; ver README
+logging:
+  level: info

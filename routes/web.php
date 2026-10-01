@@ -14,6 +14,9 @@ Route::get('/', fn() => view('welcome'));
 
 Route::view('/privacy', 'privacy')->name('privacy');
 
+// Escena de las transmisiones en vivo (la carga el egress de LiveKit con su propio token)
+Route::view('/en-vivo/escena', 'en-vivo.escena')->name('en-vivo.escena');
+
 Route::view('/terms', 'terms')->name('terms');
 
 Route::view('/data-deletion', 'data-deletion')->name('data-deletion');

@@ -93,6 +93,16 @@ return [
         // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).
         'enabled' => env('METRICS_ENABLED', false),
     ],
+
+    // Transmisiones en vivo (servidor LiveKit propio: ver infra/en-vivo/README.md)
+    'livekit' => [
+        'url'        => env('LIVEKIT_URL'),            // wss://live.tudominio.com (lo usan la app y la escena)
+        'api_url'    => env('LIVEKIT_API_URL'),        // https://live.tudominio.com (API Twirp); si falta, se deriva de url
+        'api_key'    => env('LIVEKIT_API_KEY'),
+        'api_secret' => env('LIVEKIT_API_SECRET'),
+        // Página de la escena (plantilla en tiempo real) que compone el egress; por defecto /en-vivo/escena de este editus
+        'escena_url' => env('LIVEKIT_ESCENA_URL'),
+    ],
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),

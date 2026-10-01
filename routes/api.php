@@ -30,6 +30,13 @@ Route::middleware('editus.token')->group(function () {
         ->name('api.publicaciones.video.descripcion');
     Route::post('/publicaciones/metricas', [\App\Http\Controllers\Api\PublicacionesController::class, 'metricas'])
         ->name('api.publicaciones.metricas');
+
+    // Transmisiones en vivo (LiveKit propio → Facebook Live)
+    Route::post('/en-vivo/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'iniciar'])->name('api.envivo.iniciar');
+    Route::get('/en-vivo/activas', [\App\Http\Controllers\Api\EnVivoController::class, 'activas'])->name('api.envivo.activas');
+    Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Api\EnVivoController::class, 'plantilla'])->name('api.envivo.plantilla');
+    Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Api\EnVivoController::class, 'terminar'])->name('api.envivo.terminar');
+    Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Api\EnVivoController::class, 'estado'])->name('api.envivo.estado');
 });
 
 // Subida temporal de videos desde la app del editor: la firma (HMAC con el
