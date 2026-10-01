@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
  *
  *   GET  /api/paginas             → páginas conectadas con token activo y visibles en la app
  *   GET  /api/plantillas          → plantillas de imagen activas
- *   POST /api/publicaciones/foto  → foto + texto en Facebook / Instagram
+ *   POST /api/publicaciones/foto  → foto + texto en Facebook (con enlace) / Instagram (texto_instagram, sin enlace)
  */
 class PublicacionesController extends Controller
 {
@@ -63,6 +63,7 @@ class PublicacionesController extends Controller
     {
         $datos = $request->validate([
             'texto' => ['required', 'string', 'max:5000'],
+            'texto_instagram' => ['nullable', 'string', 'max:2200'],
             'imagen_url' => ['required', 'url'],
             'paginas' => ['required', 'array', 'min:1'],
             'paginas.*.id' => ['nullable', 'integer'],
@@ -108,9 +109,12 @@ class PublicacionesController extends Controller
             }
 
             $enlace = trim((string) ($item['enlace'] ?? ''));
+            // Facebook: texto + enlace al final. Instagram: su propio texto (sin
+            // enlace, porque allí no es clicable) o, si no llega, el mismo de Facebook.
             $mensaje = trim($datos['texto']) . ($enlace !== '' ? "\n\n" . $enlace : '');
+            $captionIg = trim((string) ($datos['texto_instagram'] ?? ''));
 
-            $res = $publisher->publicar($page, $datos['imagen_url'], $mensaje, $facebook, $instagram, $enlace ?: null, $batch);
+            $res = $publisher->publicar($page, $datos['imagen_url'], $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null);
             $r['facebook'] = $res['facebook'];
             $r['instagram'] = $res['instagram'];
             if (($res['facebook']['ok'] ?? false) || ($res['instagram']['ok'] ?? false)) {

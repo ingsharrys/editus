@@ -26,14 +26,15 @@ class SocialPhotoPublisher
     /**
      * @param  MetaPage $page      página conectada en editus
      * @param  string   $imagenUrl URL pública de la foto (JPEG)
-     * @param  string   $mensaje   texto completo (ya con el enlace al final)
+     * @param  string   $mensaje   texto de Facebook (ya con el enlace al final)
+     * @param  ?string  $captionInstagram  texto de Instagram (sin enlace: allí no es clicable); si es null se usa $mensaje
      * @param  bool     $facebook  publicar en la página de Facebook
      * @param  bool     $instagram publicar en la cuenta de Instagram vinculada
      * @param  string|null $enlace enlace de la nota web (se guarda en MetaPost.link)
      * @param  string|null $batch  agrupa los posts de una misma publicación
      * @return array{facebook: array|null, instagram: array|null}
      */
-    public function publicar(MetaPage $page, string $imagenUrl, string $mensaje, bool $facebook, bool $instagram, ?string $enlace = null, ?string $batch = null): array
+    public function publicar(MetaPage $page, string $imagenUrl, string $mensaje, bool $facebook, bool $instagram, ?string $enlace = null, ?string $batch = null, ?string $captionInstagram = null): array
     {
         $salida = ['facebook' => null, 'instagram' => null];
 
@@ -53,7 +54,7 @@ class SocialPhotoPublisher
             $igId = (string) ($page->instagram_business_account_id ?? '');
             $salida['instagram'] = $igId === ''
                 ? ['ok' => false, 'no_configurado' => true, 'error' => 'La página no tiene una cuenta de Instagram vinculada.']
-                : $this->publicarInstagram($igId, $token, $imagenUrl, $mensaje);
+                : $this->publicarInstagram($igId, $token, $imagenUrl, $captionInstagram ?? $mensaje);
         }
 
         return $salida;

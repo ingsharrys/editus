@@ -146,6 +146,7 @@ class PublicacionesApiTest extends TestCase
 
         $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/foto', [
             'texto' => "Atención Neiva: cierre de la carrera 5.\n\n#Neiva",
+            'texto_instagram' => "Atención Neiva: cierre de la carrera 5 por obras. Texto completo para Instagram.\n\n#Neiva",
             'imagen_url' => 'https://backend.esnoticia.org/public/redes/imagenes/post-1.jpg',
             'paginas' => [
                 ['id' => $page->id, 'facebook' => true, 'instagram' => true, 'enlace' => 'https://opanoticias.com/nota-77/77'],
@@ -169,9 +170,11 @@ class PublicacionesApiTest extends TestCase
                 && str_ends_with($req['message'], "#Neiva\n\nhttps://opanoticias.com/nota-77/77")
                 && $req['access_token'] === 'tok-pagina';
         });
+        // Instagram recibe su propio texto, sin el enlace
         Http::assertSent(fn($req) => str_contains($req->url(), '/222/media') && !str_contains($req->url(), 'publish')
             && $req['image_url'] === 'https://backend.esnoticia.org/public/redes/imagenes/post-1.jpg'
-            && str_contains($req['caption'], 'https://opanoticias.com/nota-77/77'));
+            && str_starts_with($req['caption'], 'Atención Neiva: cierre de la carrera 5 por obras. Texto completo para Instagram.')
+            && !str_contains($req['caption'], 'https://opanoticias.com'));
         $this->assertSame(2, $intentos, 'media_publish se reintenta tras el 9007');
 
         // Queda registrado en editus como post de foto exitoso
