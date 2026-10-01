@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
  */
 class SocialPhotoPublisher
 {
-    public function __construct(private MetaPageTokenResolver $tokens)
+    public function __construct(protected MetaPageTokenResolver $tokens)
     {
     }
 
@@ -164,7 +164,7 @@ class SocialPhotoPublisher
         }
     }
 
-    private function permalinkFacebook(string $postId, string $token): string
+    protected function permalinkFacebook(string $postId, string $token): string
     {
         try {
             $r = $this->http(20)->get(self::graph($postId), ['fields' => 'permalink_url', 'access_token' => $token]);
@@ -185,7 +185,7 @@ class SocialPhotoPublisher
         return "{$host}/{$v}/{$path}";
     }
 
-    private function http(int $timeout = 90): PendingRequest
+    protected function http(int $timeout = 90): PendingRequest
     {
         return Http::timeout($timeout)
             ->connectTimeout(15)
@@ -201,14 +201,14 @@ class SocialPhotoPublisher
             ->withOptions(['curl' => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4]]);
     }
 
-    private function errorDe(?array $json, string $body): string
+    protected function errorDe(?array $json, string $body): string
     {
         $msg = data_get($json, 'error.error_user_msg') ?: data_get($json, 'error.message') ?: Str::limit($body, 200, '');
         $code = data_get($json, 'error.code');
         return $this->corto((string) $msg . ($code ? " (código {$code})" : ''));
     }
 
-    private function corto(string $s): string
+    protected function corto(string $s): string
     {
         return Str::limit(trim($s), 300, '');
     }

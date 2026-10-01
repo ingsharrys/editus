@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
 use App\Models\PlantillaEditor;
+use App\Services\MetaMetricasService;
 use App\Services\SocialPhotoPublisher;
+use App\Services\SocialVideoPublisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
@@ -18,6 +20,8 @@ use Illuminate\Support\Str;
  *   GET  /api/paginas             → páginas conectadas con token activo y visibles en la app
  *   GET  /api/plantillas          → plantillas de imagen activas
  *   POST /api/publicaciones/foto  → foto + texto en Facebook (con enlace) / Instagram (texto_instagram, sin enlace)
+ *   POST /api/publicaciones/video → video mp4 (URL) en Facebook / Instagram (Reel)
+ *   POST /api/publicaciones/metricas → alcance, interacciones y reproducciones de publicaciones
  */
 class PublicacionesController extends Controller
 {
@@ -132,5 +136,85 @@ class PublicacionesController extends Controller
             'publicadas' => $exitos,
             'resultados' => $resultados,
         ]);
+    }
+
+    /**
+     * POST /api/publicaciones/video: video (URL pública mp4) + texto en
+     * Facebook (video de página) e Instagram (Reel). Mismo contrato que foto.
+     */
+    public function video(Request $request, SocialVideoPublisher $publisher): JsonResponse
+    {
+        $datos = $request->validate([
+            'texto' => ['required', 'string', 'max:5000'],
+            'texto_instagram' => ['nullable', 'string', 'max:2200'],
+            'video_url' => ['required', 'url'],
+            'imagen_url' => ['nullable', 'url'],
+            'paginas' => ['required', 'array', 'min:1'],
+            'paginas.*.id' => ['nullable', 'integer'],
+            'paginas.*.page_id' => ['nullable', 'string'],
+            'paginas.*.facebook' => ['nullable', 'boolean'],
+            'paginas.*.instagram' => ['nullable', 'boolean'],
+            'paginas.*.enlace' => ['nullable', 'url'],
+            'referencia' => ['nullable', 'string', 'max:100'],
+        ]);
+        @set_time_limit(600);
+
+        $batch = (string) Str::uuid();
+        $resultados = [];
+        $exitos = 0;
+
+        foreach ($datos['paginas'] as $item) {
+            $page = !empty($item['id']) ? MetaPage::find($item['id']) : null;
+            if (!$page && !empty($item['page_id'])) {
+                $page = MetaPage::where('page_id', (string) $item['page_id'])->first();
+            }
+            $r = ['id' => $page?->id, 'page_id' => (string) ($page?->page_id ?? ($item['page_id'] ?? '')), 'pagina' => (string) ($page?->name ?? ''), 'facebook' => null, 'instagram' => null];
+            if (!$page) {
+                $r['facebook'] = ['ok' => false, 'error' => 'Página no encontrada en editus'];
+                $resultados[] = $r;
+                continue;
+            }
+            $facebook = array_key_exists('facebook', $item) ? (bool) $item['facebook'] : true;
+            $instagram = array_key_exists('instagram', $item) ? (bool) $item['instagram'] : false;
+            if (!$facebook && !$instagram) {
+                $resultados[] = $r;
+                continue;
+            }
+            $enlace = trim((string) ($item['enlace'] ?? ''));
+            $mensaje = trim($datos['texto']);
+            if ($enlace !== '' && !str_contains($mensaje, $enlace)) {
+                $mensaje .= "\n\n" . $enlace;
+            }
+            $captionIg = trim((string) ($datos['texto_instagram'] ?? ''));
+
+            $res = $publisher->publicarVideo($page, $datos['video_url'], $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null, $datos['imagen_url'] ?? null);
+            $r['facebook'] = $res['facebook'];
+            $r['instagram'] = $res['instagram'];
+            if (($res['facebook']['ok'] ?? false) || ($res['instagram']['ok'] ?? false)) {
+                $exitos++;
+            }
+            $resultados[] = $r;
+        }
+
+        return response()->json(['success' => $exitos > 0, 'batch' => $batch, 'publicadas' => $exitos, 'resultados' => $resultados]);
+    }
+
+    /**
+     * POST /api/publicaciones/metricas: métricas en vivo de Meta para una
+     * lista de publicaciones {red, post_id, page_id, media_id?, tipo?}.
+     */
+    public function metricas(Request $request, MetaMetricasService $servicio): JsonResponse
+    {
+        $datos = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:200'],
+            'items.*.red' => ['nullable', 'string', 'in:facebook,instagram'],
+            'items.*.post_id' => ['required', 'string'],
+            'items.*.page_id' => ['required', 'string'],
+            'items.*.media_id' => ['nullable', 'string'],
+            'items.*.tipo' => ['nullable', 'string', 'in:foto,video'],
+        ]);
+        @set_time_limit(300);
+
+        return response()->json(['success' => true, 'metricas' => $servicio->metricas($datos['items'])]);
     }
 }

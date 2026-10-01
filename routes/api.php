@@ -22,4 +22,8 @@ Route::middleware('editus.token')->group(function () {
         ->name('api.plantillas');
     Route::post('/publicaciones/foto', [\App\Http\Controllers\Api\PublicacionesController::class, 'foto'])
         ->name('api.publicaciones.foto');
+    Route::post('/publicaciones/video', [\App\Http\Controllers\Api\PublicacionesController::class, 'video'])
+        ->name('api.publicaciones.video');
+    Route::post('/publicaciones/metricas', [\App\Http\Controllers\Api\PublicacionesController::class, 'metricas'])
+        ->name('api.publicaciones.metricas');
 });
