@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Instala el servidor de transmisiones en vivo (LiveKit + Egress + Redis +
-# Nginx con certificado) en un VPS limpio con Ubuntu 22.04 / 24.04.
+# Nginx con certificado) en un VPS limpio con Ubuntu 22.04 / 24.04 / 26.04.
 #
 # Uso (como root):
 #   bash instalar-ubuntu.sh live.esnoticia.org correo@tudominio.com
@@ -25,7 +25,14 @@ apt-get install -y ca-certificates curl gnupg ufw nginx certbot python3-certbot-
 
 echo "==> 2/7 Docker"
 if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
+  # Repositorio oficial de Docker; si esta versión de Ubuntu aún no está en él, se usa el paquete de Ubuntu
+  if ! curl -fsSL https://get.docker.com | sh; then
+    echo "   (el instalador oficial no soporta esta versión de Ubuntu; usando docker.io)"
+    apt-get install -y docker.io docker-compose-v2
+  fi
+fi
+if ! docker compose version >/dev/null 2>&1; then
+  apt-get install -y docker-compose-v2 || apt-get install -y docker-compose-plugin
 fi
 systemctl enable --now docker
 
