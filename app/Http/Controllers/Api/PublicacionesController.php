@@ -111,7 +111,10 @@ class PublicacionesController extends Controller
             $enlace = trim((string) ($item['enlace'] ?? ''));
             // Facebook: texto + enlace al final. Instagram: su propio texto (sin
             // enlace, porque allí no es clicable) o, si no llega, el mismo de Facebook.
-            $mensaje = trim($datos['texto']) . ($enlace !== '' ? "\n\n" . $enlace : '');
+            $mensaje = trim($datos['texto']);
+            if ($enlace !== '' && !str_contains($mensaje, $enlace)) {
+                $mensaje .= "\n\n" . $enlace;   // si el texto ya trae el enlace (p. ej. "Ver más: …"), no se repite
+            }
             $captionIg = trim((string) ($datos['texto_instagram'] ?? ''));
 
             $res = $publisher->publicar($page, $datos['imagen_url'], $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null);

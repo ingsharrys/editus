@@ -187,6 +187,18 @@ class PublicacionesApiTest extends TestCase
         $this->assertSame($page->id, $post->meta_page_id);
     }
 
+    public function test_no_repite_el_enlace_si_el_texto_ya_lo_trae(): void
+    {
+        $page = $this->paginaConectada('111', null);
+        Http::fake(['graph.facebook.com/*' => Http::response(['id' => '1', 'post_id' => '111_1'], 200)]);
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/foto', [
+            'texto' => "Resumen corto…\n\nVer más: https://backend.esnoticia.org/public/r/abc123",
+            'imagen_url' => 'https://backend.esnoticia.org/public/redes/imagenes/post-1.jpg',
+            'paginas' => [['id' => $page->id, 'facebook' => true, 'enlace' => 'https://backend.esnoticia.org/public/r/abc123']],
+        ])->assertOk();
+        Http::assertSent(fn($req) => str_contains($req->url(), '/111/photos') && substr_count($req['message'], 'r/abc123') === 1 && str_ends_with($req['message'], 'Ver más: https://backend.esnoticia.org/public/r/abc123'));
+    }
+
     public function test_reporta_error_de_meta_sin_romper(): void
     {
         $page = $this->paginaConectada('111', null);
