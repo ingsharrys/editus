@@ -17,6 +17,10 @@ use Illuminate\Support\Str;
  *
  *   POST /api/en-vivo/iniciar            → crea el Live en Facebook, la sala LiveKit y el egress (RTMP)
  *   POST /api/en-vivo/{id}/plantilla     → cambia la plantilla en tiempo real (metadata de la sala)
+ *   POST /api/en-vivo/{id}/escena        → diseño y quién sale al aire (solo, dos, pip, cuadrícula)
+ *   POST /api/en-vivo/{id}/invitacion    → enlace para una cámara remota (navegador)
+ *   GET  /api/en-vivo/{id}/participantes → cámaras conectadas
+ *   POST /api/en-vivo/{id}/participantes/{identity}/expulsar
  *   POST /api/en-vivo/{id}/terminar      → detiene el egress y cierra el Live
  *   GET  /api/en-vivo/{id}/estado        → estado, espectadores y token nuevo para reconectar
  *   GET  /api/en-vivo/activas            → transmisiones en vivo (por si la app se cerró)
@@ -65,8 +69,10 @@ class EnVivoController extends Controller
             $live = $this->facebook->crear($page, $datos['titulo'], (string) ($datos['descripcion'] ?? ''));
             $t->fill(['fb_live_id' => $live['id'], 'stream_url' => $live['stream_url'], 'fb_permalink' => $live['permalink'], 'fb_video_id' => $live['video_id']])->save();
 
-            // 2) Sala LiveKit con la plantilla como metadata (la escena la lee en tiempo real)
-            $this->livekit->crearSala($room, $plantilla);
+            // 2) Sala LiveKit con la plantilla y la escena como metadata (la página de la escena las lee en tiempo real)
+            $t->escena = ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []];
+            $t->save();
+            $this->livekit->crearSala($room, $t->metadataSala());
 
             // 3) Egress: la escena compuesta → RTMP de Facebook
             $egressId = $this->livekit->iniciarEgressRtmp($room, $this->escenaUrl(), [$live['stream_url']]);
@@ -93,12 +99,115 @@ class EnVivoController extends Controller
         $transmision->save();
         if ($transmision->estado === 'en_vivo') {
             try {
-                $this->livekit->actualizarMetadata($transmision->room, $plantilla);
+                $this->livekit->actualizarMetadata($transmision->room, $transmision->metadataSala());
             } catch (\Throwable $e) {
                 return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 200, '')], 422);
             }
         }
         return response()->json(['success' => true, 'plantilla' => $plantilla]);
+    }
+
+    /**
+     * POST /api/en-vivo/{id}/escena {layout: solo|dos|pip|cuadricula, principal, visibles[]}:
+     * quién sale al aire y con qué diseño (metadata de la sala → la escena lo aplica al instante).
+     */
+    public function escena(Request $request, TransmisionEnVivo $transmision): JsonResponse
+    {
+        $datos = $request->validate([
+            'layout' => ['nullable', 'string', 'in:solo,dos,pip,cuadricula'],
+            'principal' => ['nullable', 'string', 'max:80'],
+            'visibles' => ['nullable', 'array', 'max:8'],
+            'visibles.*' => ['string', 'max:80'],
+        ]);
+        $escena = $transmision->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []];
+        if (!empty($datos['layout'])) $escena['layout'] = $datos['layout'];
+        if (array_key_exists('principal', $datos) && $datos['principal'] !== null && $datos['principal'] !== '') $escena['principal'] = $datos['principal'];
+        if (array_key_exists('visibles', $datos) && is_array($datos['visibles'])) $escena['visibles'] = array_values(array_unique($datos['visibles']));
+        $transmision->escena = $escena;
+        $transmision->save();
+        if ($transmision->estado === 'en_vivo') {
+            try {
+                $this->livekit->actualizarMetadata($transmision->room, $transmision->metadataSala());
+            } catch (\Throwable $e) {
+                return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 200, '')], 422);
+            }
+        }
+        return response()->json(['success' => true, 'escena' => $escena]);
+    }
+
+    /** POST /api/en-vivo/{id}/invitacion {nombre?}: enlace para que alguien envíe su cámara desde el navegador. */
+    public function invitacion(Request $request, TransmisionEnVivo $transmision): JsonResponse
+    {
+        $datos = $request->validate(['nombre' => ['nullable', 'string', 'max:60']]);
+        $codigo = Str::lower(Str::random(10));
+        $lista = $transmision->invitaciones ?? [];
+        $lista[] = ['codigo' => $codigo, 'nombre' => $datos['nombre'] ?? null, 'creada_en' => now()->toIso8601String()];
+        $transmision->invitaciones = $lista;
+        $transmision->save();
+        return response()->json(['success' => true, 'codigo' => $codigo, 'url' => route('en-vivo.invitado', $codigo)]);
+    }
+
+    /** GET /api/en-vivo/{id}/participantes: cámaras conectadas a la sala. */
+    public function participantes(TransmisionEnVivo $transmision): JsonResponse
+    {
+        try {
+            $lista = $transmision->estado === 'en_vivo' ? $this->livekit->participantes($transmision->room) : [];
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 200, '')], 422);
+        }
+        return response()->json(['success' => true, 'participantes' => $lista, 'escena' => $transmision->escena]);
+    }
+
+    /** POST /api/en-vivo/{id}/participantes/{identity}/expulsar */
+    public function expulsar(TransmisionEnVivo $transmision, string $identity): JsonResponse
+    {
+        if ($identity === 'camara-principal') {
+            return response()->json(['success' => false, 'error' => 'La cámara principal no se puede expulsar'], 422);
+        }
+        try {
+            $this->livekit->expulsar($transmision->room, $identity);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 200, '')], 422);
+        }
+        return response()->json(['success' => true]);
+    }
+
+    // ---------------------------------------------------------- Invitados (web, sin token de integración)
+
+    /** Página del invitado (navegador): valida el código y muestra la transmisión. */
+    public function invitadoPagina(string $codigo)
+    {
+        [$t, $inv] = $this->buscarInvitacion($codigo);
+        if (!$t) abort(404, 'Invitación no válida');
+        return view('en-vivo.invitado', ['transmision' => $t, 'invitacion' => $inv, 'codigo' => $codigo, 'activa' => $t->estado === 'en_vivo']);
+    }
+
+    /** Token de LiveKit para el invitado (lo pide la página con su código). */
+    public function invitadoToken(Request $request, string $codigo): JsonResponse
+    {
+        [$t, $inv] = $this->buscarInvitacion($codigo);
+        if (!$t) return response()->json(['success' => false, 'error' => 'Invitación no válida'], 404);
+        if ($t->estado !== 'en_vivo') return response()->json(['success' => false, 'error' => 'La transmisión no está en vivo en este momento'], 422);
+        $nombre = Str::limit(trim((string) $request->input('nombre', $inv['nombre'] ?? 'Invitado')), 40, '') ?: 'Invitado';
+        $identity = 'invitado-' . $codigo;
+        return response()->json([
+            'success' => true,
+            'url' => $this->livekit->wsUrl(),
+            'token' => $this->livekit->tokenParticipante($t->room, $identity, $nombre, true, 4 * 3600),
+            'identity' => $identity,
+            'titulo' => $t->titulo,
+        ]);
+    }
+
+    private function buscarInvitacion(string $codigo): array
+    {
+        $codigo = Str::lower(preg_replace('/[^a-z0-9]/i', '', $codigo));
+        if ($codigo === '') return [null, null];
+        $t = TransmisionEnVivo::whereIn('estado', ['en_vivo', 'creada'])->orderByDesc('id')->get()
+            ->first(fn($x) => collect($x->invitaciones ?? [])->contains(fn($i) => ($i['codigo'] ?? '') === $codigo));
+        if (!$t) return [null, null];
+        $inv = collect($t->invitaciones)->first(fn($i) => ($i['codigo'] ?? '') === $codigo);
+        return [$t, $inv];
     }
 
     public function terminar(TransmisionEnVivo $transmision): JsonResponse

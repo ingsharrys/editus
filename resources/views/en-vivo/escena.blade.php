@@ -4,18 +4,30 @@
 <meta charset="utf-8">
 <title>Escena en vivo</title>
 {{--
-  Escena que compone el egress de LiveKit (plantilla en tiempo real):
+  Escena que compone el egress de LiveKit (plantilla y diseño en tiempo real):
   recibe ?url=&token=&layout=&room= del egress, se une a la sala como
-  participante oculto, muestra la cámara principal a pantalla completa y
-  dibuja encima el logo, el cintillo con título y etiqueta y el pie, leyendo
-  la plantilla desde la metadata de la sala (se actualiza al instante).
+  participante oculto y compone las cámaras según la metadata de la sala:
+    - plantilla: logo, cintillo con título y etiqueta, pie, hashtag
+    - escena: { layout: solo|dos|pip|cuadricula, principal: identity, visibles: [identity...] }
   Avisa al egress con console.log('START_RECORDING') / 'END_RECORDING'.
 --}}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;900&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
 <style>
   html, body { margin: 0; width: 1280px; height: 720px; background: #000; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
-  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #lienzo { position: absolute; inset: 0; background: #0b1c33; }
+  .celda { position: absolute; overflow: hidden; background: #000; }
+  .celda video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .celda .nombre { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; font-weight: 600; }
+  /* Diseños */
+  .solo .celda { inset: 0; }
+  .dos .celda { top: 90px; width: 616px; height: 462px; border-radius: 10px; }
+  .dos .celda:nth-child(1) { left: 16px; } .dos .celda:nth-child(2) { left: 648px; }
+  .pip .celda:nth-child(1) { inset: 0; }
+  .pip .celda:nth-child(2) { right: 40px; top: 40px; width: 360px; height: 203px; border-radius: 10px; border: 3px solid #fff; }
+  .cuadricula .celda { width: 632px; height: 356px; border-radius: 8px; }
+  .cuadricula .celda:nth-child(1) { left: 4px; top: 4px; } .cuadricula .celda:nth-child(2) { left: 644px; top: 4px; }
+  .cuadricula .celda:nth-child(3) { left: 4px; top: 364px; } .cuadricula .celda:nth-child(4) { left: 644px; top: 364px; }
   #espera { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 700; background: linear-gradient(160deg, #18345a, #0b1c33); }
   .oculto { display: none !important; }
   #sombra { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0)); pointer-events: none; }
@@ -32,8 +44,8 @@
 </style>
 </head>
 <body>
+  <div id="lienzo" class="solo"></div>
   <div id="espera">Esperando la cámara…</div>
-  <video id="video" autoplay playsinline muted class="oculto"></video>
   <div id="sombra"></div>
   <div id="logo"></div>
   <div id="vivo"><i></i>EN VIVO</div>
@@ -44,6 +56,8 @@
   <script>
     const q = new URLSearchParams(location.search);
     const url = q.get('url'); const token = q.get('token');
+    const PRINCIPAL = 'camara-principal';
+    const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 4 };
 
     function contraste(hex) {
       const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
@@ -77,48 +91,91 @@
       document.getElementById('pie-der').textContent = p.hashtag || '';
     }
 
-    function leerMetadata(room) {
-      try { pintar(JSON.parse(room.metadata || '{}')); } catch (e) { pintar({}); }
-    }
-
     let grabando = false;
     function empezar() { if (!grabando) { grabando = true; console.log('START_RECORDING'); } }
 
     async function main() {
       const { Room, RoomEvent, Track } = LivekitClient;
       const room = new Room({ adaptiveStream: false, dynacast: false });
-      const video = document.getElementById('video');
+      const lienzo = document.getElementById('lienzo');
       const espera = document.getElementById('espera');
-      let pistaActual = null;
+      let escena = { layout: 'solo', principal: PRINCIPAL, visibles: [] };
+      const celdas = new Map(); // identity -> {el, video, track}
 
-      const mostrarPista = (track) => {
-        if (pistaActual) pistaActual.detach(video);
-        pistaActual = track;
-        track.attach(video);
-        video.classList.remove('oculto'); espera.classList.add('oculto');
-        empezar();
-      };
-      const elegirCamara = () => {
-        // La cámara "principal" (identidad camara-principal) o la primera disponible
-        const parts = Array.from(room.remoteParticipants.values()).sort((a, b) => (a.identity === 'camara-principal' ? -1 : 1));
-        for (const p of parts) {
+      function leerMetadata() {
+        let m = {};
+        try { m = JSON.parse(room.metadata || '{}'); } catch (e) { m = {}; }
+        pintar(m);
+        const e = m.escena || {};
+        escena = {
+          layout: CUPOS[e.layout] ? e.layout : 'solo',
+          principal: e.principal || PRINCIPAL,
+          visibles: Array.isArray(e.visibles) ? e.visibles : [],
+        };
+        componer();
+      }
+
+      // Cámara (pista de vídeo) de cada participante conectado que publica
+      function camarasDisponibles() {
+        const out = new Map();
+        for (const p of room.remoteParticipants.values()) {
           for (const pub of p.videoTrackPublications.values()) {
-            if (pub.track && pub.source === Track.Source.Camera) { mostrarPista(pub.track); return; }
+            if (pub.track && pub.source === Track.Source.Camera && !pub.isMuted) { out.set(p.identity, { track: pub.track, nombre: p.name || p.identity }); break; }
           }
         }
-        if (pistaActual) { pistaActual.detach(video); pistaActual = null; }
-        video.classList.add('oculto'); espera.classList.remove('oculto');
-      };
+        return out;
+      }
 
-      room.on(RoomEvent.TrackSubscribed, elegirCamara);
-      room.on(RoomEvent.TrackUnsubscribed, elegirCamara);
-      room.on(RoomEvent.ParticipantDisconnected, elegirCamara);
-      room.on(RoomEvent.RoomMetadataChanged, () => leerMetadata(room));
+      // Quién sale al aire y en qué orden: principal primero, luego los "visibles" elegidos,
+      // y si el director no eligió a nadie, el resto de cámaras conectadas (orden de llegada)
+      function ordenAlAire(camaras) {
+        const cupos = CUPOS[escena.layout];
+        const lista = [];
+        const meter = (id) => { if (camaras.has(id) && !lista.includes(id) && lista.length < cupos) lista.push(id); };
+        meter(escena.principal);
+        for (const id of escena.visibles) meter(id);
+        if (escena.visibles.length === 0 || lista.length === 0) {
+          for (const id of camaras.keys()) meter(id);
+        }
+        return lista;
+      }
+
+      function componer() {
+        const camaras = camarasDisponibles();
+        const alAire = ordenAlAire(camaras);
+        lienzo.className = escena.layout;
+        for (const [id, c] of celdas) {
+          if (!alAire.includes(id)) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); celdas.delete(id); }
+        }
+        alAire.forEach((id, i) => {
+          const cam = camaras.get(id);
+          let c = celdas.get(id);
+          if (!c || c.track !== cam.track) {
+            if (c) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); }
+            const el = document.createElement('div'); el.className = 'celda';
+            const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.muted = true;
+            cam.track.attach(video); el.appendChild(video);
+            const n = document.createElement('span'); n.className = 'nombre'; n.textContent = cam.nombre; el.appendChild(n);
+            c = { el, video, track: cam.track }; celdas.set(id, c);
+          }
+          c.el.querySelector('.nombre').classList.toggle('oculto', escena.layout === 'solo');
+          if (lienzo.children[i] !== c.el) lienzo.insertBefore(c.el, lienzo.children[i] || null);
+        });
+        espera.classList.toggle('oculto', alAire.length > 0);
+        if (alAire.length > 0) empezar();
+      }
+
+      room.on(RoomEvent.TrackSubscribed, componer);
+      room.on(RoomEvent.TrackUnsubscribed, componer);
+      room.on(RoomEvent.TrackMuted, componer);
+      room.on(RoomEvent.TrackUnmuted, componer);
+      room.on(RoomEvent.ParticipantConnected, componer);
+      room.on(RoomEvent.ParticipantDisconnected, componer);
+      room.on(RoomEvent.RoomMetadataChanged, leerMetadata);
       room.on(RoomEvent.Disconnected, () => { console.log('END_RECORDING'); });
 
       await room.connect(url, token, { autoSubscribe: true });
-      leerMetadata(room);
-      elegirCamara();
+      leerMetadata();
       // Si nadie publica en 20 s, igual se empieza (pantalla de espera) para que Facebook reciba señal
       setTimeout(empezar, 20000);
     }

@@ -16,6 +16,10 @@ Route::view('/privacy', 'privacy')->name('privacy');
 
 // Escena de las transmisiones en vivo (la carga el egress de LiveKit con su propio token)
 Route::view('/en-vivo/escena', 'en-vivo.escena')->name('en-vivo.escena');
+// Invitados a una transmisión (cámara remota desde el navegador, con código de invitación)
+Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoPagina'])->name('en-vivo.invitado');
+Route::post('/en-vivo/invitado/{codigo}/token', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoToken'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->name('en-vivo.invitado.token');
 
 Route::view('/terms', 'terms')->name('terms');
 

@@ -10,11 +10,13 @@ class TransmisionEnVivo extends Model
 
     protected $fillable = [
         'meta_page_id', 'usuario_app', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
-        'stream_url', 'egress_id', 'estado', 'plantilla', 'error', 'iniciada_en', 'terminada_en',
+        'stream_url', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
     ];
 
     protected $casts = [
         'plantilla' => 'array',
+        'escena' => 'array',
+        'invitaciones' => 'array',
         'iniciada_en' => 'datetime',
         'terminada_en' => 'datetime',
     ];
@@ -22,6 +24,12 @@ class TransmisionEnVivo extends Model
     public function page()
     {
         return $this->belongsTo(MetaPage::class, 'meta_page_id');
+    }
+
+    /** Metadata de la sala LiveKit: plantilla + escena (la página de la escena la lee en tiempo real). */
+    public function metadataSala(): array
+    {
+        return ($this->plantilla ?? []) + ['escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []]];
     }
 
     /** Datos que ve la app (sin el stream_url secreto). */
@@ -39,6 +47,8 @@ class TransmisionEnVivo extends Model
             'fb_video_id' => $this->fb_video_id,
             'permalink' => $this->fb_permalink,
             'plantilla' => $this->plantilla ?? [],
+            'escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []],
+            'invitaciones' => array_values(array_map(fn($i) => ['codigo' => $i['codigo'], 'nombre' => $i['nombre'] ?? null, 'url' => route('en-vivo.invitado', $i['codigo'])], $this->invitaciones ?? [])),
             'error' => $this->error,
             'iniciada_en' => $this->iniciada_en?->toIso8601String(),
             'terminada_en' => $this->terminada_en?->toIso8601String(),

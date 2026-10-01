@@ -94,6 +94,31 @@ class LiveKitClient
         ], $room);
     }
 
+    /** Participantes conectados a la sala (identity, name, state, tracks). */
+    public function participantes(string $room): array
+    {
+        $r = $this->twirp('livekit.RoomService', 'ListParticipants', ['room' => $room], $room);
+        $out = [];
+        foreach ((array) ($r['participants'] ?? []) as $p) {
+            $video = false; $audio = false;
+            foreach ((array) ($p['tracks'] ?? []) as $t) {
+                $tipo = strtoupper((string) ($t['type'] ?? ''));
+                $src = strtoupper((string) ($t['source'] ?? ''));
+                if ($tipo === 'VIDEO' || $src === 'CAMERA') $video = $video || !($t['muted'] ?? false);
+                if ($tipo === 'AUDIO' || $src === 'MICROPHONE') $audio = $audio || !($t['muted'] ?? false);
+            }
+            $identity = (string) ($p['identity'] ?? '');
+            if ($identity === '' || str_starts_with($identity, 'EG_')) continue; // el egress no cuenta
+            $out[] = ['identity' => $identity, 'nombre' => (string) ($p['name'] ?: $identity), 'video' => $video, 'audio' => $audio, 'estado' => (string) ($p['state'] ?? '')];
+        }
+        return $out;
+    }
+
+    public function expulsar(string $room, string $identity): void
+    {
+        $this->twirp('livekit.RoomService', 'RemoveParticipant', ['room' => $room, 'identity' => $identity], $room);
+    }
+
     public function borrarSala(string $room): void
     {
         try {

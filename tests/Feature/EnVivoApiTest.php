@@ -37,7 +37,7 @@ class EnVivoApiTest extends TestCase
         Schema::create('transmisiones_en_vivo', function (Blueprint $t) {
             $t->id(); $t->foreignId('meta_page_id'); $t->string('usuario_app', 60)->nullable(); $t->string('titulo', 200); $t->text('descripcion')->nullable(); $t->string('room', 80)->unique();
             $t->string('fb_live_id', 60)->nullable(); $t->string('fb_video_id', 60)->nullable(); $t->string('fb_permalink', 500)->nullable(); $t->text('stream_url')->nullable(); $t->string('egress_id', 80)->nullable();
-            $t->string('estado', 20)->default('creada'); $t->json('plantilla')->nullable(); $t->text('error')->nullable(); $t->timestamp('iniciada_en')->nullable(); $t->timestamp('terminada_en')->nullable(); $t->timestamps();
+            $t->string('estado', 20)->default('creada'); $t->json('plantilla')->nullable(); $t->json('escena')->nullable(); $t->json('invitaciones')->nullable(); $t->text('error')->nullable(); $t->timestamp('iniciada_en')->nullable(); $t->timestamp('terminada_en')->nullable(); $t->timestamps();
         });
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
         $user = User::factory()->create(['role_id' => $rol->id]);
@@ -54,6 +54,12 @@ class EnVivoApiTest extends TestCase
             'live.prueba.test/twirp/livekit.RoomService/CreateRoom' => Http::response(['name' => 'x', 'sid' => 'RM_1'], 200),
             'live.prueba.test/twirp/livekit.RoomService/UpdateRoomMetadata' => Http::response(['name' => 'x'], 200),
             'live.prueba.test/twirp/livekit.RoomService/DeleteRoom' => Http::response([], 200),
+            'live.prueba.test/twirp/livekit.RoomService/ListParticipants' => Http::response(['participants' => [
+                ['identity' => 'camara-principal', 'name' => 'Estudio', 'state' => 'ACTIVE', 'tracks' => [['type' => 'VIDEO', 'source' => 'CAMERA', 'muted' => false]]],
+                ['identity' => 'invitado-abc', 'name' => 'Carlos', 'state' => 'ACTIVE', 'tracks' => [['type' => 'VIDEO', 'source' => 'CAMERA', 'muted' => false], ['type' => 'AUDIO', 'source' => 'MICROPHONE', 'muted' => true]]],
+                ['identity' => 'EG_1', 'name' => '', 'state' => 'ACTIVE', 'tracks' => []],
+            ]], 200),
+            'live.prueba.test/twirp/livekit.RoomService/RemoveParticipant' => Http::response([], 200),
             'live.prueba.test/twirp/livekit.Egress/StartRoomCompositeEgress' => Http::response(['egress_id' => 'EG_1', 'status' => 'EGRESS_STARTING'], 200),
             'live.prueba.test/twirp/livekit.Egress/StopEgress' => Http::response(['egress_id' => 'EG_1'], 200),
             'live.prueba.test/twirp/livekit.Egress/ListEgress' => Http::response(['items' => [['egress_id' => 'EG_1', 'status' => 'EGRESS_ACTIVE']]], 200),
@@ -115,6 +121,53 @@ class EnVivoApiTest extends TestCase
         Http::assertSent(fn($req) => $req->url() === 'https://graph.facebook.com/v23.0/7001' && ($req['end_live_video'] ?? null) === 'true');
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/DeleteRoom') && $req['room'] === $room);
         $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/activas')->assertOk()->assertJsonCount(0, 'transmisiones');
+    }
+
+    public function test_invitados_escena_y_expulsar(): void
+    {
+        $this->fakeTodo();
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/iniciar', ['page_id' => '111', 'titulo' => 'Debate en vivo']);
+        $r->assertOk()->assertJsonPath('transmision.escena.layout', 'solo');
+        $id = $r->json('transmision.id');
+        $room = $r->json('transmision.room');
+        // La sala nace con la escena en la metadata
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/CreateRoom') && str_contains($req['metadata'], '"escena":{"layout":"solo"'));
+
+        // Invitación → enlace público
+        $i = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/invitacion", ['nombre' => 'Carlos']);
+        $i->assertOk()->assertJsonPath('success', true);
+        $codigo = $i->json('codigo');
+        $this->assertStringContainsString("/en-vivo/invitado/{$codigo}", $i->json('url'));
+        $this->withHeader('X-Editus-Token', self::TOKEN)->getJson("/api/en-vivo/{$id}/estado")->assertOk()->assertJsonPath('transmision.invitaciones.0.nombre', 'Carlos');
+
+        // Página del invitado sin sesión, y token con permiso de publicar en la misma sala
+        $this->get("/en-vivo/invitado/{$codigo}")->assertOk()->assertSee('Debate en vivo')->assertSee('enableCameraAndMicrophone');
+        $this->get('/en-vivo/invitado/noexiste')->assertNotFound();
+        $t = $this->postJson("/en-vivo/invitado/{$codigo}/token", ['nombre' => 'Carlos desde Pitalito']);
+        $t->assertOk()->assertJsonPath('url', 'wss://live.prueba.test')->assertJsonPath('identity', "invitado-{$codigo}");
+        $jwt = JWT::decode($t->json('token'), new Key('secreto-muy-largo-de-prueba-1234567890', 'HS256'));
+        $this->assertSame($room, $jwt->video->room);
+        $this->assertTrue($jwt->video->canPublish);
+        $this->assertSame('Carlos desde Pitalito', $jwt->name);
+
+        // Participantes conectados (el egress no cuenta)
+        $p = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson("/api/en-vivo/{$id}/participantes");
+        $p->assertOk()->assertJsonCount(2, 'participantes')->assertJsonPath('participantes.1.nombre', 'Carlos')->assertJsonPath('participantes.1.audio', false);
+
+        // Escena: dos cámaras, el invitado al aire → metadata de la sala
+        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['layout' => 'dos', 'visibles' => ['invitado-abc']]);
+        $e->assertOk()->assertJsonPath('escena.layout', 'dos')->assertJsonPath('escena.visibles.0', 'invitado-abc')->assertJsonPath('escena.principal', 'camara-principal');
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && $req['room'] === $room && str_contains($req['metadata'], '"layout":"dos"'));
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['layout' => 'otro'])->assertStatus(422);
+
+        // Expulsar
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/participantes/invitado-abc/expulsar")->assertOk();
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/RemoveParticipant') && $req['identity'] === 'invitado-abc');
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/participantes/camara-principal/expulsar")->assertStatus(422);
+
+        // Terminada → la invitación deja de servir
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/terminar")->assertOk();
+        $this->postJson("/en-vivo/invitado/{$codigo}/token")->assertNotFound();
     }
 
     public function test_si_facebook_falla_no_queda_nada_a_medias(): void
