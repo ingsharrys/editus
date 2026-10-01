@@ -103,6 +103,14 @@ class SocialVideoPublisher extends SocialPhotoPublisher
             }
 
             $permalink = $permalink ?: "https://www.facebook.com/{$page->page_id}/videos/{$videoId}";
+            // Miniatura que generó Facebook (portada de la nota en la web)
+            $miniatura = null;
+            try {
+                $pic = $this->http(20)->get(self::graph($videoId), ['fields' => 'picture', 'access_token' => $token]);
+                $miniatura = $pic->ok() ? (data_get($pic->json(), 'picture') ?: null) : null;
+            } catch (\Throwable) {
+                // solo informativo
+            }
             $post->update([
                 'status' => 'success',
                 'fb_post_id' => $postId ?: $videoId,
@@ -112,7 +120,7 @@ class SocialVideoPublisher extends SocialPhotoPublisher
                 'error' => null,
             ]);
 
-            return ['ok' => true, 'post_id' => $postId ?: $videoId, 'media_id' => $videoId, 'permalink' => $permalink, 'procesando' => $estado !== 'ready', 'error' => null];
+            return ['ok' => true, 'post_id' => $postId ?: $videoId, 'media_id' => $videoId, 'permalink' => $permalink, 'miniatura' => $miniatura, 'procesando' => $estado !== 'ready', 'error' => null];
         } catch (\Throwable $e) {
             $post->update(['status' => 'fail', 'error' => $e->getMessage()]);
             Log::warning('[API][video][facebook] excepción', ['page' => $page->page_id, 'err' => $e->getMessage()]);

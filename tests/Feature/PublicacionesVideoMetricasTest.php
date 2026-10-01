@@ -133,6 +133,51 @@ class PublicacionesVideoMetricasTest extends TestCase
           ->assertJsonPath('paginas.0.videos.2.duracion', 61)->assertJsonPath('paginas.0.error', null);
     }
 
+    public function test_subida_temporal_firmada_y_publicacion_con_video_id(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $page = $this->pagina('111', null);
+        $exp = time() + 600;
+        $sig = hash_hmac('sha256', "5|{$exp}", self::TOKEN);
+        $archivo = \Illuminate\Http\UploadedFile::fake()->create('clip.mp4', 2048, 'video/mp4');
+
+        // Firma mala → 401
+        $this->post('/api/subidas/video', ['u' => '5', 'exp' => $exp, 'sig' => 'x', 'video' => $archivo])->assertStatus(401);
+        // Firma vencida → 401
+        $this->post('/api/subidas/video', ['u' => '5', 'exp' => time() - 10, 'sig' => hash_hmac('sha256', '5|' . (time() - 10), self::TOKEN), 'video' => $archivo])->assertStatus(401);
+
+        $r = $this->post('/api/subidas/video', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'video' => $archivo]);
+        $r->assertOk()->assertJsonPath('success', true);
+        $videoId = $r->json('video_id');
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $videoId);
+        $this->assertStringEndsWith("/storage/videos/tmp/{$videoId}.mp4", $r->json('url'));
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists("videos/tmp/{$videoId}.mp4");
+
+        Http::fake([
+            'graph-video.facebook.com/v23.0/111/videos' => Http::response(['id' => '9001'], 200),
+            'graph.facebook.com/v23.0/9001?fields=status*' => Http::response(['status' => ['video_status' => 'ready'], 'post_id' => '111_9001', 'permalink_url' => '/p/videos/9001/'], 200),
+            'graph.facebook.com/v23.0/9001?fields=picture*' => Http::response(['picture' => 'https://scontent/thumb.jpg'], 200),
+            'graph.facebook.com/v23.0/9001' => Http::response(['success' => true], 200),
+        ]);
+        $p = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', [
+            'texto' => 'Resumen', 'video_id' => $videoId, 'paginas' => [['id' => $page->id, 'facebook' => true, 'instagram' => false]],
+        ]);
+        $p->assertOk()->assertJsonPath('success', true)
+          ->assertJsonPath('resultados.0.facebook.media_id', '9001')
+          ->assertJsonPath('resultados.0.facebook.miniatura', 'https://scontent/thumb.jpg');
+        Http::assertSent(fn($req) => str_contains($req->url(), 'graph-video') && str_ends_with($req['file_url'], "/storage/videos/tmp/{$videoId}.mp4"));
+        // El temporal se borra al publicar
+        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing("videos/tmp/{$videoId}.mp4");
+
+        // Un video_id ya borrado → 422 claro
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', ['texto' => 'x', 'video_id' => $videoId, 'paginas' => [['id' => $page->id]]])->assertStatus(422);
+
+        // Descripción del video en Facebook (para agregar el enlace de la web)
+        $d = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video/descripcion', ['page_id' => '111', 'video_id' => '9001', 'descripcion' => "Resumen\n\nVer más: https://b/r/x"]);
+        $d->assertOk()->assertJsonPath('success', true);
+        Http::assertSent(fn($req) => $req->url() === 'https://graph.facebook.com/v23.0/9001' && $req['description'] === "Resumen\n\nVer más: https://b/r/x");
+    }
+
     public function test_metricas_de_facebook_e_instagram(): void
     {
         $this->pagina();

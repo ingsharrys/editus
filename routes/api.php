@@ -26,6 +26,13 @@ Route::middleware('editus.token')->group(function () {
         ->name('api.publicaciones.foto');
     Route::post('/publicaciones/video', [\App\Http\Controllers\Api\PublicacionesController::class, 'video'])
         ->name('api.publicaciones.video');
+    Route::post('/publicaciones/video/descripcion', [\App\Http\Controllers\Api\PublicacionesController::class, 'descripcionVideo'])
+        ->name('api.publicaciones.video.descripcion');
     Route::post('/publicaciones/metricas', [\App\Http\Controllers\Api\PublicacionesController::class, 'metricas'])
         ->name('api.publicaciones.metricas');
 });
+
+// Subida temporal de videos desde la app del editor: la firma (HMAC con el
+// token de integración) la genera el backend de esnoticia, no va token en la app.
+Route::post('/subidas/video', [\App\Http\Controllers\Api\SubidasController::class, 'video'])
+    ->name('api.subidas.video');

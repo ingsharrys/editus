@@ -22,7 +22,8 @@ use Illuminate\Support\Str;
  *   GET  /api/plantillas          → plantillas de imagen activas
  *   POST /api/publicaciones/foto  → foto + texto en Facebook (con enlace) / Instagram (texto_instagram, sin enlace)
  *   GET  /api/videos              → últimos videos publicados en cada página (para la web)
- *   POST /api/publicaciones/video → video mp4 (URL) en Facebook / Instagram (Reel)
+ *   POST /api/publicaciones/video → video (URL o video_id temporal) en Facebook / Instagram (Reel)
+ *   POST /api/publicaciones/video/descripcion → agrega el enlace a la descripción del video en Facebook
  *   POST /api/publicaciones/metricas → alcance, interacciones y reproducciones de publicaciones
  */
 class PublicacionesController extends Controller
@@ -184,7 +185,8 @@ class PublicacionesController extends Controller
         $datos = $request->validate([
             'texto' => ['required', 'string', 'max:5000'],
             'texto_instagram' => ['nullable', 'string', 'max:2200'],
-            'video_url' => ['required', 'url'],
+            'video_url' => ['nullable', 'url', 'required_without:video_id'],
+            'video_id' => ['nullable', 'string', 'required_without:video_url'],
             'imagen_url' => ['nullable', 'url'],
             'paginas' => ['required', 'array', 'min:1'],
             'paginas.*.id' => ['nullable', 'integer'],
@@ -195,6 +197,18 @@ class PublicacionesController extends Controller
             'referencia' => ['nullable', 'string', 'max:100'],
         ]);
         @set_time_limit(600);
+
+        // Video subido temporalmente desde la app (SubidasController): se usa
+        // su URL pública y se borra al terminar
+        $videoId = trim((string) ($datos['video_id'] ?? ''));
+        $videoUrl = (string) ($datos['video_url'] ?? '');
+        if ($videoId !== '') {
+            $ruta = SubidasController::rutaDe($videoId);
+            if (!$ruta) {
+                return response()->json(['success' => false, 'error' => 'El video temporal ya no existe (venció o ya se publicó): súbelo de nuevo'], 422);
+            }
+            $videoUrl = url(\Illuminate\Support\Facades\Storage::disk('public')->url($ruta));
+        }
 
         $batch = (string) Str::uuid();
         $resultados = [];
@@ -224,7 +238,7 @@ class PublicacionesController extends Controller
             }
             $captionIg = trim((string) ($datos['texto_instagram'] ?? ''));
 
-            $res = $publisher->publicarVideo($page, $datos['video_url'], $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null, $datos['imagen_url'] ?? null);
+            $res = $publisher->publicarVideo($page, $videoUrl, $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null, $datos['imagen_url'] ?? null);
             $r['facebook'] = $res['facebook'];
             $r['instagram'] = $res['instagram'];
             if (($res['facebook']['ok'] ?? false) || ($res['instagram']['ok'] ?? false)) {
@@ -233,7 +247,41 @@ class PublicacionesController extends Controller
             $resultados[] = $r;
         }
 
+        if ($videoId !== '') {
+            SubidasController::borrar($videoId);
+        }
+
         return response()->json(['success' => $exitos > 0, 'batch' => $batch, 'publicadas' => $exitos, 'resultados' => $resultados]);
+    }
+
+    /**
+     * POST /api/publicaciones/video/descripcion: cambia la descripción de un
+     * video ya publicado en Facebook (para agregarle el enlace de la web,
+     * que se conoce después de publicar el video).
+     */
+    public function descripcionVideo(Request $request, \App\Services\MetaPageTokenResolver $tokens): JsonResponse
+    {
+        $datos = $request->validate([
+            'page_id' => ['required', 'string'],
+            'video_id' => ['required', 'string'],
+            'descripcion' => ['required', 'string', 'max:5000'],
+        ]);
+        $token = $tokens->forPage($datos['page_id']);
+        if (!$token) {
+            return response()->json(['success' => false, 'error' => 'La página no tiene un token activo en editus'], 422);
+        }
+        try {
+            $r = \Illuminate\Support\Facades\Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph($datos['video_id']), [
+                'description' => $datos['descripcion'],
+                'access_token' => $token,
+            ]);
+            if (!$r->ok()) {
+                return response()->json(['success' => false, 'error' => (string) (data_get($r->json(), 'error.message') ?: 'Facebook no aceptó la descripción')]);
+            }
+            return response()->json(['success' => true]);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 200, '')]);
+        }
     }
 
     /**
