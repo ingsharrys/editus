@@ -106,6 +106,33 @@ class PublicacionesVideoMetricasTest extends TestCase
         $this->assertStringContainsString('Unsupported aspect ratio', $r->json('resultados.0.instagram.error'));
     }
 
+    public function test_lista_videos_publicados_en_cada_pagina(): void
+    {
+        $page = $this->pagina('111', '222');
+        $page->update(['medio_slug' => 'opanoticias']);
+        Http::fake([
+            'graph.facebook.com/v23.0/111/videos*' => Http::response(['data' => [
+                ['id' => '9001', 'title' => 'Obras', 'description' => 'Recorrido por las obras', 'permalink_url' => '/opa/videos/9001/', 'created_time' => '2026-09-30T10:00:00+0000', 'picture' => 'https://scontent/x.jpg', 'length' => 61.4, 'status' => ['video_status' => 'ready']],
+                ['id' => '9002', 'description' => 'procesando', 'status' => ['video_status' => 'processing']],
+            ]], 200),
+            'graph.facebook.com/v23.0/111/video_reels*' => Http::response(['data' => [
+                ['id' => '9003', 'description' => 'Reel de la feria', 'permalink_url' => 'https://www.facebook.com/reel/9003', 'created_time' => '2026-10-01T08:00:00+0000', 'picture' => 'https://scontent/r.jpg', 'length' => 30],
+            ]], 200),
+            'graph.facebook.com/v23.0/222/media*' => Http::response(['data' => [
+                ['id' => '18001', 'media_type' => 'VIDEO', 'media_product_type' => 'REELS', 'caption' => 'Reel IG', 'permalink' => 'https://www.instagram.com/reel/XYZ/', 'thumbnail_url' => 'https://scontent/ig.jpg', 'timestamp' => '2026-10-01T09:00:00+0000'],
+                ['id' => '18002', 'media_type' => 'IMAGE', 'permalink' => 'https://www.instagram.com/p/FOTO/'],
+            ]], 200),
+        ]);
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/videos?limite=10');
+        $r->assertOk()->assertJsonCount(1, 'paginas')
+          ->assertJsonPath('paginas.0.medio', 'opanoticias')
+          ->assertJsonCount(3, 'paginas.0.videos')
+          ->assertJsonPath('paginas.0.videos.0.red', 'instagram')->assertJsonPath('paginas.0.videos.0.tipo', 'reel')
+          ->assertJsonPath('paginas.0.videos.1.id', '9003')->assertJsonPath('paginas.0.videos.1.tipo', 'reel')
+          ->assertJsonPath('paginas.0.videos.2.id', '9001')->assertJsonPath('paginas.0.videos.2.permalink', 'https://www.facebook.com/opa/videos/9001/')
+          ->assertJsonPath('paginas.0.videos.2.duracion', 61)->assertJsonPath('paginas.0.error', null);
+    }
+
     public function test_metricas_de_facebook_e_instagram(): void
     {
         $this->pagina();

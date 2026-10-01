@@ -20,6 +20,8 @@ Route::middleware('editus.token')->group(function () {
         ->name('api.paginas');
     Route::get('/plantillas', [\App\Http\Controllers\Api\PublicacionesController::class, 'plantillas'])
         ->name('api.plantillas');
+    Route::get('/videos', [\App\Http\Controllers\Api\PublicacionesController::class, 'videos'])
+        ->name('api.videos');
     Route::post('/publicaciones/foto', [\App\Http\Controllers\Api\PublicacionesController::class, 'foto'])
         ->name('api.publicaciones.foto');
     Route::post('/publicaciones/video', [\App\Http\Controllers\Api\PublicacionesController::class, 'video'])

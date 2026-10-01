@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
 use App\Models\PlantillaEditor;
 use App\Services\MetaMetricasService;
+use App\Services\MetaVideosService;
 use App\Services\SocialPhotoPublisher;
 use App\Services\SocialVideoPublisher;
 use Illuminate\Http\JsonResponse;
@@ -20,6 +21,7 @@ use Illuminate\Support\Str;
  *   GET  /api/paginas             → páginas conectadas con token activo y visibles en la app
  *   GET  /api/plantillas          → plantillas de imagen activas
  *   POST /api/publicaciones/foto  → foto + texto en Facebook (con enlace) / Instagram (texto_instagram, sin enlace)
+ *   GET  /api/videos              → últimos videos publicados en cada página (para la web)
  *   POST /api/publicaciones/video → video mp4 (URL) en Facebook / Instagram (Reel)
  *   POST /api/publicaciones/metricas → alcance, interacciones y reproducciones de publicaciones
  */
@@ -136,6 +138,41 @@ class PublicacionesController extends Controller
             'publicadas' => $exitos,
             'resultados' => $resultados,
         ]);
+    }
+
+    /**
+     * GET /api/videos?limite=15: últimos videos ya publicados en cada página
+     * visible en la app (Facebook: videos y reels; Instagram: videos/reels),
+     * para llevarlos a la web como embed.
+     */
+    public function videos(Request $request, MetaVideosService $servicio): JsonResponse
+    {
+        $limite = max(1, min(50, (int) $request->query('limite', 15)));
+        $pageId = trim((string) $request->query('page_id', ''));
+        @set_time_limit(120);
+
+        $paginas = MetaPage::query()
+            ->whereHas('users', fn($q) => $q->where('meta_page_user.is_active', 1)->whereNotNull('meta_page_user.page_access_token'))
+            ->when(Schema::hasColumn('meta_pages', 'visible_en_editor'), fn($q) => $q->where('visible_en_editor', 1))
+            ->when($pageId !== '', fn($q) => $q->where('page_id', $pageId))
+            ->orderBy('name')
+            ->get();
+
+        $salida = [];
+        foreach ($paginas as $p) {
+            $r = $servicio->dePagina($p, $limite);
+            $salida[] = [
+                'id' => $p->id,
+                'page_id' => (string) $p->page_id,
+                'nombre' => (string) $p->name,
+                'foto' => $p->pictureUrl('small'),
+                'medio' => $p->medio_slug ?: null,
+                'instagram' => !empty($p->instagram_business_account_id),
+                'videos' => $r['videos'],
+                'error' => $r['error'],
+            ];
+        }
+        return response()->json(['success' => true, 'paginas' => $salida]);
     }
 
     /**
