@@ -88,6 +88,12 @@ return [
         'ingest_token' => env('EDITUS_INGEST_TOKEN'),
     ],
 
+    // IA (Claude) para la inteligencia de audiencia: clasificar temas, leer comentarios y redactar informes
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_MODEL', 'claude-opus-5-5'),
+    ],
+
     'metrics' => [
         // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.
         // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).

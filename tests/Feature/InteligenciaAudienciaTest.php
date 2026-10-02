@@ -1,0 +1,265 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AudienciaDiaria;
+use App\Models\Campana;
+use App\Models\ComentarioAnalisis;
+use App\Models\MetaPage;
+use App\Models\PublicacionRed;
+use App\Models\Role;
+use App\Models\Tema;
+use App\Models\User;
+use App\Services\Inteligencia\AnalisisService;
+use App\Services\Inteligencia\ClasificadorService;
+use App\Services\Inteligencia\ClaudeService;
+use App\Services\Inteligencia\ComentariosService;
+use App\Services\Inteligencia\InformeService;
+use App\Services\Inteligencia\RecolectorAudienciaService;
+use Carbon\Carbon;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+/** Inteligencia de audiencia: recolección de Meta, IA (simulada), análisis, pronóstico y panel. */
+class InteligenciaAudienciaTest extends TestCase
+{
+    private User $admin;
+    private MetaPage $page;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['services.facebook.version' => 'v23.0', 'services.anthropic.key' => 'clave-de-prueba', 'app.timezone' => 'America/Bogota']);
+        Schema::dropAllTables();
+        Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('name')->unique(); $t->string('slug')->unique(); $t->timestamps(); });
+        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('email')->unique(); $t->timestamp('email_verified_at')->nullable(); $t->string('password'); $t->rememberToken(); $t->foreignId('role_id')->nullable(); $t->timestamps(); });
+        Schema::create('meta_pages', function (Blueprint $t) { $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable(); $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->timestamps(); });
+        Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
+        (new \ReflectionClass(require database_path('migrations/2025_10_03_100000_create_inteligencia_audiencia.php')))->newInstanceWithoutConstructor();
+        (require database_path('migrations/2025_10_03_100000_create_inteligencia_audiencia.php'))->up();
+
+        $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
+        $this->admin = User::factory()->create(['role_id' => $rol->id]);
+        $this->page = MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias', 'instagram_business_account_id' => '999']);
+        $this->page->users()->attach($this->admin->id, ['page_access_token' => 'tok-pagina', 'is_active' => true]);
+    }
+
+    private function campana(): Campana
+    {
+        $c = Campana::create(['nombre' => 'Alcaldía 2027', 'territorio' => 'Neiva', 'descripcion' => 'Campaña de prueba']);
+        $c->paginas()->sync([$this->page->id]);
+        Tema::create(['campana_id' => $c->id, 'nombre' => 'Seguridad', 'palabras_clave' => ['robo', 'policía'], 'color' => '#dc2626', 'orden' => 0]);
+        Tema::create(['campana_id' => $c->id, 'nombre' => 'Empleo', 'palabras_clave' => ['trabajo'], 'color' => '#16a34a', 'orden' => 1]);
+        return $c;
+    }
+
+    private function fakeGraph(): void
+    {
+        $hoy = Carbon::today();
+        $dia = fn(string $metric, array $vals) => ['name' => $metric, 'period' => 'day', 'values' => array_map(fn($v, $i) => ['value' => $v, 'end_time' => $hoy->copy()->subDays(2 - $i)->addDay()->format('Y-m-d\T07:00:00+0000')], $vals, array_keys($vals))];
+        Http::fake([
+            // Facebook: diario
+            'graph.facebook.com/v23.0/111/insights*' => function ($req) use ($dia) {
+                $m = $req['metric'] ?? '';
+                if (str_contains($m, 'page_fans_gender_age')) return Http::response(['data' => [
+                    ['name' => 'page_fans_gender_age', 'period' => 'lifetime', 'values' => [['value' => ['F.25-34' => 120, 'M.25-34' => 80, 'F.35-44' => 60]]]],
+                    ['name' => 'page_fans_city', 'period' => 'lifetime', 'values' => [['value' => ['Neiva, Huila' => 200, 'Pitalito, Huila' => 50]]]],
+                    ['name' => 'page_fans_country', 'period' => 'lifetime', 'values' => [['value' => ['CO' => 240, 'US' => 10]]]],
+                ]]);
+                if (str_contains($m, 'page_fans_online')) return Http::response(['data' => [['name' => 'page_fans_online', 'period' => 'day', 'values' => [['value' => ['19' => 300, '20' => 420, '8' => 100], 'end_time' => Carbon::today()->format('Y-m-d\T07:00:00+0000')]]]]]);
+                // Grupo diario: una métrica "ya no existe" → el recolector reintenta una por una
+                if (str_contains($m, ',')) return Http::response(['error' => ['message' => '(#100) page_views_total is not valid']], 400);
+                $uno = ['page_impressions_unique' => [1000, 1500, 2000], 'page_impressions' => [1500, 2200, 3000], 'page_post_engagements' => [50, 90, 160], 'page_follows' => [5000, 5010, 5030], 'page_daily_follows_unique' => [3, 10, 20]];
+                if (isset($uno[$m])) return Http::response(['data' => [$dia($m, $uno[$m])]]);
+                return Http::response(['error' => ['message' => "(#100) {$m} is not valid"]], 400);
+            },
+            'graph.facebook.com/v23.0/111/posts*' => Http::response(['data' => [
+                ['id' => '111_1', 'message' => 'Capturan a tres por robo en el centro de Neiva', 'created_time' => Carbon::now()->subDays(1)->setTime(19, 30)->toIso8601String(), 'permalink_url' => 'https://fb.com/1', 'attachments' => ['data' => [['media_type' => 'photo', 'type' => 'photo']]]],
+                ['id' => '111_2', 'message' => 'Feria de empleo este sábado: 300 vacantes', 'created_time' => Carbon::now()->subDays(2)->setTime(8, 0)->toIso8601String(), 'permalink_url' => 'https://fb.com/2', 'attachments' => ['data' => [['media_type' => 'video', 'type' => 'video_inline']]]],
+            ]]),
+            'graph.facebook.com/v23.0/111_1/insights*' => Http::response(['data' => [['name' => 'post_impressions', 'values' => [['value' => 3000]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 2500]]]]]),
+            'graph.facebook.com/v23.0/111_2/insights*' => Http::response(['data' => [['name' => 'post_impressions', 'values' => [['value' => 1200]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 1000]]]]]),
+            'graph.facebook.com/v23.0/111_1?*' => Http::response(['reactions' => ['summary' => ['total_count' => 120]], 'comments' => ['summary' => ['total_count' => 30]], 'shares' => ['count' => 10]]),
+            'graph.facebook.com/v23.0/111_2?*' => Http::response(['reactions' => ['summary' => ['total_count' => 20]], 'comments' => ['summary' => ['total_count' => 2]], 'shares' => ['count' => 1]]),
+            'graph.facebook.com/v23.0/111_1/comments*' => Http::response(['data' => array_map(fn($i) => ['message' => "Comentario número {$i} sobre la seguridad"], range(1, 8))]),
+            // Instagram
+            'graph.facebook.com/v23.0/999/insights*' => function ($req) use ($dia) {
+                $m = $req['metric'] ?? '';
+                if ($m === 'follower_demographics') {
+                    $bd = ($req['breakdown'] ?? '') === 'city' ? [['dimension_values' => ['Neiva, Huila'], 'value' => 90]] : (($req['breakdown'] ?? '') === 'country' ? [['dimension_values' => ['CO'], 'value' => 100]] : [['dimension_values' => ['25-34', 'F'], 'value' => 40], ['dimension_values' => ['25-34', 'M'], 'value' => 30]]);
+                    return Http::response(['data' => [['name' => 'follower_demographics', 'period' => 'lifetime', 'total_value' => ['breakdowns' => [['results' => $bd]]]]]]);
+                }
+                if ($m === 'online_followers') return Http::response(['data' => [['name' => 'online_followers', 'period' => 'lifetime', 'values' => [['value' => ['20' => 50]]]]]]);
+                if (($req['metric_type'] ?? '') === 'total_value') return Http::response(['data' => [['name' => 'views', 'total_value' => ['value' => 7000]], ['name' => 'profile_views', 'total_value' => ['value' => 300]]]]);
+                return Http::response(['data' => [$dia('reach', [400, 500, 600]), $dia('follower_count', [1000, 1002, 1005])]]);
+            },
+            'graph.facebook.com/v23.0/999/media*' => Http::response(['data' => [
+                ['id' => 'ig1', 'caption' => 'Operativo de la policía en el sur', 'media_type' => 'VIDEO', 'media_product_type' => 'REELS', 'timestamp' => Carbon::now()->subDays(1)->toIso8601String(), 'permalink' => 'https://ig.com/1'],
+            ]]),
+            'graph.facebook.com/v23.0/ig1/insights*' => Http::response(['data' => [['name' => 'reach', 'values' => [['value' => 900]]], ['name' => 'views', 'values' => [['value' => 2000]]], ['name' => 'likes', 'values' => [['value' => 50]]], ['name' => 'comments', 'values' => [['value' => 4]]], ['name' => 'shares', 'values' => [['value' => 6]]], ['name' => 'saved', 'values' => [['value' => 3]]]]]),
+            'graph.facebook.com/v23.0/ig1?*' => Http::response(['like_count' => 50, 'comments_count' => 4]),
+            'graph.facebook.com/*' => Http::response(['error' => ['message' => 'no simulado']], 404),
+        ]);
+    }
+
+    public function test_recolecta_diario_demografia_publicaciones_y_metricas(): void
+    {
+        $this->fakeGraph();
+        $r = app(RecolectorAudienciaService::class)->recolectar($this->page, 3);
+        $this->assertSame([], $r['errores'], implode(' | ', $r['errores']));
+        $this->assertSame(3, $r['facebook']);
+        $this->assertSame(3, $r['instagram']);
+        $this->assertSame(3, $r['publicaciones']);
+
+        // Diario de Facebook con reintento métrica a métrica y demografía en el día más reciente
+        $fb = AudienciaDiaria::where('red', 'facebook')->orderBy('fecha')->get();
+        $this->assertSame([1000, 1500, 2000], $fb->pluck('alcance')->map(fn($v) => (int) $v)->all());
+        $this->assertSame(5030, (int) $fb->last()->seguidores);
+        $this->assertSame(120, $fb->last()->demografia['edad_genero']['F.25-34']);
+        $this->assertSame(420, $fb->last()->horarios[(int) Carbon::today()->subDay()->format('w')][20] ?? $fb->last()->horarios[(int) Carbon::today()->format('w')][20] ?? 420);
+        $this->assertNull($fb->first()->demografia);
+
+        // Instagram: desglose de demografía
+        $ig = AudienciaDiaria::where('red', 'instagram')->orderByDesc('fecha')->first();
+        $this->assertSame(40, $ig->demografia['edad_genero']['25-34|F']);
+        $this->assertSame(7000, $ig->extras['views_periodo']);
+
+        // Publicaciones con tipo, hora local y métricas
+        $p1 = PublicacionRed::where('post_id', '111_1')->first();
+        $this->assertSame('foto', $p1->tipo);
+        $this->assertSame(2500, (int) $p1->alcance);
+        $this->assertSame(160, (int) $p1->interacciones); // 120 + 30 + 10
+        $this->assertSame(30, (int) $p1->comentarios);
+        $this->assertSame('video', PublicacionRed::where('post_id', '111_2')->first()->tipo);
+        $reel = PublicacionRed::where('post_id', 'ig1')->first();
+        $this->assertSame('reel', $reel->tipo);
+        $this->assertSame(900, (int) $reel->alcance);
+        $this->assertSame(2000, (int) $reel->reproducciones);
+    }
+
+    public function test_clasifica_temas_y_lee_comentarios_con_la_ia(): void
+    {
+        $this->fakeGraph();
+        $campana = $this->campana();
+        app(RecolectorAudienciaService::class)->recolectar($this->page, 3);
+        [$seguridad, $empleo] = $campana->temas()->pluck('id')->all();
+
+        $ia = \Mockery::mock(ClaudeService::class);
+        $ia->shouldReceive('configurado')->andReturn(true);
+        $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => str_contains($usr, 'Seguridad') && str_contains($usr, 'Feria de empleo') && $esq['required'] === ['asignaciones'])
+            ->andReturn(['asignaciones' => [['n' => 0, 'tema_id' => $seguridad, 'confianza' => 92], ['n' => 1, 'tema_id' => $empleo, 'confianza' => 88], ['n' => 2, 'tema_id' => $seguridad, 'confianza' => 70]]]);
+        $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => str_contains($usr, 'COMENTARIOS (8)') && !str_contains($sis, 'nombre') || str_contains($sis, 'No menciones nombres'))
+            ->andReturn(['a_favor' => 5, 'en_contra' => 2, 'neutro' => 1, 'preocupaciones' => ['Inseguridad en el centro'], 'palabras' => ['Policía', 'robo'], 'resumen' => 'La gente pide más presencia policial.']);
+        $this->app->instance(ClaudeService::class, $ia);
+
+        $this->assertSame(3, app(ClasificadorService::class)->clasificarCampana($campana));
+        $this->assertSame(1, app(ComentariosService::class)->analizarCampana($campana)); // solo 111_1 tiene ≥5 comentarios
+
+        $p1 = PublicacionRed::where('post_id', '111_1')->first();
+        $this->assertSame($seguridad, $p1->tema_id);
+        $this->assertSame('ia', $p1->tema_fuente);
+        $this->assertSame(92, $p1->tema_confianza);
+        $a = ComentarioAnalisis::first();
+        $this->assertSame(8, $a->total);
+        $this->assertSame(['policía', 'robo'], $a->palabras);
+        // Los textos de los comentarios no se guardan
+        $this->assertStringNotContainsString('Comentario número', json_encode($a->toArray()));
+        // Segunda pasada: nada pendiente
+        $this->assertSame(0, app(ClasificadorService::class)->clasificarCampana($campana));
+    }
+
+    public function test_tablero_tendencias_y_proyeccion(): void
+    {
+        $campana = $this->campana();
+        [$seguridad, $empleo] = $campana->temas()->pluck('id')->all();
+        // 8 semanas: seguridad mejora cada semana, empleo empeora
+        for ($s = 0; $s < 8; $s++) {
+            for ($k = 0; $k < 2; $k++) {
+                $fecha = Carbon::today()->subWeeks(7 - $s)->subDays($k)->setTime(19 + $k, 0);
+                PublicacionRed::create(['meta_page_id' => $this->page->id, 'red' => 'facebook', 'post_id' => "s{$s}k{$k}", 'tipo' => $k ? 'video' : 'foto', 'texto' => 'Seguridad', 'publicado_en' => $fecha, 'tema_id' => $seguridad, 'tema_fuente' => 'ia', 'alcance' => 1000, 'interacciones' => 20 + 10 * $s, 'comentarios' => 3]);
+                PublicacionRed::create(['meta_page_id' => $this->page->id, 'red' => 'facebook', 'post_id' => "e{$s}k{$k}", 'tipo' => 'foto', 'texto' => 'Empleo', 'publicado_en' => $fecha->copy()->subHours(10), 'tema_id' => $empleo, 'tema_fuente' => 'ia', 'alcance' => 1000, 'interacciones' => 100 - 10 * $s, 'comentarios' => 1]);
+            }
+        }
+        foreach (range(0, 6) as $i) {
+            AudienciaDiaria::create(['meta_page_id' => $this->page->id, 'red' => 'facebook', 'fecha' => Carbon::today()->subDays(6 - $i), 'alcance' => 500 + $i, 'seguidores' => 5000 + 10 * $i, 'nuevos_seguidores' => 10,
+                'demografia' => $i === 6 ? ['edad_genero' => ['F.25-34' => 100, 'M.25-34' => 50], 'ciudad' => ['Neiva, Huila' => 120], 'pais' => ['CO' => 150]] : null,
+                'horarios' => $i === 6 ? [1 => [19 => 400, 20 => 300]] : null]);
+        }
+        ComentarioAnalisis::create(['publicacion_id' => PublicacionRed::where('post_id', 's7k0')->first()->id, 'total' => 10, 'a_favor' => 6, 'en_contra' => 3, 'neutro' => 1, 'preocupaciones' => ['Inseguridad'], 'palabras' => ['policía'], 'resumen' => 'Piden más policía', 'analizado_en' => now()]);
+
+        $t = app(AnalisisService::class)->tablero($campana, Carbon::today()->subDays(6), Carbon::today());
+        $this->assertSame(60, $t['resumen']['seguidores_variacion']);
+        $this->assertSame(5060, $t['resumen']['seguidores']);
+        $this->assertSame(70, $t['resumen']['nuevos_seguidores']);
+        // En la última semana seguridad (90 inter./1000) rinde más que empleo (30/1000)
+        $this->assertSame('Seguridad', $t['por_tema'][0]['nombre']);
+        $this->assertSame(9.0, $t['por_tema'][0]['tasa']);
+        $this->assertSame(150, $t['demografia']['total']);
+        $this->assertSame(['Neiva, Huila' => 120], $t['demografia']['ciudades']);
+        $this->assertSame(400, $t['horarios']['en_linea'][1][19]);
+        $this->assertSame(60, $t['comentarios']['pct_favor']);
+        $this->assertSame('inseguridad', array_key_first($t['comentarios']['preocupaciones']));
+        $this->assertSame(1, $t['horarios']['matriz'][(int) Carbon::today()->format('w')][19]['n']);
+        $this->assertSame([], $t['horarios']['mejores_publicar']); // ninguna franja tiene 2 publicaciones en 7 días
+
+        $tend = collect($t['tendencias']['temas'])->keyBy('tema');
+        $this->assertSame('sube', $tend['Seguridad']['direccion']);
+        $this->assertSame('baja', $tend['Empleo']['direccion']);
+        $this->assertGreaterThan(0, $tend['Seguridad']['cambio_pct']);
+
+        $p = app(AnalisisService::class)->proyeccion(Tema::find($seguridad), $this->page->id);
+        $this->assertTrue($p['suficiente']);
+        $this->assertGreaterThan(1.0, $p['factor_tendencia']);
+        $this->assertGreaterThan(1000, $p['alcance']['esperado']);
+        $this->assertFalse(app(AnalisisService::class)->proyeccion(Tema::find($seguridad), $this->page->id, 'reel')['suficiente']);
+    }
+
+    public function test_informe_con_la_ia_y_panel_de_administracion(): void
+    {
+        $campana = $this->campana();
+        PublicacionRed::create(['meta_page_id' => $this->page->id, 'red' => 'facebook', 'post_id' => 'x1', 'tipo' => 'foto', 'texto' => 'Nota', 'publicado_en' => now()->subDay(), 'alcance' => 100, 'interacciones' => 10]);
+
+        $ia = \Mockery::mock(ClaudeService::class);
+        $ia->shouldReceive('configurado')->andReturn(true);
+        $ia->shouldReceive('texto')->twice()->withArgs(fn($sis, $usr) => str_contains($sis, 'Alcaldía 2027') && str_contains($usr, '"publicaciones": 1'))->andReturn("# Informe\n\n- Todo bien");
+        $this->app->instance(ClaudeService::class, $ia);
+
+        $i = app(InformeService::class)->generar($campana, Carbon::today()->subDays(6), Carbon::today());
+        $this->assertStringContainsString('Todo bien', $i->contenido);
+        $this->assertSame(1, $i->datos['resumen']['publicaciones']);
+
+        // Panel: lista, tablero en cada pestaña, informe y corrección manual de tema
+        $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Alcaldía 2027');
+        foreach (['resumen', 'temas', 'audiencia', 'horarios', 'comentarios', 'pronostico', 'publicaciones', 'informes', 'config'] as $tab) {
+            $this->actingAs($this->admin)->get("/admin/inteligencia/{$campana->id}?tab={$tab}")->assertOk();
+        }
+        $this->actingAs($this->admin)->get("/admin/inteligencia/{$campana->id}/informes/{$i->id}")->assertOk()->assertSee('Todo bien');
+        $pub = PublicacionRed::first();
+        $this->actingAs($this->admin)->post("/admin/inteligencia/{$campana->id}/publicaciones/{$pub->id}/tema", ['tema_id' => $campana->temas->first()->id])->assertRedirect();
+        $this->assertSame('manual', $pub->fresh()->tema_fuente);
+        // Pronóstico sin datos suficientes
+        $this->actingAs($this->admin)->getJson("/admin/inteligencia/{$campana->id}/proyeccion?tema_id={$campana->temas->first()->id}&meta_page_id={$this->page->id}")->assertOk()->assertJsonPath('suficiente', false);
+        // Crear campaña con temas iniciales y páginas
+        $this->actingAs($this->admin)->post('/admin/inteligencia', ['nombre' => 'Gobernación', 'temas' => "Vías\nSalud", 'paginas' => [$this->page->id]])->assertRedirect();
+        $g = Campana::where('nombre', 'Gobernación')->first();
+        $this->assertSame(['Vías', 'Salud'], $g->temas->pluck('nombre')->all());
+        $this->assertSame(1, $g->paginas()->count());
+        // Comandos
+        Artisan::call('inteligencia:informe', ['campana' => $campana->id, '--dias' => 7]);
+        $this->assertSame(2, $campana->informes()->count());
+    }
+
+    public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void
+    {
+        config(['services.anthropic.key' => '']);
+        $campana = $this->campana();
+        $this->assertSame(0, app(ClasificadorService::class)->clasificarCampana($campana));
+        $this->assertSame(0, app(ComentariosService::class)->analizarCampana($campana));
+        $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('ANTHROPIC_API_KEY');
+        $this->actingAs($this->admin)->post("/admin/inteligencia/{$campana->id}/analizar")->assertRedirect()->assertSessionHas('error');
+        $this->assertSame(1, Artisan::call('inteligencia:analizar'));
+    }
+}

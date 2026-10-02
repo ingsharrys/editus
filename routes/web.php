@@ -130,6 +130,22 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
         Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
         Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
+
+        // Inteligencia de audiencia (campañas, temas, tablero, informes)
+        Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->name('inteligencia.index');
+        Route::post('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'store'])->name('inteligencia.store');
+        Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
+        Route::put('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'update'])->name('inteligencia.update');
+        Route::delete('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'destroy'])->name('inteligencia.destroy');
+        Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->name('inteligencia.temas.store');
+        Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->name('inteligencia.temas.update');
+        Route::delete('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaDestroy'])->name('inteligencia.temas.destroy');
+        Route::post('/admin/inteligencia/{campana}/publicaciones/{publicacion}/tema', [\App\Http\Controllers\Admin\InteligenciaController::class, 'publicacionTema'])->name('inteligencia.publicacion.tema');
+        Route::post('/admin/inteligencia/{campana}/recolectar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectar'])->name('inteligencia.recolectar');
+        Route::post('/admin/inteligencia/{campana}/analizar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizar'])->name('inteligencia.analizar');
+        Route::post('/admin/inteligencia/{campana}/informes', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informeGenerar'])->name('inteligencia.informes.generar');
+        Route::get('/admin/inteligencia/{campana}/informes/{informe}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informe'])->name('inteligencia.informe');
+        Route::get('/admin/inteligencia/{campana}/proyeccion', [\App\Http\Controllers\Admin\InteligenciaController::class, 'proyeccion'])->name('inteligencia.proyeccion');
     });
 });
 // routes/web.php

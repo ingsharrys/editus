@@ -303,3 +303,10 @@ Artisan::command('meta:debug-token
     $this->line(str_repeat('-', 70));
     return 0;
 })->purpose('Audita tokens, tasks, scopes y prueba post/video endpoints');
+
+// ---- Inteligencia de audiencia (Admin → Inteligencia) ----
+// Recolecta datos de Meta de madrugada, luego clasifica y lee comentarios con la IA,
+// y los lunes redacta el informe semanal de cada campaña activa.
+Schedule::command('inteligencia:recolectar --dias=3')->dailyAt('02:10')->timezone(config('app.timezone', 'America/Bogota'))->withoutOverlapping();
+Schedule::command('inteligencia:analizar')->dailyAt('03:10')->timezone(config('app.timezone', 'America/Bogota'))->withoutOverlapping();
+Schedule::command('inteligencia:informe --dias=7')->weeklyOn(1, '06:05')->timezone(config('app.timezone', 'America/Bogota'))->withoutOverlapping();
