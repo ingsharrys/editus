@@ -162,10 +162,13 @@
           if (lienzo.children[i] !== c.el) lienzo.insertBefore(c.el, lienzo.children[i] || null);
         });
         espera.classList.toggle('oculto', alAire.length > 0);
+        console.log('escena: ' + escena.layout + ' · cámaras ' + JSON.stringify(Array.from(camaras.keys())) + ' · al aire ' + JSON.stringify(alAire) + ' · participantes ' + room.remoteParticipants.size);
         if (alAire.length > 0) empezar();
       }
 
       room.on(RoomEvent.TrackSubscribed, componer);
+      room.on(RoomEvent.TrackSubscriptionFailed, (sid, p, reason) => console.log('escena: no se pudo suscribir a ' + p.identity + ' ' + (reason || '')));
+      room.on(RoomEvent.TrackPublished, (pub, p) => console.log('escena: ' + p.identity + ' publicó ' + pub.source));
       room.on(RoomEvent.TrackUnsubscribed, componer);
       room.on(RoomEvent.TrackMuted, componer);
       room.on(RoomEvent.TrackUnmuted, componer);
