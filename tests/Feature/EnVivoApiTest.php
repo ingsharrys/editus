@@ -45,7 +45,7 @@ class EnVivoApiTest extends TestCase
         $page->users()->attach($user->id, ['page_access_token' => 'tok-pagina', 'is_active' => true]);
     }
 
-    private function fakeTodo(): void
+    private function fakeTodo(array $listEgress = [['egress_id' => 'EG_1', 'status' => 'EGRESS_ACTIVE']]): void
     {
         Http::fake([
             'graph.facebook.com/v23.0/111/live_videos' => Http::response(['id' => '7001', 'secure_stream_url' => 'rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-SECRETA', 'stream_url' => 'rtmp://x'], 200),
@@ -62,7 +62,7 @@ class EnVivoApiTest extends TestCase
             'live.prueba.test/twirp/livekit.RoomService/RemoveParticipant' => Http::response([], 200),
             'live.prueba.test/twirp/livekit.Egress/StartRoomCompositeEgress' => Http::response(['egress_id' => 'EG_1', 'status' => 'EGRESS_STARTING'], 200),
             'live.prueba.test/twirp/livekit.Egress/StopEgress' => Http::response(['egress_id' => 'EG_1'], 200),
-            'live.prueba.test/twirp/livekit.Egress/ListEgress' => Http::response(['items' => [['egress_id' => 'EG_1', 'status' => 'EGRESS_ACTIVE']]], 200),
+            'live.prueba.test/twirp/livekit.Egress/ListEgress' => Http::response(['items' => $listEgress], 200),
         ]);
     }
 
@@ -167,7 +167,18 @@ class EnVivoApiTest extends TestCase
 
         // Terminada → la invitación deja de servir
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/terminar")->assertOk();
-        $this->postJson("/en-vivo/invitado/{$codigo}/token")->assertNotFound();
+        $this->postJson("/en-vivo/invitado/{$codigo}/token")->assertStatus(422);
+        $this->get("/en-vivo/invitado/{$codigo}")->assertOk()->assertSee('no está en vivo');
+    }
+
+    public function test_el_estado_explica_por_que_se_corto_el_egress(): void
+    {
+        $this->fakeTodo([['egress_id' => 'EG_1', 'status' => 'EGRESS_FAILED', 'error' => 'page load error: net::ERR_NAME_NOT_RESOLVED']]);
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/iniciar', ['page_id' => '111', 'titulo' => 'Prueba']);
+        $id = $r->json('transmision.id');
+        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson("/api/en-vivo/{$id}/estado");
+        $e->assertOk()->assertJsonPath('transmision.estado', 'error');
+        $this->assertStringContainsString('ERR_NAME_NOT_RESOLVED', $e->json('transmision.error'));
     }
 
     public function test_si_facebook_falla_no_queda_nada_a_medias(): void

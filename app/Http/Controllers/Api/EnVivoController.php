@@ -203,7 +203,7 @@ class EnVivoController extends Controller
     {
         $codigo = Str::lower(preg_replace('/[^a-z0-9]/i', '', $codigo));
         if ($codigo === '') return [null, null];
-        $t = TransmisionEnVivo::whereIn('estado', ['en_vivo', 'creada'])->orderByDesc('id')->get()
+        $t = TransmisionEnVivo::where('created_at', '>=', now()->subDays(2))->orderByDesc('id')->get()
             ->first(fn($x) => collect($x->invitaciones ?? [])->contains(fn($i) => ($i['codigo'] ?? '') === $codigo));
         if (!$t) return [null, null];
         $inv = collect($t->invitaciones)->first(fn($i) => ($i['codigo'] ?? '') === $codigo);
@@ -227,9 +227,11 @@ class EnVivoController extends Controller
     public function estado(TransmisionEnVivo $transmision): JsonResponse
     {
         $fb = $transmision->fb_live_id ? $this->facebook->estado($transmision->page, $transmision->fb_live_id) : [];
-        $egress = $transmision->egress_id ? $this->livekit->estadoEgress($transmision->egress_id) : null;
+        $info = $transmision->egress_id ? $this->livekit->infoEgress($transmision->egress_id) : [];
+        $egress = $info['status'] ?? null;
         if ($transmision->estado === 'en_vivo' && in_array($egress, ['EGRESS_FAILED', 'EGRESS_ABORTED'], true)) {
-            $transmision->fill(['estado' => 'error', 'error' => 'La salida a Facebook se cortó (' . $egress . ')'])->save();
+            $motivo = trim(($info['error'] ?? '') ?: ($info['stream_error'] ?? ''));
+            $transmision->fill(['estado' => 'error', 'error' => Str::limit('La salida a Facebook se cortó (' . $egress . ($motivo !== '' ? ': ' . $motivo : '') . ')', 400, '')])->save();
         }
         return response()->json([
             'success' => true,

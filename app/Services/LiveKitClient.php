@@ -159,12 +159,27 @@ class LiveKitClient
 
     public function estadoEgress(string $egressId): ?string
     {
+        return $this->infoEgress($egressId)['status'] ?? null;
+    }
+
+    /** Estado y motivo de error del egress (status, error, stream_error). */
+    public function infoEgress(string $egressId): array
+    {
         try {
             $r = $this->twirp('livekit.Egress', 'ListEgress', ['egress_id' => $egressId]);
             $items = $r['items'] ?? [];
-            return $items ? (string) ($items[0]['status'] ?? '') : null;
+            if (!$items) return [];
+            $i = $items[0];
+            $streamError = '';
+            foreach ((array) ($i['stream_results'] ?? []) as $sr) {
+                if (!empty($sr['error'])) { $streamError = (string) $sr['error']; break; }
+            }
+            if ($streamError === '') foreach ((array) ($i['stream']['info'] ?? []) as $sr) {
+                if (!empty($sr['error'])) { $streamError = (string) $sr['error']; break; }
+            }
+            return ['status' => (string) ($i['status'] ?? ''), 'error' => (string) ($i['error'] ?? ''), 'stream_error' => $streamError];
         } catch (\Throwable) {
-            return null;
+            return [];
         }
     }
 
