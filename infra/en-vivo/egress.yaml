@@ -6,5 +6,7 @@ redis:
   address: 127.0.0.1:6379
 logging:
   level: info
+debug:
+  enable_chrome_logging: true   # consola del navegador de la escena en /tmp/chrome.log (dentro del contenedor)
 # Un solo egress a la vez por transmisión; con varias transmisiones simultáneas
 # sube cpu_cost_* o agrega otro contenedor egress.

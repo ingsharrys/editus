@@ -77,6 +77,8 @@ redis:
   address: 127.0.0.1:6379
 logging:
   level: info
+debug:
+  enable_chrome_logging: true
 EOF
 
 cat > docker-compose.yml <<'EOF'
