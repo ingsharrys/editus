@@ -43,6 +43,13 @@ y en el `.env` de editus: `LIVEKIT_ESCENA_URL=https://live.esnoticia.org/escena/
 (luego `php artisan config:clear`). Para actualizar la escena en el VPS:
 `cd /opt/editus-src && git pull`.
 
+## El egress no recibe video ("Start signal not received")
+
+El mezclador corre en el mismo VPS que LiveKit y debe poder conectarse a sí
+mismo. En `livekit.yaml`, dentro de `rtc:`, agrega
+`enable_loopback_candidate: true` y reinicia: `docker compose restart livekit`.
+(El instalador ya lo deja puesto.)
+
 ## Cámaras remotas (invitados)
 
 Desde la app, en una transmisión activa, "Crear y compartir enlace" genera una

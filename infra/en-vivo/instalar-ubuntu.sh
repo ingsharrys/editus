@@ -53,6 +53,8 @@ rtc:
   port_range_start: 50000
   port_range_end: 60000
   use_external_ip: true
+  # El egress (mezclador) corre en este mismo VPS: necesita poder conectarse por loopback
+  enable_loopback_candidate: true
 redis:
   address: 127.0.0.1:6379
 keys:

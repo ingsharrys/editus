@@ -23,6 +23,7 @@ chmod o+rx /opt /opt/editus-src /opt/editus-src/infra /opt/editus-src/infra/en-v
 chmod o+r "$ORIGEN/index.html"
 nginx -t && systemctl reload nginx
 DOMINIO=$(grep -m1 -oP 'server_name\s+\K[^;]+' "$CONF" | awk '{print $1}')
+sleep 2
 if curl -fsS "https://${DOMINIO}/escena/" | grep -q START_RECORDING; then
   echo "Escena publicada en https://${DOMINIO}/escena/"
   echo "Agrega al .env de editus:  LIVEKIT_ESCENA_URL=https://${DOMINIO}/escena/   (y php artisan config:clear)"

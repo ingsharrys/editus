@@ -172,12 +172,29 @@
       room.on(RoomEvent.ParticipantConnected, componer);
       room.on(RoomEvent.ParticipantDisconnected, componer);
       room.on(RoomEvent.RoomMetadataChanged, leerMetadata);
-      room.on(RoomEvent.Disconnected, () => { console.log('END_RECORDING'); });
+      // Si se cae la conexión antes de haber empezado, se reintenta en vez de cerrar el egress
+      room.on(RoomEvent.Disconnected, (motivo) => {
+        console.log('desconectado', motivo);
+        if (grabando) { console.log('END_RECORDING'); } else { conectar(); }
+      });
 
-      await room.connect(url, token, { autoSubscribe: true });
-      leerMetadata();
-      // Si nadie publica en 20 s, igual se empieza (pantalla de espera) para que Facebook reciba señal
-      setTimeout(empezar, 20000);
+      let intentos = 0;
+      async function conectar() {
+        intentos += 1;
+        if (intentos > 6) { espera.textContent = 'No se pudo conectar con el servidor de video'; console.log('END_RECORDING'); return; }
+        espera.textContent = intentos > 1 ? 'Reconectando (' + intentos + ')…' : 'Esperando la cámara…';
+        try {
+          await room.connect(url, token, { autoSubscribe: true });
+          leerMetadata();
+          componer();
+        } catch (e) {
+          console.error('conexión fallida', e && e.message);
+          setTimeout(conectar, 3000);
+        }
+      }
+      await conectar();
+      // Si nadie publica en 20 s pero hay conexión, igual se empieza (pantalla de espera) para que Facebook reciba señal
+      setTimeout(() => { if (room.state === 'connected') empezar(); }, 20000);
     }
     main().catch((e) => { document.getElementById('espera').textContent = 'No se pudo conectar: ' + e.message; console.error(e); });
   </script>
