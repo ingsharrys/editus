@@ -29,6 +29,20 @@ Al final imprime `LIVEKIT_URL`, `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET` para
 el `.env` de editus (también quedan en `/opt/livekit/claves.txt`). Si prefieres
 hacerlo a mano, sigue las secciones siguientes.
 
+## Escena servida desde el VPS (recomendado)
+
+El mezclador (egress) abre la página de la escena con un navegador automatizado.
+Si editus está detrás de cPanel/WHM con protección anti-bots, esa carga falla
+("page load error"). Para evitarlo, sirve la escena desde el propio VPS:
+
+```bash
+bash /opt/editus-src/infra/en-vivo/instalar-escena.sh
+```
+
+y en el `.env` de editus: `LIVEKIT_ESCENA_URL=https://live.esnoticia.org/escena/`
+(luego `php artisan config:clear`). Para actualizar la escena en el VPS:
+`cd /opt/editus-src && git pull`.
+
 ## Cámaras remotas (invitados)
 
 Desde la app, en una transmisión activa, "Crear y compartir enlace" genera una
