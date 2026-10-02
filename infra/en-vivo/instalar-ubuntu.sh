@@ -72,7 +72,7 @@ EOF
 cat > egress.yaml <<EOF
 api_key: ${API_KEY}
 api_secret: ${API_SECRET}
-ws_url: ws://127.0.0.1:7880
+ws_url: wss://${DOMINIO}
 redis:
   address: 127.0.0.1:6379
 logging:
