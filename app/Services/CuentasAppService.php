@@ -176,12 +176,21 @@ class CuentasAppService
     {
         $version = config('services.facebook.version', 'v23.0');
         $base = "https://graph.facebook.com/{$version}";
-        $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
-        $http = Http::withToken($social->access_token);
+        // Sin el campo de Instagram: para tokens que aún no tienen instagram_basic,
+        // Facebook rechaza la llamada completa si se pide ese campo.
+        $fieldsFull = 'id,name,category,access_token,tasks,instagram_business_account,picture{url}';
+        $fieldsBasic = 'id,name,category,access_token,tasks';
+        $http = Http::withToken($social->access_token)->timeout(30)->connectTimeout(10);
 
-        $pages = $this->leerPaginas($http, "{$base}/me/accounts?fields={$fields}", true);
+        // 1) Páginas "clásicas" (/me/accounts); 2) asignadas por Business Manager (/me/assigned_pages)
+        [$pages, $err] = $this->leerEdge($http, $base, 'accounts', [$fieldsFull, $fieldsBasic]);
+        if ($err !== null) {
+            Log::error('FB /me/accounts error', ['body' => $err]);
+            throw new \RuntimeException('No se pudieron obtener las páginas: ' . $this->mensajeGraph($err));
+        }
         if (empty($pages)) {
-            $pages = $this->leerPaginas($http, "{$base}/me/assigned_pages?fields={$fields}", false);
+            [$pages, $err] = $this->leerEdge($http, $base, 'assigned_pages', [$fieldsFull, $fieldsBasic]);
+            if ($err !== null) Log::warning('FB /me/assigned_pages error', ['body' => $err]);
         }
         if (empty($pages)) {
             throw new \RuntimeException("No se encontraron páginas.
@@ -190,64 +199,93 @@ class CuentasAppService
 - Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
         }
 
-        DB::transaction(function () use ($pages, $userId, $usuarioApp, $social, $base, $http) {
-            foreach ($pages as $page) {
-                $pageId = (string) data_get($page, 'id');
-                $tasks = data_get($page, 'tasks', []);
-                if (!is_array($tasks)) $tasks = $tasks ? [$tasks] : [];
+        // 3) Guardado página por página: un fallo en una no bloquea a las demás
+        $guardadas = 0;
+        foreach ($pages as $page) {
+            try {
+                DB::transaction(function () use ($page, $userId, $usuarioApp, $social, $base, $http) {
+                    $pageId = (string) data_get($page, 'id');
+                    $tasks = data_get($page, 'tasks', []);
+                    if (!is_array($tasks)) $tasks = $tasks ? [$tasks] : [];
 
-                $pageAccessToken = data_get($page, 'access_token');
-                if (!$pageAccessToken) {
-                    $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
-                    if ($try->ok()) $pageAccessToken = data_get($try->json(), 'access_token');
-                    else Log::warning('No page_access_token (fallback)', $try->json() ?? []);
-                }
+                    $pageAccessToken = data_get($page, 'access_token');
+                    if (!$pageAccessToken) {
+                        $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
+                        if ($try->ok()) $pageAccessToken = data_get($try->json(), 'access_token');
+                        else Log::warning('No page_access_token (fallback)', $try->json() ?? []);
+                    }
 
-                $metaPage = MetaPage::updateOrCreate(['page_id' => $pageId], [
-                    'name' => data_get($page, 'name'),
-                    'category' => data_get($page, 'category'),
-                    'instagram_business_account_id' => data_get($page, 'connected_instagram_business_account.id'),
-                    'picture_url' => "{$base}/{$pageId}/picture?type=normal",
-                    'tasks' => array_values($tasks),
-                ]);
+                    $metaPage = MetaPage::updateOrCreate(['page_id' => $pageId], [
+                        'name' => data_get($page, 'name'),
+                        'category' => data_get($page, 'category'),
+                        'instagram_business_account_id' => data_get($page, 'instagram_business_account.id') ?: data_get($page, 'connected_instagram_business_account.id'),
+                        'picture_url' => "{$base}/{$pageId}/picture?type=normal",
+                        'tasks' => array_values($tasks),
+                    ]);
 
-                $clave = ['meta_page_id' => $metaPage->id, 'user_id' => $userId];
-                if (Schema::hasColumn('meta_page_user', 'usuario_app')) $clave['usuario_app'] = $usuarioApp;
-                $vinculo = MetaPageUser::query()->where($clave)->first() ?: new MetaPageUser($clave);
-                $vinculo->fill([
-                    'page_access_token' => $pageAccessToken,
-                    'social_account_id' => $social->id,
-                    'expires_at' => null,
-                    'is_active' => $pageAccessToken ? 1 : 0,
-                ]);
-                $vinculo->save();
+                    $clave = ['meta_page_id' => $metaPage->id, 'user_id' => $userId];
+                    if (Schema::hasColumn('meta_page_user', 'usuario_app')) $clave['usuario_app'] = $usuarioApp;
+                    $vinculo = MetaPageUser::query()->where($clave)->first() ?: new MetaPageUser($clave);
+                    $vinculo->fill([
+                        'page_access_token' => $pageAccessToken,
+                        'social_account_id' => $social->id,
+                        'expires_at' => null,
+                        'is_active' => $pageAccessToken ? 1 : 0,
+                    ]);
+                    $vinculo->save();
 
-                if (!$pageAccessToken) {
-                    Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', ['page_id' => $pageId, 'tasks' => $tasks]);
-                } elseif (!in_array('ANALYZE', $tasks, true)) {
-                    Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', ['page_id' => $pageId, 'tasks' => $tasks]);
-                }
+                    if (!$pageAccessToken) {
+                        Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', ['page_id' => $pageId, 'tasks' => $tasks]);
+                    } elseif (!in_array('ANALYZE', $tasks, true)) {
+                        Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', ['page_id' => $pageId, 'tasks' => $tasks]);
+                    }
+                });
+                $guardadas++;
+            } catch (\Throwable $e) {
+                Log::warning('[sync] página no guardada', ['page' => data_get($page, 'id'), 'name' => data_get($page, 'name'), 'err' => $e->getMessage()]);
             }
-        });
+        }
 
-        return count($pages);
+        return $guardadas;
     }
 
-    private function leerPaginas($http, ?string $url, bool $estricto): array
+    /**
+     * Recorre un edge paginado de Graph. Si Facebook rechaza los campos completos
+     * (error #100 por campo/permiso), reintenta con los básicos.
+     * @return array{0: array, 1: ?string} [páginas, error]
+     */
+    private function leerEdge($http, string $base, string $edge, array $intentos): array
     {
-        $pages = [];
-        while ($url) {
-            $resp = $http->get($url);
-            if (!$resp->ok()) {
-                Log::error('FB páginas error', ['url' => $url, 'status' => $resp->status(), 'body' => $resp->body()]);
-                if ($estricto) throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
-                break;
+        foreach ($intentos as $i => $fields) {
+            $rows = [];
+            $url = "{$base}/me/{$edge}?fields={$fields}&limit=100";
+            $fallo = null;
+            while ($url) {
+                $resp = $http->get($url);
+                if (!$resp->ok()) { $fallo = $resp->body(); break; }
+                $json = $resp->json();
+                $rows = array_merge($rows, (array) data_get($json, 'data', []));
+                $url = data_get($json, 'paging.next');
             }
-            $json = $resp->json();
-            $pages = array_merge($pages, data_get($json, 'data', []));
-            $url = data_get($json, 'paging.next');
+            if ($fallo === null) return [$rows, null];
+
+            $code = (int) data_get(json_decode($fallo, true), 'error.code');
+            $errorDeCampo = $code === 100 || str_contains($fallo, 'nonexisting field') || str_contains($fallo, 'instagram');
+            if ($i < count($intentos) - 1 && $errorDeCampo) {
+                Log::info('[sync] campos completos rechazados, reintentando con básicos', ['edge' => $edge]);
+                continue;
+            }
+            return [[], $fallo];
         }
-        return $pages;
+        return [[], null];
+    }
+
+    private function mensajeGraph(string $body): string
+    {
+        $json = json_decode($body, true);
+        $msg = data_get($json, 'error.message');
+        $code = data_get($json, 'error.code');
+        return $msg ? trim($msg . ($code ? " (código {$code})" : '')) : mb_substr($body, 0, 300);
     }
 
     /** Vuelve a leer las páginas de la cuenta de Facebook del usuario de la app. */
