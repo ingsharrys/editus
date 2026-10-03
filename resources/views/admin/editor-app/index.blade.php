@@ -243,7 +243,7 @@
                                         <a href="https://www.youtube.com/channel/{{ $c->channel_id }}" target="_blank" class="underline">Ver canal</a>
                                         · {{ $c->refresh_token ? 'acceso permanente' : 'sin acceso permanente' }}
                                         @if ($c->expira_en) · token hasta {{ $c->expira_en->format('d/m H:i') }} @endif
-                                        @if ($deApp) · <span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 font-semibold">app</span> @{{ $nombresApp[(string) $c->usuario_app] ?? ('usuario #' . $c->usuario_app) }} @endif
+                                        @if ($deApp) · <span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 font-semibold">app</span> {{ '@' . ($nombresApp[(string) $c->usuario_app] ?? ('usuario #' . $c->usuario_app)) }} @endif
                                     </div>
                                 </div>
                                 <div class="flex flex-wrap items-end gap-2 w-full xl:w-auto">
