@@ -39,7 +39,7 @@
         @endif
 
         {{-- Pestañas --}}
-        <div class="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
+        <div class="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto -mx-1 px-1">
             @foreach ($tabs as $clave => [$titulo, $icono])
                 <a href="{{ route('editor-app.index', ['tab' => $clave]) }}"
                    class="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition
@@ -55,10 +55,10 @@
 
         {{-- ===================== PÁGINAS ===================== --}}
         @if ($tab === 'paginas')
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
                 @foreach ([['Páginas', $resumen['total'], 'text-gray-800'], ['Visibles en la app', $resumen['visibles'], 'text-emerald-700'], ['Conectadas desde la app', $resumen['desde_app'], 'text-indigo-700'], ['Sin token', $resumen['sin_token'], 'text-red-700']] as [$et, $n, $color])
-                    <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3">
-                        <div class="text-xs text-gray-500">{{ $et }}</div>
+                    <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3 min-w-0">
+                        <div class="text-xs text-gray-500 truncate">{{ $et }}</div>
                         <div class="text-2xl font-bold {{ $color }}">{{ $n }}</div>
                     </div>
                 @endforeach
@@ -74,114 +74,90 @@
                 </div>
             @endunless
 
-            <form method="POST" action="{{ route('editor-app.paginas') }}" class="rounded-3xl border border-gray-200 bg-white shadow-md overflow-hidden">
+            <form method="POST" action="{{ route('editor-app.paginas') }}" class="rounded-3xl border border-gray-200 bg-white shadow-md">
                 @csrf
-                <div class="flex flex-col md:flex-row md:items-center gap-3 px-5 py-4 border-b border-gray-100">
-                    <div class="flex-1">
+                <div class="flex flex-col lg:flex-row lg:items-center gap-3 px-4 sm:px-5 py-4 border-b border-gray-100">
+                    <div class="flex-1 min-w-0">
                         <h2 class="text-lg font-bold text-gray-800">Páginas de la organización</h2>
                         <p class="text-xs text-gray-500">
                             Marca <strong>Visible</strong> para ofrecerla en la app y elige en <strong>Periodistas</strong> quién la ve.
                             Las páginas conectadas desde la app aparecen aquí también, pero cada periodista solo ve las suyas.
                         </p>
                     </div>
-                    <input type="search" id="filtro-paginas" placeholder="Buscar página…" class="w-full md:w-60 rounded-xl border-gray-300 text-sm">
-                    <button type="submit" class="rounded-xl bg-[#00024f] text-white font-semibold px-5 py-2 hover:opacity-90 text-sm">Guardar cambios</button>
+                    <div class="flex gap-2">
+                        <input type="search" id="filtro-paginas" placeholder="Buscar página…" class="flex-1 lg:w-56 rounded-xl border-gray-300 text-sm">
+                        <button type="submit" class="rounded-xl bg-[#00024f] text-white font-semibold px-4 py-2 hover:opacity-90 text-sm whitespace-nowrap">Guardar</button>
+                    </div>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm" id="tabla-paginas">
-                        <thead class="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
-                            <tr>
-                                <th class="px-4 py-2.5 text-left">Visible</th>
-                                <th class="px-3 py-2.5 text-left">Página</th>
-                                <th class="px-3 py-2.5 text-left">Origen</th>
-                                <th class="px-3 py-2.5 text-left">Estado</th>
-                                <th class="px-3 py-2.5 text-left">Medio</th>
-                                <th class="px-3 py-2.5 text-left">Periodistas que la ven</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            @foreach ($paginas as $p)
-                                @php
-                                    $conToken = $p->vinculos->isNotEmpty();
-                                    $deWeb = $p->vinculos->filter(fn($v) => empty($v->usuario_app));
-                                    $deApp = $conApp ? $p->vinculos->filter(fn($v) => !empty($v->usuario_app)) : collect();
-                                    $lista = $p->app_usuarios;
-                                    $todos = $lista === null || in_array('*', (array) $lista, true);
-                                    $seleccion = $todos ? ['*'] : (array) $lista;
-                                @endphp
-                                <tr class="pagina-fila {{ $conToken ? '' : 'opacity-60' }}" data-nombre="{{ strtolower($p->name . ' ' . $p->page_id . ' ' . $p->medio_slug) }}">
-                                    <td class="px-4 py-2.5 align-top">
-                                        <input type="checkbox" name="visible[]" value="{{ $p->id }}" class="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200" {{ $p->visible_en_editor ? 'checked' : '' }}>
-                                    </td>
-                                    <td class="px-3 py-2.5 align-top">
-                                        <div class="flex items-center gap-2.5">
-                                            <img src="{{ $p->pictureUrl('small') }}" alt="" class="h-8 w-8 rounded-full bg-gray-100 object-cover shrink-0" loading="lazy">
-                                            <div class="min-w-0">
-                                                <div class="font-semibold text-gray-800 leading-tight truncate max-w-[220px]">{{ $p->name }}</div>
-                                                <div class="text-[11px] text-gray-400">
-                                                    {{ $p->page_id }}
-                                                    @if ($p->instagram_business_account_id)<span class="ml-1 rounded-full bg-fuchsia-50 text-fuchsia-700 px-1.5 py-0.5 font-semibold">IG</span>@endif
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2.5 align-top text-xs text-gray-600">
-                                        @if ($deWeb->isNotEmpty())
-                                            <div><span class="rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 font-semibold">editus web</span> {{ $deWeb->map(fn($v) => $v->user?->name)->filter()->unique()->implode(', ') }}</div>
+                <div id="lista-paginas" class="divide-y divide-gray-100">
+                    @foreach ($paginas as $p)
+                        @php
+                            $conToken = $p->vinculos->isNotEmpty();
+                            $deWeb = $p->vinculos->filter(fn($v) => empty($v->usuario_app));
+                            $deApp = $conApp ? $p->vinculos->filter(fn($v) => !empty($v->usuario_app)) : collect();
+                            $lista = $p->app_usuarios;
+                            $seleccion = ($lista === null || in_array('*', (array) $lista, true)) ? ['*'] : array_values((array) $lista);
+                        @endphp
+                        <div class="pagina-fila flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-5 py-3 {{ $conToken ? '' : 'bg-gray-50/60' }}" data-nombre="{{ strtolower($p->name . ' ' . $p->page_id . ' ' . $p->medio_slug) }}">
+                            {{-- Visible + identidad --}}
+                            <label class="flex items-center gap-3 min-w-0 flex-1 basis-64 cursor-pointer">
+                                <input type="checkbox" name="visible[]" value="{{ $p->id }}" class="h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200 shrink-0" {{ $p->visible_en_editor ? 'checked' : '' }}>
+                                <img src="{{ $p->pictureUrl('small') }}" alt="" class="h-9 w-9 rounded-full bg-gray-100 object-cover shrink-0 {{ $conToken ? '' : 'grayscale opacity-60' }}" loading="lazy">
+                                <span class="min-w-0">
+                                    <span class="block font-semibold text-gray-800 leading-tight truncate">{{ $p->name }}</span>
+                                    <span class="block text-[11px] text-gray-400 truncate">
+                                        {{ $p->page_id }}
+                                        @if ($p->category) · {{ $p->category }} @endif
+                                    </span>
+                                </span>
+                            </label>
+
+                            {{-- Origen y estado --}}
+                            <div class="flex flex-wrap items-center gap-1.5 text-xs basis-56 grow">
+                                @if ($conToken)
+                                    <span class="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 font-semibold">Activa</span>
+                                @else
+                                    <span class="rounded-full bg-red-50 text-red-700 px-2 py-0.5 font-semibold" title="Sin token activo: no aparecerá en la app aunque esté marcada">Sin token</span>
+                                @endif
+                                @if ($p->instagram_business_account_id)<span class="rounded-full bg-fuchsia-50 text-fuchsia-700 px-2 py-0.5 font-semibold">Instagram</span>@endif
+                                @if ($deWeb->isNotEmpty())
+                                    <span class="rounded-full bg-sky-50 text-sky-700 px-2 py-0.5" title="Conectada desde la web de editus"><strong>web</strong> {{ $deWeb->map(fn($v) => $v->user?->name)->filter()->unique()->implode(', ') }}</span>
+                                @endif
+                                @if ($deApp->isNotEmpty())
+                                    <span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5" title="Conectada desde la app"><strong>app</strong> {{ $deApp->map(fn($v) => '@' . ($nombresApp[(string) $v->usuario_app] ?? ('usuario #' . $v->usuario_app)))->unique()->implode(', ') }}</span>
+                                @endif
+                            </div>
+
+                            {{-- Medio y periodistas --}}
+                            <div class="flex flex-wrap gap-2 w-full xl:w-auto">
+                                <label class="block w-full sm:w-44">
+                                    <span class="block text-[11px] uppercase tracking-wide text-gray-400 mb-0.5">Medio</span>
+                                    <select name="medio[{{ $p->id }}]" class="w-full rounded-xl border-gray-300 text-sm py-1.5">
+                                        <option value="">— sin medio —</option>
+                                        @foreach ($medios as $slug => $nombreMedio)
+                                            <option value="{{ $slug }}" {{ $p->medio_slug === $slug ? 'selected' : '' }}>{{ $nombreMedio }}</option>
+                                        @endforeach
+                                        @if ($p->medio_slug && !array_key_exists($p->medio_slug, $medios))
+                                            <option value="{{ $p->medio_slug }}" selected>{{ $p->medio_slug }}</option>
                                         @endif
-                                        @if ($deApp->isNotEmpty())
-                                            <div class="mt-1"><span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 font-semibold">app</span> {{ $deApp->map(fn($v) => '@' . ($nombresApp[(string) $v->usuario_app] ?? ('usuario #' . $v->usuario_app)))->unique()->implode(', ') }}</div>
-                                        @endif
-                                        @if ($deWeb->isEmpty() && $deApp->isEmpty())<span class="text-gray-400">—</span>@endif
-                                    </td>
-                                    <td class="px-3 py-2.5 align-top">
-                                        @if ($conToken)
-                                            <span class="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-xs font-semibold">Activa</span>
-                                        @else
-                                            <span class="rounded-full bg-red-50 text-red-700 px-2 py-0.5 text-xs font-semibold" title="Sin token activo: no aparecerá en la app aunque esté marcada">Sin token</span>
-                                        @endif
-                                    </td>
-                                    <td class="px-3 py-2.5 align-top">
-                                        <select name="medio[{{ $p->id }}]" class="w-40 rounded-xl border-gray-300 text-sm py-1.5">
-                                            <option value="">— sin medio —</option>
-                                            @foreach ($medios as $slug => $nombreMedio)
-                                                <option value="{{ $slug }}" {{ $p->medio_slug === $slug ? 'selected' : '' }}>{{ $nombreMedio }}</option>
-                                            @endforeach
-                                            @if ($p->medio_slug && !array_key_exists($p->medio_slug, $medios))
-                                                <option value="{{ $p->medio_slug }}" selected>{{ $p->medio_slug }}</option>
-                                            @endif
-                                        </select>
-                                    </td>
-                                    <td class="px-3 py-2.5 align-top">
-                                        @if (!empty($periodistas))
-                                            <input type="hidden" name="usuarios[{{ $p->id }}][]" value="">
-                                            <select name="usuarios[{{ $p->id }}][]" multiple size="3" class="w-56 rounded-xl border-gray-300 text-sm py-1" title="Mantén Ctrl (⌘ en Mac) para elegir varios">
-                                                <option value="*" {{ in_array('*', $seleccion, true) ? 'selected' : '' }}>★ Todos los periodistas</option>
-                                                @foreach ($periodistas as $u)
-                                                    <option value="{{ strtolower($u['username']) }}" {{ in_array(strtolower($u['username']), $seleccion, true) ? 'selected' : '' }}>{{ $u['username'] }}{{ $u['role'] ? ' · ' . $u['role'] : '' }}</option>
-                                                @endforeach
-                                                @foreach ($seleccion as $x)
-                                                    @if ($x !== '*' && !$periodistasPorNombre->has($x))
-                                                        <option value="{{ $x }}" selected>{{ $x }} (ya no existe)</option>
-                                                    @endif
-                                                @endforeach
-                                            </select>
-                                            <div class="text-[11px] text-gray-400 mt-0.5">{{ $p->resumenUsuariosApp() }}</div>
-                                        @else
-                                            <input type="text" name="usuarios[{{ $p->id }}]" value="{{ $todos ? '*' : implode(', ', (array) $lista) }}" placeholder="* = todos" class="w-44 rounded-xl border-gray-300 text-sm py-1.5">
-                                        @endif
-                                    </td>
-                                </tr>
-                            @endforeach
-                            @if ($paginas->isEmpty())
-                                <tr><td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">Todavía no hay páginas. Conéctalas en <a class="underline" href="{{ route('meta.pages.index') }}">Mis páginas</a> o desde la app.</td></tr>
-                            @endif
-                        </tbody>
-                    </table>
+                                    </select>
+                                </label>
+                                <div class="block w-full sm:w-60">
+                                    <span class="block text-[11px] uppercase tracking-wide text-gray-400 mb-0.5">Periodistas que la ven</span>
+                                    @include('admin.editor-app._periodistas', ['nombre' => "usuarios[{$p->id}]", 'seleccion' => $seleccion, 'periodistas' => $periodistas])
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                    @if ($paginas->isEmpty())
+                        <div class="px-4 py-10 text-center text-sm text-gray-500">Todavía no hay páginas. Conéctalas en <a class="underline" href="{{ route('meta.pages.index') }}">Mis páginas</a> o desde la app.</div>
+                    @endif
+                    <div id="sin-resultados" class="hidden px-4 py-8 text-center text-sm text-gray-500">Ninguna página coincide con la búsqueda.</div>
                 </div>
-                <div class="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-100 text-xs text-gray-500">
-                    <span>★ Todos = cualquier periodista la ve. Sin selección = nadie la ve (solo quien la conecte desde la app).</span>
+
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 sm:px-5 py-4 border-t border-gray-100 text-xs text-gray-500">
+                    <span>★ Todos = cualquier periodista la ve. Nadie = solo quien la conecte desde la app.</span>
                     <button type="submit" class="rounded-xl bg-[#00024f] text-white font-semibold px-5 py-2 hover:opacity-90 text-sm">Guardar cambios</button>
                 </div>
             </form>
@@ -191,14 +167,45 @@
                     var f = document.getElementById('filtro-paginas');
                     if (!f) return;
                     f.addEventListener('input', function () {
-                        var q = f.value.trim().toLowerCase();
-                        document.querySelectorAll('#tabla-paginas .pagina-fila').forEach(function (tr) {
-                            tr.style.display = !q || (tr.dataset.nombre || '').indexOf(q) !== -1 ? '' : 'none';
+                        var q = f.value.trim().toLowerCase(), visibles = 0;
+                        document.querySelectorAll('#lista-paginas .pagina-fila').forEach(function (fila) {
+                            var ok = !q || (fila.dataset.nombre || '').indexOf(q) !== -1;
+                            fila.style.display = ok ? '' : 'none';
+                            if (ok) visibles++;
                         });
+                        var sr = document.getElementById('sin-resultados');
+                        if (sr) sr.classList.toggle('hidden', visibles > 0);
                     });
                 })();
             </script>
         @endif
+
+        <script>
+            // Selector de periodistas: "Todos" excluye a los demás; el resumen refleja la elección; se cierra al hacer clic fuera
+            (function () {
+                function resumir(d) {
+                    var todos = d.querySelector('input.todos').checked;
+                    var elegidos = Array.prototype.filter.call(d.querySelectorAll('input.uno'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+                    var r = d.querySelector('.resumen');
+                    r.textContent = todos ? 'Todos los periodistas' : (elegidos.length ? elegidos.join(', ') : 'Nadie (solo desde la app)');
+                    r.className = 'resumen truncate ' + (todos ? 'text-gray-800' : (elegidos.length ? 'text-indigo-700 font-semibold' : 'text-red-600'));
+                }
+                document.querySelectorAll('details.periodistas').forEach(function (d) {
+                    d.addEventListener('change', function (e) {
+                        var t = e.target;
+                        if (t.classList.contains('todos') && t.checked) d.querySelectorAll('input.uno').forEach(function (c) { c.checked = false; });
+                        if (t.classList.contains('uno') && t.checked) d.querySelector('input.todos').checked = false;
+                        resumir(d);
+                    });
+                    d.addEventListener('toggle', function () {
+                        if (d.open) document.querySelectorAll('details.periodistas[open]').forEach(function (o) { if (o !== d) o.open = false; });
+                    });
+                });
+                document.addEventListener('click', function (e) {
+                    document.querySelectorAll('details.periodistas[open]').forEach(function (d) { if (!d.contains(e.target)) d.open = false; });
+                });
+            })();
+        </script>
 
         {{-- ===================== YOUTUBE ===================== --}}
         @if ($tab === 'youtube')
@@ -225,13 +232,12 @@
                         @foreach ($canalesYoutube as $c)
                             @php
                                 $lista = $c->app_usuarios;
-                                $todos = $lista === null || in_array('*', (array) $lista, true);
-                                $seleccion = $todos ? ['*'] : (array) $lista;
+                                $seleccion = ($lista === null || in_array('*', (array) $lista, true)) ? ['*'] : array_values((array) $lista);
                                 $deApp = !empty($c->usuario_app);
                             @endphp
-                            <div class="flex flex-col md:flex-row md:items-center gap-3 py-3 {{ $c->visible_en_editor || $deApp ? '' : 'opacity-60' }}">
+                            <div class="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 {{ $c->visible_en_editor || $deApp ? '' : 'opacity-60' }}">
                                 @if ($c->foto)<img src="{{ $c->foto }}" alt="" class="h-9 w-9 rounded-full bg-gray-100 shrink-0">@else<div class="h-9 w-9 rounded-full bg-gray-200 shrink-0"></div>@endif
-                                <div class="flex-1 min-w-0">
+                                <div class="flex-1 min-w-0 basis-56">
                                     <div class="font-semibold text-gray-800 truncate">{{ $c->titulo }}</div>
                                     <div class="text-xs text-gray-500">
                                         <a href="https://www.youtube.com/channel/{{ $c->channel_id }}" target="_blank" class="underline">Ver canal</a>
@@ -240,24 +246,19 @@
                                         @if ($deApp) · <span class="rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 font-semibold">app</span> @{{ $nombresApp[(string) $c->usuario_app] ?? ('usuario #' . $c->usuario_app) }} @endif
                                     </div>
                                 </div>
-                                @if (!$deApp)
-                                    <form method="POST" action="{{ route('youtube.usuarios', $c) }}" class="flex items-center gap-2">@csrf
-                                        @if (!empty($periodistas))
-                                            <input type="hidden" name="usuarios[]" value="">
-                                            <select name="usuarios[]" multiple size="3" class="w-56 rounded-xl border-gray-300 text-sm py-1" title="Mantén Ctrl (⌘ en Mac) para elegir varios">
-                                                <option value="*" {{ in_array('*', $seleccion, true) ? 'selected' : '' }}>★ Todos los periodistas</option>
-                                                @foreach ($periodistas as $u)
-                                                    <option value="{{ strtolower($u['username']) }}" {{ in_array(strtolower($u['username']), $seleccion, true) ? 'selected' : '' }}>{{ $u['username'] }}{{ $u['role'] ? ' · ' . $u['role'] : '' }}</option>
-                                                @endforeach
-                                            </select>
-                                        @else
-                                            <input type="text" name="usuarios" value="{{ $todos ? '*' : implode(', ', (array) $lista) }}" placeholder="* = todos" class="w-44 rounded-xl border-gray-300 text-sm py-1.5">
-                                        @endif
-                                        <button class="text-xs rounded-xl border border-gray-300 px-3 py-1.5 hover:bg-gray-50">Guardar</button>
-                                    </form>
-                                    <form method="POST" action="{{ route('youtube.visible', $c) }}">@csrf<input type="hidden" name="visible" value="{{ $c->visible_en_editor ? 0 : 1 }}"><button class="text-xs rounded-xl border border-gray-300 px-3 py-1.5 hover:bg-gray-50">{{ $c->visible_en_editor ? 'Ocultar en la app' : 'Mostrar en la app' }}</button></form>
-                                @endif
-                                <form method="POST" action="{{ route('youtube.desconectar', $c) }}" onsubmit="return confirm('¿Desconectar el canal «{{ $c->titulo }}»?')">@csrf @method('DELETE')<button class="text-xs text-red-600 hover:underline">Desconectar</button></form>
+                                <div class="flex flex-wrap items-end gap-2 w-full xl:w-auto">
+                                    @if (!$deApp)
+                                        <form method="POST" action="{{ route('youtube.usuarios', $c) }}" class="flex items-end gap-2 w-full sm:w-auto">@csrf
+                                            <div class="w-full sm:w-60">
+                                                <span class="block text-[11px] uppercase tracking-wide text-gray-400 mb-0.5">Periodistas que lo ven</span>
+                                                @include('admin.editor-app._periodistas', ['nombre' => 'usuarios', 'seleccion' => $seleccion, 'periodistas' => $periodistas])
+                                            </div>
+                                            <button class="text-xs rounded-xl border border-gray-300 px-3 py-2 hover:bg-gray-50 whitespace-nowrap">Guardar</button>
+                                        </form>
+                                        <form method="POST" action="{{ route('youtube.visible', $c) }}">@csrf<input type="hidden" name="visible" value="{{ $c->visible_en_editor ? 0 : 1 }}"><button class="text-xs rounded-xl border border-gray-300 px-3 py-2 hover:bg-gray-50 whitespace-nowrap">{{ $c->visible_en_editor ? 'Ocultar en la app' : 'Mostrar en la app' }}</button></form>
+                                    @endif
+                                    <form method="POST" action="{{ route('youtube.desconectar', $c) }}" onsubmit="return confirm('¿Desconectar el canal «{{ $c->titulo }}»?')">@csrf @method('DELETE')<button class="text-xs text-red-600 hover:underline px-2 py-2">Desconectar</button></form>
+                                </div>
                             </div>
                         @endforeach
                     </div>
