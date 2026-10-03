@@ -16,8 +16,15 @@ class RecursoEnVivo extends Model
     protected $fillable = ['tipo', 'uso', 'nombre', 'archivo', 'duracion', 'orden', 'activo'];
     protected $casts = ['duracion' => 'integer', 'orden' => 'integer', 'activo' => 'boolean'];
 
+    /**
+     * URL pública del archivo. Si LIVEKIT_RECURSOS_URL está definido (el VPS sirve los
+     * recursos por su propio dominio, ver infra/en-vivo/instalar-recursos.sh), se usa ese
+     * origen: así el mezclador los carga en local y sin protecciones anti-bots del hosting.
+     */
     public function url(): string
     {
+        $base = rtrim((string) config('services.livekit.recursos_url'), '/');
+        if ($base !== '') return $base . '/' . basename($this->archivo);
         return url(Storage::disk('public')->url($this->archivo));
     }
 

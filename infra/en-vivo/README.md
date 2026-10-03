@@ -82,6 +82,20 @@ mismo. En `livekit.yaml`, dentro de `rtc:`, agrega
   extensión nativa en la app, pendiente).
 - La escena no se traduce (notranslate) para que Chrome no muestre la barra de idioma.
 
+## Los recursos (intro, plantilla, publicidad) no se ven en la escena
+
+El mezclador y el monitor cargan esos archivos desde editus (`/storage/en-vivo/recursos/`).
+Si el hosting de editus bloquea navegadores automatizados o tiene protección de
+hotlink, no cargan. Solución: que el VPS los sirva (con caché) desde su propio dominio:
+
+```bash
+bash /opt/editus-src/infra/en-vivo/instalar-recursos.sh https://app.editus.online
+```
+
+y en el `.env` de editus `LIVEKIT_RECURSOS_URL=https://live.esnoticia.org/recursos`
+(luego `php artisan config:clear`). Comprueba también que exista el enlace
+`public/storage` en editus (`php artisan storage:link`).
+
 ## Cámaras remotas (invitados)
 
 Desde la app, en una transmisión activa, "Crear y compartir enlace" genera una

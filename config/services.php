@@ -110,6 +110,8 @@ return [
         'escena_url' => env('LIVEKIT_ESCENA_URL'),
         // Calidad de la transmisión que sale a Facebook: 1080 (por defecto) o 720 si el VPS se queda corto
         'calidad'    => env('LIVEKIT_CALIDAD', '1080'),
+        // Opcional: origen desde el que la escena carga los recursos (intro, plantillas, publicidad), p. ej. https://live.tudominio.com/recursos
+        'recursos_url' => env('LIVEKIT_RECURSOS_URL'),
     ],
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
