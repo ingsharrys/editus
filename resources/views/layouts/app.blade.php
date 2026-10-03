@@ -273,7 +273,7 @@
                         </div>
                     </aside>
                 </div>
-                <div class="px-2">
+                <div class="px-2 w-full min-w-0 flex-1">
                     <!-- Tu contenido -->
                     @yield('content')
                 </div>
