@@ -39,7 +39,7 @@
      onclick="toggleSidebar()"></div>
 
     <!-- Contenido -->
-    <div class="flex-1 flex flex-col">
+    <div class="flex-1 flex flex-col min-w-0">
 
         <!-- Topbar (mobile) -->
         <header class="lg:hidden bg-white shadow p-4 flex items-center justify-between">
