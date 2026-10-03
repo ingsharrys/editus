@@ -30,7 +30,7 @@ class TransmisionEnVivo extends Model
     /** Metadata de la sala LiveKit: plantilla + escena (la página de la escena la lee en tiempo real). */
     public function metadataSala(): array
     {
-        return ($this->plantilla ?? []) + ['escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []]];
+        return ($this->plantilla ?? []) + ['escena' => ($this->escena ?? []) + \App\Http\Controllers\Api\EnVivoController::escenaInicial()];
     }
 
     /** Destinos (una entrada por página). Las transmisiones viejas solo tienen la página principal. */
@@ -61,8 +61,8 @@ class TransmisionEnVivo extends Model
             'destinos' => array_values(array_map(fn($d) => array_diff_key($d, ['stream_url' => 1]), $this->destinosLista())),
             'paginas' => array_values(array_map(fn($d) => (string) ($d['pagina'] ?? ''), $this->destinosLista())),
             'plantilla' => $this->plantilla ?? [],
-            'escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []],
-            'invitaciones' => array_values(array_map(fn($i) => ['codigo' => $i['codigo'], 'nombre' => $i['nombre'] ?? null, 'url' => route('en-vivo.invitado', $i['codigo'])], $this->invitaciones ?? [])),
+            'escena' => ($this->escena ?? []) + \App\Http\Controllers\Api\EnVivoController::escenaInicial(),
+            'invitaciones' => array_values(array_map(fn($i) => ['codigo' => $i['codigo'], 'nombre' => $i['nombre'] ?? null, 'modo' => $i['modo'] ?? 'camara', 'url' => route('en-vivo.invitado', $i['codigo'])], $this->invitaciones ?? [])),
             'error' => $this->error,
             'iniciada_en' => $this->iniciada_en?->toIso8601String(),
             'terminada_en' => $this->terminada_en?->toIso8601String(),

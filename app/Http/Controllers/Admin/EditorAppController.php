@@ -97,6 +97,7 @@ class EditorAppController extends Controller
         $datos = $request->validate([
             'nombre' => ['required', 'string', 'max:80'],
             'archivo' => ['required', 'file', 'mimes:mp4,webm,png,jpg,jpeg,webp', 'max:204800'],
+            'uso' => ['nullable', 'string', 'in:auto,video,imagen,plantilla'],
             'duracion' => ['nullable', 'integer', 'min:1', 'max:600'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:999'],
         ], [
@@ -105,6 +106,10 @@ class EditorAppController extends Controller
         ]);
         $ext = strtolower($request->file('archivo')->getClientOriginalExtension());
         $tipo = in_array($ext, ['mp4', 'webm'], true) ? 'video' : 'imagen';
+        if (($datos['uso'] ?? 'auto') === 'plantilla') {
+            if ($ext !== 'png') return back()->withErrors(['archivo' => 'La plantilla de video debe ser un PNG con transparencia (1920×1080).'])->withInput();
+            $tipo = 'plantilla';
+        }
         $ruta = $request->file('archivo')->store('en-vivo/recursos', 'public');
         RecursoEnVivo::create([
             'tipo' => $tipo, 'nombre' => $datos['nombre'], 'archivo' => $ruta,

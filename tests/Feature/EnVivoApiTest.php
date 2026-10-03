@@ -228,6 +228,54 @@ class EnVivoApiTest extends TestCase
         Http::assertSent(fn($req) => $req->url() === 'https://graph.facebook.com/v23.0/8001' && ($req['end_live_video'] ?? null) === 'true');
     }
 
+    public function test_sala_primero_y_luego_al_aire_con_intro_y_nombres(): void
+    {
+        $this->fakeTodo();
+        $intro = \App\Models\RecursoEnVivo::create(['tipo' => 'video', 'nombre' => 'Intro Opa', 'archivo' => 'en-vivo/recursos/intro.mp4', 'orden' => 0, 'activo' => true]);
+        $marco = \App\Models\RecursoEnVivo::create(['tipo' => 'plantilla', 'nombre' => 'Marco rojo', 'archivo' => 'en-vivo/recursos/marco.png', 'orden' => 1, 'activo' => true]);
+
+        // 1) Sala: hay room y token, pero no hay Live en Facebook ni egress
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_ids' => ['111', '222'], 'titulo' => 'Noticiero', 'plantilla' => ['marco_url' => $marco->url()]]);
+        $r->assertOk()->assertJsonPath('transmision.estado', 'sala')->assertJsonPath('transmision.destinos.0.estado', 'pendiente')->assertJsonPath('transmision.plantilla.marco_url', $marco->url())->assertJsonPath('transmision.escena.rotulo_auto', false);
+        $this->assertNotEmpty($r->json('livekit.token'));
+        Http::assertNotSent(fn($req) => str_contains($req->url(), '/live_videos'));
+        Http::assertNotSent(fn($req) => str_contains($req->url(), 'StartRoomCompositeEgress'));
+        $id = $r->json('transmision.id');
+        // La sala aparece como activa y los invitados ya pueden entrar
+        $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/activas')->assertOk()->assertJsonCount(1, 'transmisiones');
+        $i = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/invitacion", ['modo' => 'pantalla']);
+        $i->assertOk()->assertJsonPath('modo', 'pantalla');
+        $this->get('/en-vivo/invitado/' . $i->json('codigo'))->assertOk()->assertSee('Compartir mi pantalla');
+        $this->postJson('/en-vivo/invitado/' . $i->json('codigo') . '/token')->assertOk()->assertJsonPath('identity', 'invitado-' . $i->json('codigo'));
+
+        // Nombres por cámara y rótulo de quien habla → metadata de la sala
+        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['nombres' => ['camara-principal' => ['nombre' => 'Ana Ruiz', 'cargo' => 'Presentadora'], 'invitado-abc' => ['nombre' => 'Luis', 'cargo' => '']], 'rotulo_de' => 'camara-principal']);
+        $e->assertOk()->assertJsonPath('escena.nombres.camara-principal.nombre', 'Ana Ruiz')->assertJsonPath('escena.rotulo_de', 'camara-principal');
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], 'Ana Ruiz') && str_contains($req['metadata'], '"rotulo_de":"camara-principal"'));
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['rotulo_auto' => true, 'quitar_rotulo' => true])->assertOk()->assertJsonPath('escena.rotulo_auto', true)->assertJsonPath('escena.rotulo_de', null);
+
+        // 2) Al aire con intro: lives en las dos páginas, intro en la metadata y egress con dos salidas
+        $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar", ['intro_recurso_id' => $intro->id]);
+        $a->assertOk()->assertJsonPath('transmision.estado', 'en_vivo')->assertJsonPath('transmision.destinos.1.fb_live_id', '8001')->assertJsonPath('transmision.escena.recurso.nombre', 'Intro Opa');
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/StartRoomCompositeEgress') && count($req['stream_outputs'][0]['urls']) === 2);
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], 'intro.mp4'));
+        // No se puede salir al aire dos veces
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar")->assertStatus(422);
+    }
+
+    public function test_si_facebook_falla_al_salir_al_aire_la_sala_sigue(): void
+    {
+        Http::fake(['graph.facebook.com/v23.0/*/live_videos' => Http::response(['error' => ['message' => '(#200) Requires publish_video permission']], 400)]);
+        $this->fakeTodo();
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_id' => '111', 'titulo' => 'Prueba']);
+        $id = $r->json('transmision.id');
+        $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar");
+        $a->assertStatus(422);
+        $this->assertStringContainsString('publish_video', $a->json('error'));
+        $this->assertSame('sala', TransmisionEnVivo::find($id)->estado);
+        Http::assertNotSent(fn($req) => str_contains($req->url(), 'StartRoomCompositeEgress'));
+    }
+
     public function test_si_una_pagina_falla_sigue_con_las_demas(): void
     {
         // El primer stub registrado gana: la página 222 falla y la 111 sigue

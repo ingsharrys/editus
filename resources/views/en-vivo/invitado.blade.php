@@ -35,7 +35,11 @@
 <body>
 <main>
   <h1>{{ $transmision->titulo }}</h1>
-  <p class="sub">Vas a enviar tu cámara a esta transmisión. El director decide cuándo sales al aire.</p>
+  @if ($modo === 'pantalla')
+    <p class="sub">Vas a compartir la pantalla de este computador con la transmisión. El director decide cuándo sale al aire.</p>
+  @else
+    <p class="sub">Vas a enviar tu cámara a esta transmisión. El director decide cuándo sales al aire.</p>
+  @endif
 
   <div class="marco">
     <video id="previa" autoplay playsinline muted></video>
@@ -43,12 +47,19 @@
   </div>
 
   <div id="paso1">
-    <label for="nombre">Tu nombre (se ve en pantalla)</label>
-    <input id="nombre" maxlength="40" placeholder="Ej: Carlos, Reportero en Pitalito" value="{{ $invitacion['nombre'] ?? '' }}">
+    <label for="nombre">{{ $modo === 'pantalla' ? 'Nombre de esta pantalla' : 'Tu nombre (se ve en pantalla)' }}</label>
+    <input id="nombre" maxlength="40" placeholder="{{ $modo === 'pantalla' ? 'Ej: Presentación, Computador de control' : 'Ej: Carlos, Reportero en Pitalito' }}" value="{{ $invitacion['nombre'] ?? '' }}">
     <div class="fila">
-      <button id="voltear" type="button">Voltear cámara</button>
-      <button id="unirse" class="primario" type="button">Enviar mi cámara</button>
+      @if ($modo === 'pantalla')
+        <button id="unirse" class="primario" type="button">Compartir mi pantalla</button>
+      @else
+        <button id="voltear" type="button">Voltear cámara</button>
+        <button id="unirse" class="primario" type="button">Enviar mi cámara</button>
+      @endif
     </div>
+    @if ($modo === 'pantalla')
+      <div id="aviso-pantalla" class="aviso oculto">Este enlace es para compartir pantalla desde un computador (Chrome, Edge o Firefox). En un celular el navegador no lo permite.</div>
+    @endif
   </div>
   <div id="paso2" class="oculto">
     <div class="fila">
@@ -66,6 +77,7 @@
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
 <script>
   const CODIGO = @json($codigo);
+  const MODO = @json($modo);
   const TOKEN_URL = @json(route('en-vivo.invitado.token', $codigo));
   const previa = document.getElementById('previa');
   const aviso = document.getElementById('aviso');
@@ -82,7 +94,8 @@
     } catch (e) { mostrar('No se pudo abrir la cámara: ' + e.message + '. Revisa los permisos del navegador.', true); }
   }
 
-  document.getElementById('voltear').onclick = async () => {
+  const btnVoltear = document.getElementById('voltear');
+  if (btnVoltear) btnVoltear.onclick = async () => {
     frontal = !frontal;
     if (room) { await room.localParticipant.setCameraEnabled(false); await room.localParticipant.setCameraEnabled(true, { facingMode: frontal ? 'user' : 'environment' }); previa.classList.toggle('trasera', !frontal); }
     else await previsualizar();
@@ -100,9 +113,17 @@
       room.on(RoomEvent.Disconnected, () => { estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
       await room.connect(j.url, j.token);
-      await room.localParticipant.enableCameraAndMicrophone();
-      const cam = room.localParticipant.getTrackPublication(Track.Source.Camera);
-      if (cam && cam.track) cam.track.attach(previa);
+      if (MODO === 'pantalla') {
+        await room.localParticipant.setScreenShareEnabled(true, { audio: true, resolution: { width: 1920, height: 1080, frameRate: 15 } });
+        try { await room.localParticipant.setMicrophoneEnabled(true); } catch (e) { /* sin micrófono */ }
+        const sc = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+        if (sc && sc.track) { previa.classList.add('trasera'); sc.track.attach(previa); }
+        pantallaActiva = true; btnPantalla.textContent = 'Dejar de compartir pantalla';
+      } else {
+        await room.localParticipant.enableCameraAndMicrophone();
+        const cam = room.localParticipant.getTrackPublication(Track.Source.Camera);
+        if (cam && cam.track) cam.track.attach(previa);
+      }
       document.getElementById('paso1').classList.add('oculto'); document.getElementById('paso2').classList.remove('oculto');
       aviso.classList.add('oculto');
       estado.textContent = 'CONECTADO · EN ESPERA';
@@ -147,7 +168,11 @@
   };
   document.getElementById('salir').onclick = async () => { if (room) await room.disconnect(); };
 
-  previsualizar();
+  if (MODO === 'pantalla') {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) { document.getElementById('aviso-pantalla').classList.remove('oculto'); document.getElementById('unirse').disabled = true; }
+  } else {
+    previsualizar();
+  }
 </script>
 </body>
 </html>

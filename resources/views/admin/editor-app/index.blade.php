@@ -286,14 +286,14 @@
                         <div class="space-y-2">
                             @foreach ($recursos as $r)
                                 <div class="flex items-center gap-3 rounded-2xl border border-gray-100 p-3">
-                                    @if ($r->tipo === 'imagen')
+                                    @if ($r->tipo !== 'video')
                                         <img src="{{ $r->url() }}" alt="" class="h-12 w-20 object-cover rounded-lg bg-gray-100">
                                     @else
                                         <div class="h-12 w-20 rounded-lg bg-gray-900 text-white flex items-center justify-center text-xs font-bold">VIDEO</div>
                                     @endif
                                     <div class="flex-1 min-w-0">
                                         <div class="font-semibold text-gray-800 truncate">{{ $r->nombre }}</div>
-                                        <div class="text-xs text-gray-500">{{ $r->tipo === 'video' ? 'Cortinilla / comercial' : 'Imagen' }}{{ $r->duracion ? " · {$r->duracion} s" : '' }} · orden {{ $r->orden }}</div>
+                                        <div class="text-xs text-gray-500">{{ $r->tipo === 'video' ? 'Video (intro, cortinilla o comercial)' : ($r->tipo === 'plantilla' ? 'Plantilla de video (marco PNG)' : 'Imagen a pantalla completa') }}{{ $r->duracion ? " · {$r->duracion} s" : '' }} · orden {{ $r->orden }}</div>
                                     </div>
                                     <form method="POST" action="{{ route('editor-app.recursos.destroy', $r) }}" onsubmit="return confirm('¿Eliminar el recurso «{{ $r->nombre }}»?')">
                                         @csrf @method('DELETE')
@@ -309,6 +309,11 @@
                     <h3 class="font-semibold text-gray-800">Subir recurso</h3>
                     <div><label class="block text-gray-600 mb-1">Nombre</label><input name="nombre" required maxlength="80" class="w-full rounded-lg border-gray-300" placeholder="Ej: Cortinilla Opa, Comercial Ferretería X"></div>
                     <div><label class="block text-gray-600 mb-1">Archivo</label><input type="file" name="archivo" required accept=".mp4,.webm,.png,.jpg,.jpeg,.webp" class="w-full text-sm"></div>
+                    <div><label class="block text-gray-600 mb-1">Uso</label>
+                        <select name="uso" class="w-full rounded-lg border-gray-300">
+                            <option value="auto">Automático (video → cortinilla/comercial/intro; imagen → pantalla completa)</option>
+                            <option value="plantilla">Plantilla de video: PNG transparente 1920×1080 que va sobre las cámaras</option>
+                        </select></div>
                     <div class="grid grid-cols-2 gap-2">
                         <div><label class="block text-gray-600 mb-1">Duración (s, solo imágenes)</label><input type="number" name="duracion" min="1" max="600" class="w-full rounded-lg border-gray-300" placeholder="vacío = hasta quitarla"></div>
                         <div><label class="block text-gray-600 mb-1">Orden</label><input type="number" name="orden" min="0" max="999" value="0" class="w-full rounded-lg border-gray-300"></div>

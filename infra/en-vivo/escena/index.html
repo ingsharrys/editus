@@ -53,6 +53,8 @@
   #rotulo .cargo { font-weight: 600; font-size: 17px; letter-spacing: 1px; color: #444; text-transform: uppercase; margin-top: 2px; }
   /* Recurso a pantalla completa (cortinilla, comercial, imagen) */
   #recurso { position: absolute; inset: 0; background: #000; z-index: 50; display: flex; align-items: center; justify-content: center; }
+  /* Marco (plantilla PNG transparente) sobre las cámaras y debajo de los textos */
+  #marco { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
   #recurso img, #recurso video { width: 100%; height: 100%; object-fit: contain; }
   #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
   #titulo { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
@@ -63,6 +65,7 @@
 <div id="escenario">
   <div id="lienzo" class="solo"></div>
   <div id="espera">Esperando la cámara…</div>
+  <img id="marco" class="oculto" alt="">
   <div id="sombra"></div>
   <div id="logo"></div>
   <div id="vivo"><i></i>EN VIVO</div>
@@ -113,12 +116,10 @@
         if (resto.length) { const r = document.createElement('span'); r.className = 'resto'; r.style.color = p.color_logo || '#fff'; r.textContent = resto.join(' '); logo.appendChild(r); }
       }
       document.getElementById('vivo').classList.toggle('oculto', p.en_vivo === false);
-      const rot = document.getElementById('rotulo');
-      const conRotulo = !!p.rotulo_mostrar && !!(p.rotulo_nombre || '').trim();
-      rot.classList.toggle('oculto', !conRotulo);
-      rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';
-      rot.querySelector('.nombre').textContent = p.rotulo_nombre || '';
-      const cargo = rot.querySelector('.cargo'); cargo.textContent = p.rotulo_cargo || ''; cargo.classList.toggle('oculto', !(p.rotulo_cargo || '').trim());
+      const marco = document.getElementById('marco');
+      if (p.marco_url) { if (marco.getAttribute('src') !== p.marco_url) marco.src = p.marco_url; marco.classList.remove('oculto'); } else { marco.classList.add('oculto'); }
+      plantillaActual = p;
+      pintarRotulo();
       const mostrar = p.mostrar !== false;
       document.getElementById('cintillo').classList.toggle('oculto', !mostrar);
       document.getElementById('sombra').classList.toggle('oculto', !mostrar);
@@ -128,6 +129,26 @@
       const t = document.getElementById('titulo'); t.textContent = p.titulo || ''; t.style.color = p.color_titulo || '#fff';
       document.getElementById('pie-izq').textContent = p.pie || '';
       document.getElementById('pie-der').textContent = p.hashtag || '';
+    }
+
+    // Rótulo: el nombre fijo elegido por el director (escena.rotulo_de), el de quien habla
+    // (escena.rotulo_auto) o, si no hay nombres por cámara, el de la plantilla.
+    let plantillaActual = {};
+    let escenaActual = { nombres: {}, rotulo_de: null, rotulo_auto: false };
+    let hablando = null; // identity del participante que más habla
+    function pintarRotulo() {
+      const p = plantillaActual || {};
+      const rot = document.getElementById('rotulo');
+      const nombres = escenaActual.nombres || {};
+      let nombre = '', cargo = '';
+      const de = escenaActual.rotulo_de && nombres[escenaActual.rotulo_de] ? nombres[escenaActual.rotulo_de] : null;
+      if (de && (de.nombre || '').trim()) { nombre = de.nombre; cargo = de.cargo || ''; }
+      else if (escenaActual.rotulo_auto && hablando && nombres[hablando] && (nombres[hablando].nombre || '').trim()) { nombre = nombres[hablando].nombre; cargo = nombres[hablando].cargo || ''; }
+      else if (p.rotulo_mostrar && (p.rotulo_nombre || '').trim()) { nombre = p.rotulo_nombre; cargo = p.rotulo_cargo || ''; }
+      rot.classList.toggle('oculto', !nombre);
+      rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';
+      rot.querySelector('.nombre').textContent = nombre;
+      const c = rot.querySelector('.cargo'); c.textContent = cargo; c.classList.toggle('oculto', !(cargo || '').trim());
     }
 
     let grabando = false;
@@ -204,6 +225,7 @@
           if (r.duracion) setTimeout(() => { if (recursoActual === clave) { cont.classList.add('oculto'); cont.innerHTML = ''; } }, Math.max(0, r.duracion - desfase) * 1000);
         }
         cont.classList.remove('oculto');
+        empezar(); // con una intro al aire la transmisión arranca aunque aún no haya cámara
         console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre);
       }
       let ultimoAlAire = [];
@@ -219,6 +241,8 @@
           visibles: Array.isArray(e.visibles) ? e.visibles : [],
           recurso: e.recurso && e.recurso.url ? e.recurso : null,
         };
+        escenaActual = { nombres: (e.nombres && typeof e.nombres === 'object') ? e.nombres : {}, rotulo_de: e.rotulo_de || null, rotulo_auto: !!e.rotulo_auto };
+        pintarRotulo();
         componer();
       }
 
@@ -289,6 +313,12 @@
       room.on(RoomEvent.ParticipantDisconnected, componer);
       room.on(RoomEvent.RoomMetadataChanged, leerMetadata);
       // Si se cae la conexión antes de haber empezado, se reintenta en vez de cerrar el egress
+      // Quién habla (para el rótulo automático): el más activo de los que están al aire
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const alAire = ultimoAlAire.map((id) => id.replace(/#pantalla$/, ''));
+        const s = speakers.find((sp) => !sp.isLocal && alAire.includes(sp.identity));
+        if (s && s.identity !== hablando) { hablando = s.identity; pintarRotulo(); }
+      });
       room.on(RoomEvent.Disconnected, (motivo) => {
         console.log('desconectado', motivo);
         if (grabando) { console.log('END_RECORDING'); } else { conectar(); }

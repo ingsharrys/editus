@@ -37,6 +37,8 @@ Route::middleware('editus.token')->group(function () {
     Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Api\EnVivoController::class, 'plantilla'])->name('api.envivo.plantilla');
     Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Api\EnVivoController::class, 'terminar'])->name('api.envivo.terminar');
     Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Api\EnVivoController::class, 'estado'])->name('api.envivo.estado');
+    Route::post('/en-vivo/preparar', [\App\Http\Controllers\Api\EnVivoController::class, 'preparar'])->name('api.envivo.preparar');
+    Route::post('/en-vivo/{transmision}/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'salirAlAire'])->name('api.envivo.aire');
     Route::get('/en-vivo/recursos', [\App\Http\Controllers\Api\EnVivoController::class, 'recursos'])->name('api.envivo.recursos');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Api\EnVivoController::class, 'escena'])->name('api.envivo.escena');
     Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Api\EnVivoController::class, 'invitacion'])->name('api.envivo.invitacion');

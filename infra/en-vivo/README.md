@@ -50,12 +50,26 @@ mismo. En `livekit.yaml`, dentro de `rtc:`, agrega
 `enable_loopback_candidate: true` y reinicia: `docker compose restart livekit`.
 (El instalador ya lo deja puesto.)
 
+## Flujo: sala primero, al aire después
+
+1. En la app se eligen las páginas y el título y se toca **Entrar a la sala**:
+   editus crea solo la sala de LiveKit (`POST /api/en-vivo/preparar`). Nada sale a Facebook.
+2. En la sala: vista previa de la cámara, invitaciones (cámara desde celular o
+   pantalla desde computador), nombres por cámara, plantilla, marco PNG e intro.
+3. **Salir al aire** (`POST /api/en-vivo/{id}/iniciar {intro_recurso_id?}`): un
+   Live por página, la intro en pantalla desde el primer segundo y el mezclador
+   hacia todas las páginas. Si Facebook falla, la sala sigue para reintentar.
+
 ## Producción (varias páginas, rótulo, logo, cortinillas, pantalla compartida)
 
 - **Varias páginas a la vez**: en la app se marcan las páginas; editus crea un Live
   en cada una y el mezclador envía la misma señal a todas (un solo egress con
   varias salidas RTMP). Si una página falla (permisos), las demás siguen.
-- **Rótulo**: nombre y cargo del presentador o periodista, abajo a la izquierda.
+- **Rótulo**: cada cámara tiene nombre y cargo (estudio de la app). El director
+  elige cuál se muestra, o activa el rótulo automático: aparece el nombre de la
+  cámara al aire que está hablando (LiveKit detecta quién habla).
+- **Marco (plantilla de video)**: PNG transparente 1920×1080 subido como recurso
+  de tipo "plantilla"; va sobre las cámaras y debajo de los textos.
 - **Logo**: texto o la imagen de una plantilla de la app (Admin → App del editor).
 - **Cortinillas, comerciales e imágenes**: se suben en Admin → App del editor →
   Recursos para las transmisiones en vivo (MP4/WebM o PNG/JPG/WEBP). Desde la app
