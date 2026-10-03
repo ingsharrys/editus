@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
 use App\Models\PlantillaEditor;
+use App\Models\RecursoEnVivo;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -32,8 +34,9 @@ class EditorAppController extends Controller
         }
 
         $medios = array_keys((array) config('services.editus.medios', []));
+        $recursos = Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::query()->orderBy('orden')->orderBy('id')->get() : collect();
 
-        return view('admin.editor-app.index', compact('paginas', 'plantillas', 'editar', 'medios'));
+        return view('admin.editor-app.index', compact('paginas', 'plantillas', 'editar', 'medios', 'recursos'));
     }
 
     /** Guarda qué páginas se ven en la app y a qué medio pertenece cada una. */
@@ -84,6 +87,38 @@ class EditorAppController extends Controller
         $plantilla->delete();
 
         return redirect()->route('editor-app.index')->with('success', "Plantilla «{$nombre}» eliminada.");
+    }
+
+    // ---------------------------------------------- Recursos para las transmisiones en vivo
+
+    /** Sube una cortinilla o comercial (video MP4/WebM) o una imagen a pantalla completa. */
+    public function recursoStore(Request $request): RedirectResponse
+    {
+        $datos = $request->validate([
+            'nombre' => ['required', 'string', 'max:80'],
+            'archivo' => ['required', 'file', 'mimes:mp4,webm,png,jpg,jpeg,webp', 'max:204800'],
+            'duracion' => ['nullable', 'integer', 'min:1', 'max:600'],
+            'orden' => ['nullable', 'integer', 'min:0', 'max:999'],
+        ], [
+            'archivo.mimes' => 'Sube un video MP4 o WebM, o una imagen PNG, JPG o WEBP.',
+            'archivo.max' => 'El archivo no puede superar 200 MB.',
+        ]);
+        $ext = strtolower($request->file('archivo')->getClientOriginalExtension());
+        $tipo = in_array($ext, ['mp4', 'webm'], true) ? 'video' : 'imagen';
+        $ruta = $request->file('archivo')->store('en-vivo/recursos', 'public');
+        RecursoEnVivo::create([
+            'tipo' => $tipo, 'nombre' => $datos['nombre'], 'archivo' => $ruta,
+            'duracion' => $datos['duracion'] ?? null, 'orden' => $datos['orden'] ?? 0, 'activo' => true,
+        ]);
+        return redirect()->route('editor-app.index')->with('success', "Recurso «{$datos['nombre']}» subido.")->withFragment('recursos');
+    }
+
+    public function recursoDestroy(RecursoEnVivo $recurso): RedirectResponse
+    {
+        Storage::disk('public')->delete($recurso->archivo);
+        $nombre = $recurso->nombre;
+        $recurso->delete();
+        return redirect()->route('editor-app.index')->with('success', "Recurso «{$nombre}» eliminado.")->withFragment('recursos');
     }
 
     private function guardarPlantilla(Request $request, PlantillaEditor $plantilla): void

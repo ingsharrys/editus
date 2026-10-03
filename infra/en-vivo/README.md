@@ -50,6 +50,24 @@ mismo. En `livekit.yaml`, dentro de `rtc:`, agrega
 `enable_loopback_candidate: true` y reinicia: `docker compose restart livekit`.
 (El instalador ya lo deja puesto.)
 
+## Producción (varias páginas, rótulo, logo, cortinillas, pantalla compartida)
+
+- **Varias páginas a la vez**: en la app se marcan las páginas; editus crea un Live
+  en cada una y el mezclador envía la misma señal a todas (un solo egress con
+  varias salidas RTMP). Si una página falla (permisos), las demás siguen.
+- **Rótulo**: nombre y cargo del presentador o periodista, abajo a la izquierda.
+- **Logo**: texto o la imagen de una plantilla de la app (Admin → App del editor).
+- **Cortinillas, comerciales e imágenes**: se suben en Admin → App del editor →
+  Recursos para las transmisiones en vivo (MP4/WebM o PNG/JPG/WEBP). Desde la app
+  se sacan al aire a pantalla completa; los videos suenan y al terminar vuelven
+  las cámaras. Mientras suena un video, los micrófonos se silencian.
+- **Pantalla compartida**: en la página del invitado, desde un computador, el
+  botón "Compartir pantalla" la envía al estudio como "Pantalla de X"; el
+  director la pone al aire como una cámara más (los navegadores de celular no
+  permiten compartir pantalla; para la pantalla del teléfono hace falta una
+  extensión nativa en la app, pendiente).
+- La escena no se traduce (notranslate) para que Chrome no muestre la barra de idioma.
+
 ## Cámaras remotas (invitados)
 
 Desde la app, en una transmisión activa, "Crear y compartir enlace" genera una

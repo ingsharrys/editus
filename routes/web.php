@@ -130,6 +130,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
         Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
         Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
+        Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');
+        Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');
 
         // Inteligencia de audiencia (campañas, temas, tablero, informes)
         Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->name('inteligencia.index');

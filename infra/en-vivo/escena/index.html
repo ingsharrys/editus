@@ -1,7 +1,8 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" class="notranslate" translate="no">
 <head>
 <meta charset="utf-8">
+<meta name="google" content="notranslate">
 <title>Escena en vivo</title>
 <!--
   Escena que compone el egress de LiveKit (plantilla y diseño en tiempo real):
@@ -21,6 +22,7 @@
   #audios { display: none; }
   .celda { position: absolute; overflow: hidden; background: #000; }
   .celda video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .celda.pantalla video { object-fit: contain; background: #000; }
   .celda .nombre { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; font-weight: 600; }
   /* Diseños */
   .solo .celda { inset: 0; }
@@ -35,12 +37,23 @@
   .oculto { display: none !important; }
   #sombra { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0)); pointer-events: none; }
   #logo { position: absolute; left: 44px; top: 36px; display: flex; align-items: center; gap: 4px; }
+  #logo img { height: 56px; max-width: 320px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,.5)); }
   #logo .caja { width: 44px; height: 44px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; }
   #logo .resto { font-weight: 700; font-size: 26px; margin-left: 8px; }
   #vivo { position: absolute; right: 44px; top: 40px; display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,.55); border-radius: 8px; padding: 8px 14px; color: #fff; font-weight: 800; font-size: 20px; letter-spacing: 2px; }
   #vivo i { width: 12px; height: 12px; border-radius: 50%; background: #e11d48; animation: latir 1.2s infinite; }
   @keyframes latir { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-  #cintillo { position: absolute; left: 44px; bottom: 96px; max-width: 980px; }
+  #inferior { position: absolute; left: 44px; bottom: 96px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: 980px; }
+  #cintillo { max-width: 980px; }
+  /* Rótulo (nombre y cargo del presentador o periodista) */
+  #rotulo { display: flex; align-items: stretch; filter: drop-shadow(2px 2px 3px rgba(0,0,0,.45)); }
+  #rotulo .barra { width: 10px; }
+  #rotulo .textos { background: rgba(255,255,255,.96); padding: 8px 22px 9px 16px; }
+  #rotulo .nombre { font-weight: 800; font-size: 27px; line-height: 1.1; color: #111; }
+  #rotulo .cargo { font-weight: 600; font-size: 17px; letter-spacing: 1px; color: #444; text-transform: uppercase; margin-top: 2px; }
+  /* Recurso a pantalla completa (cortinilla, comercial, imagen) */
+  #recurso { position: absolute; inset: 0; background: #000; z-index: 50; display: flex; align-items: center; justify-content: center; }
+  #recurso img, #recurso video { width: 100%; height: 100%; object-fit: contain; }
   #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
   #titulo { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
   #pie { position: absolute; left: 44px; right: 44px; bottom: 36px; display: flex; justify-content: space-between; color: #fff; font-weight: 600; font-size: 20px; }
@@ -53,7 +66,11 @@
   <div id="sombra"></div>
   <div id="logo"></div>
   <div id="vivo"><i></i>EN VIVO</div>
-  <div id="cintillo"><span id="etiqueta"></span><div id="titulo"></div></div>
+  <div id="inferior">
+    <div id="rotulo" class="oculto"><div class="barra"></div><div class="textos"><div class="nombre"></div><div class="cargo"></div></div></div>
+    <div id="cintillo"><span id="etiqueta"></span><div id="titulo"></div></div>
+  </div>
+  <div id="recurso" class="oculto"></div>
   <div id="pie"><span id="pie-izq"></span><span id="pie-der"></span></div>
 </div>
 <div id="audios"></div>
@@ -85,7 +102,9 @@
       const logo = document.getElementById('logo');
       logo.innerHTML = '';
       const texto = (p.logo_texto || '').trim();
-      if (texto) {
+      if (p.logo_url) {
+        const img = document.createElement('img'); img.src = p.logo_url; img.alt = texto; logo.appendChild(img);
+      } else if (texto) {
         const [marca, ...resto] = texto.split(/\s+/);
         for (const ch of marca.toUpperCase()) {
           const c = document.createElement('div'); c.className = 'caja';
@@ -94,6 +113,12 @@
         if (resto.length) { const r = document.createElement('span'); r.className = 'resto'; r.style.color = p.color_logo || '#fff'; r.textContent = resto.join(' '); logo.appendChild(r); }
       }
       document.getElementById('vivo').classList.toggle('oculto', p.en_vivo === false);
+      const rot = document.getElementById('rotulo');
+      const conRotulo = !!p.rotulo_mostrar && !!(p.rotulo_nombre || '').trim();
+      rot.classList.toggle('oculto', !conRotulo);
+      rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';
+      rot.querySelector('.nombre').textContent = p.rotulo_nombre || '';
+      const cargo = rot.querySelector('.cargo'); cargo.textContent = p.rotulo_cargo || ''; cargo.classList.toggle('oculto', !(p.rotulo_cargo || '').trim());
       const mostrar = p.mostrar !== false;
       document.getElementById('cintillo').classList.toggle('oculto', !mostrar);
       document.getElementById('sombra').classList.toggle('oculto', !mostrar);
@@ -118,29 +143,70 @@
       const audios = new Map(); // identity -> {el, track}  (solo suena quien está al aire)
       const audiosDiv = document.getElementById('audios');
 
+      // Micrófono de cada participante; la pantalla compartida (id#pantalla) usa el micrófono de su dueño
+      // y, si existe, el audio de la propia pantalla
       function microfonos() {
         const out = new Map();
         for (const p of room.remoteParticipants.values()) {
           for (const pub of p.audioTrackPublications.values()) {
-            if (pub.track && pub.source === Track.Source.Microphone) { out.set(p.identity, pub.track); break; }
+            if (!pub.track) continue;
+            if (pub.source === Track.Source.Microphone) out.set(p.identity, pub.track);
+            if (pub.source === Track.Source.ScreenShareAudio) out.set(p.identity + '#pantalla-audio', pub.track);
           }
         }
         return out;
       }
+      let silenciarCamaras = false; // mientras suena un video de producción
 
       function sonar(alAire) {
         const mics = microfonos();
-        for (const [id, a] of audios) {
-          if (!alAire.includes(id) || mics.get(id) !== a.track) { try { a.track.detach(a.el); } catch (e) {} a.el.remove(); audios.delete(id); }
-        }
+        // Qué pistas de audio deben sonar: micrófono del dueño de cada cámara o pantalla al aire + audio de pantalla
+        const deseadas = new Map();
         for (const id of alAire) {
-          const track = mics.get(id);
-          if (!track || audios.has(id)) continue;
-          const el = track.attach(); el.autoplay = true; el.muted = false; el.volume = 1;
+          const base = id.replace(/#pantalla$/, '');
+          if (mics.has(base)) deseadas.set(base, mics.get(base));
+          if (id.endsWith('#pantalla') && mics.has(base + '#pantalla-audio')) deseadas.set(base + '#pantalla-audio', mics.get(base + '#pantalla-audio'));
+        }
+        for (const [id, a] of audios) {
+          if (deseadas.get(id) !== a.track) { try { a.track.detach(a.el); } catch (e) {} a.el.remove(); audios.delete(id); }
+        }
+        for (const [id, track] of deseadas) {
+          if (audios.has(id)) continue;
+          const el = track.attach(); el.autoplay = true; el.volume = 1;
           audiosDiv.appendChild(el); audios.set(id, { el, track });
           el.play && el.play().catch(() => {});
         }
+        for (const a of audios.values()) a.el.muted = silenciarCamaras;
       }
+
+      // Recurso de producción a pantalla completa: imagen (con duración opcional) o video (una vez, con audio)
+      let recursoActual = null;
+      function mostrarRecurso(r) {
+        const cont = document.getElementById('recurso');
+        const clave = r ? (r.id + ':' + r.inicio) : null;
+        if (clave === recursoActual) return;
+        recursoActual = clave;
+        cont.innerHTML = ''; silenciarCamaras = false;
+        if (!r) { cont.classList.add('oculto'); sonar(ultimoAlAire); return; }
+        const desfase = r.inicio ? Math.max(0, (Date.now() - r.inicio) / 1000) : 0;
+        if (r.tipo === 'video') {
+          if (r.duracion && desfase > r.duracion + 2) { cont.classList.add('oculto'); return; }
+          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto';
+          v.onloadedmetadata = () => { if (desfase > 1 && desfase < v.duration) v.currentTime = desfase; };
+          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); cont.classList.add('oculto'); cont.innerHTML = ''; silenciarCamaras = false; sonar(ultimoAlAire); };
+          v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); cont.classList.add('oculto'); silenciarCamaras = false; sonar(ultimoAlAire); };
+          cont.appendChild(v); silenciarCamaras = true; sonar(ultimoAlAire);
+          v.play && v.play().catch((e) => console.log('escena: play falló ' + (e && e.message)));
+        } else {
+          if (r.duracion && desfase > r.duracion) { cont.classList.add('oculto'); return; }
+          const img = document.createElement('img'); img.src = r.url; img.onerror = () => console.log('escena: no cargó la imagen ' + r.url);
+          cont.appendChild(img);
+          if (r.duracion) setTimeout(() => { if (recursoActual === clave) { cont.classList.add('oculto'); cont.innerHTML = ''; } }, Math.max(0, r.duracion - desfase) * 1000);
+        }
+        cont.classList.remove('oculto');
+        console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre);
+      }
+      let ultimoAlAire = [];
 
       function leerMetadata() {
         let m = {};
@@ -151,16 +217,19 @@
           layout: CUPOS[e.layout] ? e.layout : 'solo',
           principal: e.principal || PRINCIPAL,
           visibles: Array.isArray(e.visibles) ? e.visibles : [],
+          recurso: e.recurso && e.recurso.url ? e.recurso : null,
         };
         componer();
       }
 
-      // Cámara (pista de vídeo) de cada participante conectado que publica
+      // Cámara (pista de vídeo) de cada participante conectado que publica; la pantalla compartida entra como id#pantalla
       function camarasDisponibles() {
         const out = new Map();
         for (const p of room.remoteParticipants.values()) {
           for (const pub of p.videoTrackPublications.values()) {
-            if (pub.track && pub.source === Track.Source.Camera && !pub.isMuted) { out.set(p.identity, { track: pub.track, nombre: p.name || p.identity }); break; }
+            if (!pub.track || pub.isMuted) continue;
+            if (pub.source === Track.Source.Camera && !out.has(p.identity)) out.set(p.identity, { track: pub.track, nombre: p.name || p.identity, pantalla: false });
+            if (pub.source === Track.Source.ScreenShare) out.set(p.identity + '#pantalla', { track: pub.track, nombre: 'Pantalla de ' + (p.name || p.identity), pantalla: true });
           }
         }
         return out;
@@ -192,7 +261,7 @@
           let c = celdas.get(id);
           if (!c || c.track !== cam.track) {
             if (c) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); }
-            const el = document.createElement('div'); el.className = 'celda';
+            const el = document.createElement('div'); el.className = 'celda' + (cam.pantalla ? ' pantalla' : '');
             const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.muted = true;
             cam.track.attach(video); el.appendChild(video);
             const n = document.createElement('span'); n.className = 'nombre'; n.textContent = cam.nombre; el.appendChild(n);
@@ -201,7 +270,9 @@
           c.el.querySelector('.nombre').classList.toggle('oculto', escena.layout === 'solo');
           if (lienzo.children[i] !== c.el) lienzo.insertBefore(c.el, lienzo.children[i] || null);
         });
+        ultimoAlAire = alAire;
         sonar(alAire);
+        mostrarRecurso(escena.recurso || null);
         espera.classList.toggle('oculto', alAire.length > 0);
         console.log('escena: ' + escena.layout + ' · cámaras ' + JSON.stringify(Array.from(camaras.keys())) + ' · al aire ' + JSON.stringify(alAire) + ' · con audio ' + JSON.stringify(Array.from(audios.keys())) + ' · participantes ' + room.remoteParticipants.size);
         if (alAire.length > 0) empezar();

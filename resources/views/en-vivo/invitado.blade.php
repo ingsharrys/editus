@@ -53,6 +53,7 @@
   <div id="paso2" class="oculto">
     <div class="fila">
       <button id="mic" type="button">Silenciar micrófono</button>
+      <button id="pantalla" type="button" class="oculto">Compartir pantalla</button>
       <button id="salir" type="button">Salir</button>
     </div>
   </div>
@@ -116,9 +117,27 @@
     if (!room) return;
     let m = {}; try { m = JSON.parse(room.metadata || '{}'); } catch (e) {}
     const e = m.escena || {}; const yo = room.localParticipant.identity;
-    const sale = e.principal === yo || (Array.isArray(e.visibles) && e.visibles.includes(yo));
+    const ids = [yo, yo + '#pantalla'];
+    const sale = ids.includes(e.principal) || (Array.isArray(e.visibles) && e.visibles.some((v) => ids.includes(v)));
     estado.textContent = sale ? '● AL AIRE' : 'CONECTADO · EN ESPERA';
     estado.classList.toggle('aire', sale);
+  }
+
+  // Compartir la pantalla del computador (en celulares el navegador no lo permite)
+  const btnPantalla = document.getElementById('pantalla');
+  if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) btnPantalla.classList.remove('oculto');
+  let pantallaActiva = false;
+  btnPantalla.onclick = async () => {
+    if (!room) return;
+    try {
+      pantallaActiva = !pantallaActiva;
+      await room.localParticipant.setScreenShareEnabled(pantallaActiva, { audio: true, resolution: { width: 1920, height: 1080, frameRate: 15 } });
+      btnPantalla.textContent = pantallaActiva ? 'Dejar de compartir pantalla' : 'Compartir pantalla';
+    } catch (e) { pantallaActiva = false; btnPantalla.textContent = 'Compartir pantalla'; if (e && e.name !== 'NotAllowedError') mostrar('No se pudo compartir la pantalla: ' + e.message, true); }
+  };
+  if (typeof LivekitClient !== 'undefined') {
+    // Si el usuario detiene la captura desde el navegador, el botón vuelve a su estado
+    document.addEventListener('visibilitychange', () => { if (room && pantallaActiva && !room.localParticipant.isScreenShareEnabled) { pantallaActiva = false; btnPantalla.textContent = 'Compartir pantalla'; } });
   }
 
   document.getElementById('mic').onclick = async () => {

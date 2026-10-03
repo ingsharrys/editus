@@ -10,13 +10,14 @@ class TransmisionEnVivo extends Model
 
     protected $fillable = [
         'meta_page_id', 'usuario_app', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
-        'stream_url', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
+        'stream_url', 'destinos', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
     ];
 
     protected $casts = [
         'plantilla' => 'array',
         'escena' => 'array',
         'invitaciones' => 'array',
+        'destinos' => 'array',
         'iniciada_en' => 'datetime',
         'terminada_en' => 'datetime',
     ];
@@ -30,6 +31,17 @@ class TransmisionEnVivo extends Model
     public function metadataSala(): array
     {
         return ($this->plantilla ?? []) + ['escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []]];
+    }
+
+    /** Destinos (una entrada por página). Las transmisiones viejas solo tienen la página principal. */
+    public function destinosLista(): array
+    {
+        $d = $this->destinos ?? [];
+        if (!$d && $this->fb_live_id) {
+            $d = [['meta_page_id' => $this->meta_page_id, 'page_id' => (string) ($this->page?->page_id ?? ''), 'pagina' => (string) ($this->page?->name ?? ''),
+                'fb_live_id' => $this->fb_live_id, 'fb_video_id' => $this->fb_video_id, 'permalink' => $this->fb_permalink, 'stream_url' => $this->stream_url, 'estado' => 'ok', 'error' => null]];
+        }
+        return $d;
     }
 
     /** Datos que ve la app (sin el stream_url secreto). */
@@ -46,6 +58,8 @@ class TransmisionEnVivo extends Model
             'fb_live_id' => $this->fb_live_id,
             'fb_video_id' => $this->fb_video_id,
             'permalink' => $this->fb_permalink,
+            'destinos' => array_values(array_map(fn($d) => array_diff_key($d, ['stream_url' => 1]), $this->destinosLista())),
+            'paginas' => array_values(array_map(fn($d) => (string) ($d['pagina'] ?? ''), $this->destinosLista())),
             'plantilla' => $this->plantilla ?? [],
             'escena' => $this->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []],
             'invitaciones' => array_values(array_map(fn($i) => ['codigo' => $i['codigo'], 'nombre' => $i['nombre'] ?? null, 'url' => route('en-vivo.invitado', $i['codigo'])], $this->invitaciones ?? [])),

@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\MetaPage;
+use App\Models\RecursoEnVivo;
 use App\Models\TransmisionEnVivo;
+use Illuminate\Support\Facades\Schema;
 use App\Services\FacebookLiveService;
 use App\Services\LiveKitClient;
 use Illuminate\Http\JsonResponse;
@@ -37,7 +39,9 @@ class EnVivoController extends Controller
     public function iniciar(Request $request): JsonResponse
     {
         $datos = $request->validate([
-            'page_id' => ['required', 'string'],
+            'page_id' => ['nullable', 'string'],
+            'page_ids' => ['nullable', 'array', 'max:10'],
+            'page_ids.*' => ['string'],
             'titulo' => ['required', 'string', 'max:200'],
             'descripcion' => ['nullable', 'string', 'max:5000'],
             'usuario' => ['nullable', 'string', 'max:60'],
@@ -46,11 +50,13 @@ class EnVivoController extends Controller
         if (!$this->livekit->configurado()) {
             return response()->json(['success' => false, 'error' => 'LiveKit no está configurado en editus (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET). Ver infra/en-vivo/README.md'], 422);
         }
-        $page = MetaPage::where('page_id', $datos['page_id'])->first();
-        if (!$page) {
+        $ids = array_values(array_unique(array_filter(array_merge([(string) ($datos['page_id'] ?? '')], (array) ($datos['page_ids'] ?? [])))));
+        $pages = MetaPage::whereIn('page_id', $ids)->get()->sortBy(fn($p) => array_search($p->page_id, $ids, true))->values();
+        if ($pages->isEmpty()) {
             return response()->json(['success' => false, 'error' => 'Página no encontrada en editus'], 422);
         }
-        @set_time_limit(120);
+        $page = $pages->first();
+        @set_time_limit(180);
 
         $plantilla = self::normalizarPlantilla($datos['plantilla'] ?? [], $datos['titulo']);
         $room = 'envivo-' . $page->page_id . '-' . Str::lower(Str::random(6));
@@ -65,17 +71,31 @@ class EnVivoController extends Controller
         ]);
 
         try {
-            // 1) Facebook Live (da la URL RTMP secreta)
-            $live = $this->facebook->crear($page, $datos['titulo'], (string) ($datos['descripcion'] ?? ''));
-            $t->fill(['fb_live_id' => $live['id'], 'stream_url' => $live['stream_url'], 'fb_permalink' => $live['permalink'], 'fb_video_id' => $live['video_id']])->save();
+            // 1) Un Facebook Live por página (cada uno da su URL RTMP secreta)
+            $destinos = [];
+            $errores = [];
+            foreach ($pages as $p) {
+                try {
+                    $live = $this->facebook->crear($p, $datos['titulo'], (string) ($datos['descripcion'] ?? ''));
+                    $destinos[] = ['meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => $live['id'], 'fb_video_id' => $live['video_id'],
+                        'permalink' => $live['permalink'], 'stream_url' => $live['stream_url'], 'estado' => 'ok', 'error' => null];
+                } catch (\Throwable $e) {
+                    $errores[] = "{$p->name}: " . $e->getMessage();
+                    $destinos[] = ['meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => null, 'fb_video_id' => null,
+                        'permalink' => null, 'stream_url' => null, 'estado' => 'error', 'error' => Str::limit($e->getMessage(), 300, '')];
+                }
+            }
+            $ok = array_values(array_filter($destinos, fn($d) => $d['estado'] === 'ok'));
+            if (!$ok) throw new \RuntimeException(implode(' | ', $errores));
+            $t->fill(['destinos' => $destinos, 'meta_page_id' => $ok[0]['meta_page_id'], 'fb_live_id' => $ok[0]['fb_live_id'], 'stream_url' => $ok[0]['stream_url'], 'fb_permalink' => $ok[0]['permalink'], 'fb_video_id' => $ok[0]['fb_video_id']])->save();
 
             // 2) Sala LiveKit con la plantilla y la escena como metadata (la página de la escena las lee en tiempo real)
             $t->escena = ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []];
             $t->save();
             $this->livekit->crearSala($room, $t->metadataSala());
 
-            // 3) Egress: la escena compuesta → RTMP de Facebook
-            $egressId = $this->livekit->iniciarEgressRtmp($room, $this->escenaUrl(), [$live['stream_url']]);
+            // 3) Egress: la escena compuesta → RTMP de todas las páginas a la vez
+            $egressId = $this->livekit->iniciarEgressRtmp($room, $this->escenaUrl(), array_map(fn($d) => $d['stream_url'], $ok));
             $t->fill(['egress_id' => $egressId, 'estado' => 'en_vivo', 'iniciada_en' => now()])->save();
         } catch (\Throwable $e) {
             Log::warning('[EN VIVO] no se pudo iniciar', ['room' => $room, 'err' => $e->getMessage()]);
@@ -118,11 +138,21 @@ class EnVivoController extends Controller
             'principal' => ['nullable', 'string', 'max:80'],
             'visibles' => ['nullable', 'array', 'max:8'],
             'visibles.*' => ['string', 'max:80'],
+            'recurso_id' => ['nullable', 'integer'],
+            'quitar_recurso' => ['nullable', 'boolean'],
         ]);
         $escena = $transmision->escena ?? ['layout' => 'solo', 'principal' => 'camara-principal', 'visibles' => []];
         if (!empty($datos['layout'])) $escena['layout'] = $datos['layout'];
         if (array_key_exists('principal', $datos) && $datos['principal'] !== null && $datos['principal'] !== '') $escena['principal'] = $datos['principal'];
         if (array_key_exists('visibles', $datos) && is_array($datos['visibles'])) $escena['visibles'] = array_values(array_unique($datos['visibles']));
+        // Recurso de producción (cortinilla, comercial, imagen) a pantalla completa
+        if (!empty($datos['quitar_recurso'])) {
+            unset($escena['recurso']);
+        } elseif (!empty($datos['recurso_id'])) {
+            $r = RecursoEnVivo::where('activo', true)->find((int) $datos['recurso_id']);
+            if (!$r) return response()->json(['success' => false, 'error' => 'Recurso no encontrado'], 422);
+            $escena['recurso'] = $r->paraEscena();
+        }
         $transmision->escena = $escena;
         $transmision->save();
         if ($transmision->estado === 'en_vivo') {
@@ -133,6 +163,13 @@ class EnVivoController extends Controller
             }
         }
         return response()->json(['success' => true, 'escena' => $escena]);
+    }
+
+    /** GET /api/en-vivo/recursos: cortinillas, comerciales e imágenes disponibles para sacar al aire. */
+    public function recursos(): JsonResponse
+    {
+        $lista = Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->orderBy('orden')->orderBy('id')->get()->map(fn($r) => $r->paraApi())->values() : collect();
+        return response()->json(['success' => true, 'recursos' => $lista]);
     }
 
     /** POST /api/en-vivo/{id}/invitacion {nombre?}: enlace para que alguien envíe su cámara desde el navegador. */
@@ -216,17 +253,34 @@ class EnVivoController extends Controller
         if ($transmision->estado !== 'error') {
             $transmision->fill(['estado' => 'terminada', 'terminada_en' => now()])->save();
         }
-        // Id del video resultante (para la web y las métricas)
-        if ($transmision->fb_live_id && !$transmision->fb_video_id) {
-            $st = $this->facebook->estado($transmision->page, $transmision->fb_live_id);
-            if (!empty($st['video_id'])) $transmision->fill(['fb_video_id' => $st['video_id'], 'fb_permalink' => $st['permalink'] ?? $transmision->fb_permalink])->save();
+        // Id del video resultante en cada página (para la web y las métricas)
+        $destinos = $transmision->destinosLista();
+        foreach ($destinos as $i => $d) {
+            if (empty($d['fb_live_id']) || !empty($d['fb_video_id'])) continue;
+            $p = MetaPage::find($d['meta_page_id'] ?? 0);
+            if (!$p) continue;
+            $st = $this->facebook->estado($p, $d['fb_live_id']);
+            if (!empty($st['video_id'])) { $destinos[$i]['fb_video_id'] = $st['video_id']; $destinos[$i]['permalink'] = $st['permalink'] ?? $d['permalink']; }
         }
+        $principal = collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok');
+        $transmision->fill(['destinos' => $destinos, 'fb_video_id' => $principal['fb_video_id'] ?? $transmision->fb_video_id, 'fb_permalink' => $principal['permalink'] ?? $transmision->fb_permalink])->save();
         return response()->json(['success' => true, 'transmision' => $transmision->fresh()->paraApi()]);
     }
 
     public function estado(TransmisionEnVivo $transmision): JsonResponse
     {
-        $fb = $transmision->fb_live_id ? $this->facebook->estado($transmision->page, $transmision->fb_live_id) : [];
+        // Espectadores: suma de todas las páginas
+        $porPagina = [];
+        $total = null;
+        $fb = [];
+        foreach ($transmision->destinosLista() as $d) {
+            if (empty($d['fb_live_id'])) continue;
+            $p = MetaPage::find($d['meta_page_id'] ?? 0);
+            $st = $p ? $this->facebook->estado($p, $d['fb_live_id']) : [];
+            if (!$fb) $fb = $st;
+            $porPagina[] = ['pagina' => $d['pagina'] ?? '', 'page_id' => $d['page_id'] ?? '', 'status' => $st['status'] ?? null, 'espectadores' => $st['espectadores'] ?? null, 'permalink' => $d['permalink'] ?? null];
+            if (($st['espectadores'] ?? null) !== null) $total = ($total ?? 0) + (int) $st['espectadores'];
+        }
         $info = $transmision->egress_id ? $this->livekit->infoEgress($transmision->egress_id) : [];
         $egress = $info['status'] ?? null;
         if ($transmision->estado === 'en_vivo' && in_array($egress, ['EGRESS_FAILED', 'EGRESS_ABORTED'], true)) {
@@ -236,7 +290,7 @@ class EnVivoController extends Controller
         return response()->json([
             'success' => true,
             'transmision' => $transmision->fresh()->paraApi(),
-            'facebook' => ['status' => $fb['status'] ?? null, 'espectadores' => $fb['espectadores'] ?? null],
+            'facebook' => ['status' => $fb['status'] ?? null, 'espectadores' => $total, 'por_pagina' => $porPagina],
             'egress' => $egress,
             'livekit' => $transmision->estado === 'en_vivo'
                 ? ['url' => $this->livekit->wsUrl(), 'token' => $this->tokenCamara($transmision, 'camara-principal', 'Cámara principal')]
@@ -267,7 +321,11 @@ class EnVivoController extends Controller
     private function limpiar(TransmisionEnVivo $t): void
     {
         if ($t->egress_id) $this->livekit->detenerEgress($t->egress_id);
-        if ($t->fb_live_id && $t->page) $this->facebook->terminar($t->page, $t->fb_live_id);
+        foreach ($t->destinosLista() as $d) {
+            if (empty($d['fb_live_id'])) continue;
+            $p = MetaPage::find($d['meta_page_id'] ?? 0);
+            if ($p) $this->facebook->terminar($p, $d['fb_live_id']);
+        }
         if ($t->room) $this->livekit->borrarSala($t->room);
     }
 
@@ -289,6 +347,11 @@ class EnVivoController extends Controller
             'color_titulo' => $color($p['color_titulo'] ?? null, '#FFFFFF'),
             'color_etiqueta' => $color($p['color_etiqueta'] ?? null, '#C8102E'),
             'en_vivo' => !array_key_exists('en_vivo', $p) || (bool) $p['en_vivo'],
+            // Producción: rótulo del presentador o periodista y logo en imagen
+            'rotulo_nombre' => Str::limit(trim((string) ($p['rotulo_nombre'] ?? '')), 60, ''),
+            'rotulo_cargo' => Str::limit(trim((string) ($p['rotulo_cargo'] ?? '')), 60, ''),
+            'rotulo_mostrar' => (bool) ($p['rotulo_mostrar'] ?? false),
+            'logo_url' => preg_match('#^https?://#i', trim((string) ($p['logo_url'] ?? ''))) ? Str::limit(trim((string) $p['logo_url']), 500, '') : '',
         ];
     }
 }
