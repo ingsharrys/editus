@@ -8,6 +8,7 @@ class SocialAccount extends Model
 {
     protected $fillable = [
         'user_id',
+        'usuario_app',
         'provider',
         'provider_user_id',
         'access_token',

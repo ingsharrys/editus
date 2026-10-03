@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="es" class="notranslate" translate="no">
+<head>
+<meta charset="utf-8">
+<meta name="google" content="notranslate">
+<title>Escena en vivo</title>
+<!--
+  Escena que compone el egress de LiveKit (plantilla y diseño en tiempo real):
+  recibe ?url=&token=&layout=&room= del egress, se une a la sala como
+  participante oculto y compone las cámaras según la metadata de la sala:
+    - plantilla: logo, cintillo con título y etiqueta, pie, hashtag
+    - escena: { layout: solo|dos|pip|cuadricula, principal: identity, visibles: [identity...] }
+  Avisa al egress con console.log('START_RECORDING') / 'END_RECORDING'.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;900&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; width: 100vw; height: 100vh; background: #000; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
+  /* La escena se diseña a 1280×720 y se escala al tamaño real de salida (720p o 1080p) */
+  #escenario { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; }
+  #lienzo { position: absolute; inset: 0; background: #0b1c33; }
+  #audios { display: none; }
+  .celda { position: absolute; overflow: hidden; background: #000; }
+  .celda video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .celda.pantalla video { object-fit: contain; background: #000; }
+  .celda .nombre { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; font-weight: 600; }
+  /* Diseños */
+  .solo .celda { inset: 0; }
+  .dos .celda { top: 90px; width: 616px; height: 462px; border-radius: 10px; }
+  .dos .celda:nth-child(1) { left: 16px; } .dos .celda:nth-child(2) { left: 648px; }
+  .pip .celda:nth-child(1) { inset: 0; }
+  .pip .celda:nth-child(2) { right: 40px; top: 40px; width: 360px; height: 203px; border-radius: 10px; border: 3px solid #fff; }
+  .cuadricula .celda { width: 632px; height: 356px; border-radius: 8px; }
+  .cuadricula .celda:nth-child(1) { left: 4px; top: 4px; } .cuadricula .celda:nth-child(2) { left: 644px; top: 4px; }
+  .cuadricula .celda:nth-child(3) { left: 4px; top: 364px; } .cuadricula .celda:nth-child(4) { left: 644px; top: 364px; }
+  #espera { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 700; background: linear-gradient(160deg, #18345a, #0b1c33); }
+  .oculto { display: none !important; }
+  #sombra { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0)); pointer-events: none; }
+  #logo { position: absolute; left: 44px; top: 36px; display: flex; align-items: center; gap: 4px; }
+  #logo img { height: 56px; max-width: 320px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,.5)); }
+  #logo .caja { width: 44px; height: 44px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; }
+  #logo .resto { font-weight: 700; font-size: 26px; margin-left: 8px; }
+  #vivo { position: absolute; right: 44px; top: 40px; display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,.55); border-radius: 8px; padding: 8px 14px; color: #fff; font-weight: 800; font-size: 20px; letter-spacing: 2px; }
+  #vivo i { width: 12px; height: 12px; border-radius: 50%; background: #e11d48; animation: latir 1.2s infinite; }
+  @keyframes latir { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  #inferior { position: absolute; left: 44px; bottom: 96px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: 980px; }
+  #cintillo { max-width: 980px; }
+  /* Rótulo (nombre y cargo del presentador o periodista) */
+  #rotulo { display: flex; align-items: stretch; filter: drop-shadow(2px 2px 3px rgba(0,0,0,.45)); }
+  #rotulo .barra { width: 10px; }
+  #rotulo .textos { background: rgba(255,255,255,.96); padding: 8px 22px 9px 16px; }
+  #rotulo .nombre { font-weight: 800; font-size: 27px; line-height: 1.1; color: #111; }
+  #rotulo .cargo { font-weight: 600; font-size: 17px; letter-spacing: 1px; color: #444; text-transform: uppercase; margin-top: 2px; }
+  /* Recurso a pantalla completa (cortinilla, comercial, imagen) */
+  #recurso { position: absolute; inset: 0; background: #000; z-index: 50; display: flex; align-items: center; justify-content: center; }
+  /* Marco (plantilla PNG transparente) sobre las cámaras y debajo de los textos */
+  #marco { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+  #recurso img, #recurso video { width: 100%; height: 100%; object-fit: contain; }
+  /* Formato "mitad": las cámaras a la izquierda (escaladas) y la publicidad a la derecha */
+  #escenario.mitad #lienzo { transform: scale(0.5); transform-origin: 0 50%; }
+  #escenario.mitad #recurso { inset: 0 0 0 640px; }
+  #escenario.mitad #inferior { max-width: 560px; }
+  #escenario.mitad #cintillo { max-width: 560px; }
+  #escenario.mitad #titulo { font-size: 32px; }
+  #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
+  #titulo { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
+  #pie { position: absolute; left: 44px; right: 44px; bottom: 36px; display: flex; justify-content: space-between; color: #fff; font-weight: 600; font-size: 20px; }
+</style>
+</head>
+<body>
+<div id="escenario">
+  <div id="lienzo" class="solo"></div>
+  <div id="espera">Esperando la cámara…</div>
+  <img id="marco" class="oculto" alt="">
+  <div id="sombra"></div>
+  <div id="logo"></div>
+  <div id="vivo"><i></i>EN VIVO</div>
+  <div id="inferior">
+    <div id="rotulo" class="oculto"><div class="barra"></div><div class="textos"><div class="nombre"></div><div class="cargo"></div></div></div>
+    <div id="cintillo"><span id="etiqueta"></span><div id="titulo"></div></div>
+  </div>
+  <div id="recurso" class="oculto"></div>
+  <div id="pie"><span id="pie-izq"></span><span id="pie-der"></span></div>
+</div>
+<div id="audios"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <script>
+    // Escalar el diseño 1280×720 a la ventana real (el egress abre Chrome al tamaño de salida)
+    function escalar() {
+      const k = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+      const e = document.getElementById('escenario');
+      e.style.transform = 'translate(' + ((window.innerWidth - 1280 * k) / 2) + 'px,' + ((window.innerHeight - 720 * k) / 2) + 'px) scale(' + k + ')';
+    }
+    window.addEventListener('resize', escalar); escalar();
+
+    const q = new URLSearchParams(location.search);
+    const url = q.get('url'); const token = q.get('token');
+    // Monitor de programa (la app): misma escena, pero sin audio (evita el eco con el micrófono del teléfono)
+    const MONITOR = q.get('monitor') === '1';
+    const PRINCIPAL = 'camara-principal';
+    const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 4 };
+
+    function contraste(hex) {
+      const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
+      if (!m) return '#fff';
+      const l = (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) / 255;
+      return l > 0.6 ? '#111' : '#fff';
+    }
+
+    function pintar(p) {
+      p = p || {};
+      const logo = document.getElementById('logo');
+      logo.innerHTML = '';
+      const texto = (p.logo_texto || '').trim();
+      if (p.logo_url) {
+        const img = document.createElement('img'); img.src = p.logo_url; img.alt = texto; logo.appendChild(img);
+      } else if (texto) {
+        const [marca, ...resto] = texto.split(/\s+/);
+        for (const ch of marca.toUpperCase()) {
+          const c = document.createElement('div'); c.className = 'caja';
+          c.style.background = p.color_logo || '#fff'; c.style.color = contraste(p.color_logo || '#fff'); c.textContent = ch; logo.appendChild(c);
+        }
+        if (resto.length) { const r = document.createElement('span'); r.className = 'resto'; r.style.color = p.color_logo || '#fff'; r.textContent = resto.join(' '); logo.appendChild(r); }
+      }
+      document.getElementById('vivo').classList.toggle('oculto', p.en_vivo === false);
+      const marco = document.getElementById('marco');
+      if (p.marco_url) { if (marco.getAttribute('src') !== p.marco_url) marco.src = p.marco_url; marco.classList.remove('oculto'); } else { marco.classList.add('oculto'); }
+      plantillaActual = p;
+      pintarRotulo();
+      const mostrar = p.mostrar !== false;
+      document.getElementById('cintillo').classList.toggle('oculto', !mostrar);
+      document.getElementById('sombra').classList.toggle('oculto', !mostrar);
+      const et = document.getElementById('etiqueta');
+      et.textContent = (p.etiqueta || '').toUpperCase(); et.classList.toggle('oculto', !p.etiqueta);
+      et.style.background = p.color_etiqueta || '#C8102E'; et.style.color = contraste(p.color_etiqueta || '#C8102E');
+      const t = document.getElementById('titulo'); t.textContent = p.titulo || ''; t.style.color = p.color_titulo || '#fff';
+      document.getElementById('pie-izq').textContent = p.pie || '';
+      document.getElementById('pie-der').textContent = p.hashtag || '';
+    }
+
+    // Rótulo: el nombre fijo elegido por el director (escena.rotulo_de), el de quien habla
+    // (escena.rotulo_auto) o, si no hay nombres por cámara, el de la plantilla.
+    let plantillaActual = {};
+    let escenaActual = { nombres: {}, rotulo_de: null, rotulo_auto: false };
+    let hablando = null; // identity del participante que más habla
+    function pintarRotulo() {
+      const p = plantillaActual || {};
+      const rot = document.getElementById('rotulo');
+      const nombres = escenaActual.nombres || {};
+      // Persona en cuadro de una cámara: formato nuevo {personas:[...], activa} o antiguo {nombre, cargo}
+      const persona = (id) => { const n = nombres[id]; if (!n) return null; if (Array.isArray(n.personas)) return n.personas[n.activa || 0] || n.personas[0] || null; return n; };
+      let nombre = '', cargo = '';
+      const de = escenaActual.rotulo_de ? persona(escenaActual.rotulo_de) : null;
+      const hab = escenaActual.rotulo_auto && hablando ? persona(hablando) : null;
+      if (de && (de.nombre || '').trim()) { nombre = de.nombre; cargo = de.cargo || ''; }
+      else if (hab && (hab.nombre || '').trim()) { nombre = hab.nombre; cargo = hab.cargo || ''; }
+      else if (p.rotulo_mostrar && (p.rotulo_nombre || '').trim()) { nombre = p.rotulo_nombre; cargo = p.rotulo_cargo || ''; }
+      rot.classList.toggle('oculto', !nombre);
+      rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';
+      rot.querySelector('.nombre').textContent = nombre;
+      const c = rot.querySelector('.cargo'); c.textContent = cargo; c.classList.toggle('oculto', !(cargo || '').trim());
+    }
+
+    let grabando = false;
+    function empezar() { if (!grabando) { grabando = true; if (!MONITOR) console.log('START_RECORDING'); } }
+
+    async function main() {
+      const { Room, RoomEvent, Track } = LivekitClient;
+      const room = new Room({ adaptiveStream: false, dynacast: false });
+      const lienzo = document.getElementById('lienzo');
+      const espera = document.getElementById('espera');
+      let escena = { layout: 'solo', principal: PRINCIPAL, visibles: [] };
+      const celdas = new Map(); // identity -> {el, video, track}
+      const audios = new Map(); // identity -> {el, track}  (solo suena quien está al aire)
+      const audiosDiv = document.getElementById('audios');
+
+      // Micrófono de cada participante; la pantalla compartida (id#pantalla) usa el micrófono de su dueño
+      // y, si existe, el audio de la propia pantalla
+      function microfonos() {
+        const out = new Map();
+        for (const p of room.remoteParticipants.values()) {
+          for (const pub of p.audioTrackPublications.values()) {
+            if (!pub.track) continue;
+            if (pub.source === Track.Source.Microphone) out.set(p.identity, pub.track);
+            if (pub.source === Track.Source.ScreenShareAudio) out.set(p.identity + '#pantalla-audio', pub.track);
+          }
+        }
+        return out;
+      }
+      let silenciarCamaras = false; // mientras suena un video de producción
+
+      function sonar(alAire) {
+        const mics = microfonos();
+        // Qué pistas de audio deben sonar: micrófono del dueño de cada cámara o pantalla al aire + audio de pantalla
+        const deseadas = new Map();
+        for (const id of alAire) {
+          const base = id.replace(/#pantalla$/, '');
+          if (mics.has(base)) deseadas.set(base, mics.get(base));
+          if (id.endsWith('#pantalla') && mics.has(base + '#pantalla-audio')) deseadas.set(base + '#pantalla-audio', mics.get(base + '#pantalla-audio'));
+        }
+        for (const [id, a] of audios) {
+          if (deseadas.get(id) !== a.track) { try { a.track.detach(a.el); } catch (e) {} a.el.remove(); audios.delete(id); }
+        }
+        for (const [id, track] of deseadas) {
+          if (audios.has(id)) continue;
+          const el = track.attach(); el.autoplay = true; el.volume = 1;
+          audiosDiv.appendChild(el); audios.set(id, { el, track });
+          el.play && el.play().catch(() => {});
+        }
+        for (const a of audios.values()) a.el.muted = silenciarCamaras || MONITOR;
+      }
+
+      // Recurso de producción a pantalla completa: imagen (con duración opcional) o video (una vez, con audio)
+      let recursoActual = null;
+      function mostrarRecurso(r) {
+        const cont = document.getElementById('recurso');
+        const escenario = document.getElementById('escenario');
+        const clave = r ? (r.id + ':' + r.inicio + ':' + (r.formato || 'completa')) : null;
+        if (clave === recursoActual) return;
+        recursoActual = clave;
+        cont.innerHTML = ''; silenciarCamaras = false;
+        const terminar = () => { cont.classList.add('oculto'); cont.innerHTML = ''; escenario.classList.remove('mitad'); silenciarCamaras = false; sonar(ultimoAlAire); };
+        if (!r) { terminar(); return; }
+        escenario.classList.toggle('mitad', r.formato === 'mitad');
+        const desfase = r.inicio ? Math.max(0, (Date.now() - r.inicio) / 1000) : 0;
+        if (r.tipo === 'video') {
+          if (r.duracion && desfase > r.duracion + 2) { terminar(); return; }
+          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR;
+          v.onloadedmetadata = () => { if (desfase > 1 && desfase < v.duration) v.currentTime = desfase; };
+          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); terminar(); };
+          v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); terminar(); };
+          cont.appendChild(v); silenciarCamaras = true; sonar(ultimoAlAire);
+          v.play && v.play().catch((e) => console.log('escena: play falló ' + (e && e.message)));
+        } else {
+          if (r.duracion && desfase > r.duracion) { terminar(); return; }
+          const img = document.createElement('img'); img.src = r.url; img.onerror = () => console.log('escena: no cargó la imagen ' + r.url);
+          cont.appendChild(img);
+          if (r.duracion) setTimeout(() => { if (recursoActual === clave) terminar(); }, Math.max(0, r.duracion - desfase) * 1000);
+        }
+        cont.classList.remove('oculto');
+        empezar(); // con una intro al aire la transmisión arranca aunque aún no haya cámara
+        console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre + ' (' + (r.formato || 'completa') + ')');
+      }
+      let ultimoAlAire = [];
+
+      function leerMetadata() {
+        let m = {};
+        try { m = JSON.parse(room.metadata || '{}'); } catch (e) { m = {}; }
+        pintar(m);
+        const e = m.escena || {};
+        escena = {
+          layout: CUPOS[e.layout] ? e.layout : 'solo',
+          principal: e.principal || PRINCIPAL,
+          visibles: Array.isArray(e.visibles) ? e.visibles : [],
+          recurso: e.recurso && e.recurso.url ? e.recurso : null,
+        };
+        escenaActual = { nombres: (e.nombres && typeof e.nombres === 'object') ? e.nombres : {}, rotulo_de: e.rotulo_de || null, rotulo_auto: !!e.rotulo_auto };
+        pintarRotulo();
+        componer();
+      }
+
+      // Cámara (pista de vídeo) de cada participante conectado que publica; la pantalla compartida entra como id#pantalla
+      function camarasDisponibles() {
+        const out = new Map();
+        for (const p of room.remoteParticipants.values()) {
+          for (const pub of p.videoTrackPublications.values()) {
+            if (!pub.track || pub.isMuted) continue;
+            if (pub.source === Track.Source.Camera && !out.has(p.identity)) out.set(p.identity, { track: pub.track, nombre: p.name || p.identity, pantalla: false });
+            if (pub.source === Track.Source.ScreenShare) out.set(p.identity + '#pantalla', { track: pub.track, nombre: 'Pantalla de ' + (p.name || p.identity), pantalla: true });
+          }
+        }
+        return out;
+      }
+
+      // Quién sale al aire y en qué orden: principal primero, luego los "visibles" elegidos,
+      // y si el director no eligió a nadie, el resto de cámaras conectadas (orden de llegada)
+      function ordenAlAire(camaras) {
+        const cupos = CUPOS[escena.layout];
+        const lista = [];
+        const meter = (id) => { if (camaras.has(id) && !lista.includes(id) && lista.length < cupos) lista.push(id); };
+        meter(escena.principal);
+        for (const id of escena.visibles) meter(id);
+        if (escena.visibles.length === 0 || lista.length === 0) {
+          for (const id of camaras.keys()) meter(id);
+        }
+        return lista;
+      }
+
+      function componer() {
+        const camaras = camarasDisponibles();
+        const alAire = ordenAlAire(camaras);
+        lienzo.className = escena.layout;
+        for (const [id, c] of celdas) {
+          if (!alAire.includes(id)) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); celdas.delete(id); }
+        }
+        alAire.forEach((id, i) => {
+          const cam = camaras.get(id);
+          let c = celdas.get(id);
+          if (!c || c.track !== cam.track) {
+            if (c) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); }
+            const el = document.createElement('div'); el.className = 'celda' + (cam.pantalla ? ' pantalla' : '');
+            const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.muted = true;
+            cam.track.attach(video); el.appendChild(video);
+            const n = document.createElement('span'); n.className = 'nombre'; n.textContent = cam.nombre; el.appendChild(n);
+            c = { el, video, track: cam.track }; celdas.set(id, c);
+          }
+          c.el.querySelector('.nombre').classList.toggle('oculto', escena.layout === 'solo');
+          if (lienzo.children[i] !== c.el) lienzo.insertBefore(c.el, lienzo.children[i] || null);
+        });
+        ultimoAlAire = alAire;
+        sonar(alAire);
+        mostrarRecurso(escena.recurso || null);
+        espera.classList.toggle('oculto', alAire.length > 0);
+        console.log('escena: ' + escena.layout + ' · cámaras ' + JSON.stringify(Array.from(camaras.keys())) + ' · al aire ' + JSON.stringify(alAire) + ' · con audio ' + JSON.stringify(Array.from(audios.keys())) + ' · participantes ' + room.remoteParticipants.size);
+        if (alAire.length > 0) empezar();
+      }
+
+      room.on(RoomEvent.TrackSubscribed, componer);
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) room.startAudio().catch(() => {}); });
+      room.on(RoomEvent.TrackSubscriptionFailed, (sid, p, reason) => console.log('escena: no se pudo suscribir a ' + p.identity + ' ' + (reason || '')));
+      room.on(RoomEvent.TrackPublished, (pub, p) => console.log('escena: ' + p.identity + ' publicó ' + pub.source));
+      room.on(RoomEvent.TrackUnsubscribed, componer);
+      room.on(RoomEvent.TrackMuted, componer);
+      room.on(RoomEvent.TrackUnmuted, componer);
+      room.on(RoomEvent.ParticipantConnected, componer);
+      room.on(RoomEvent.ParticipantDisconnected, componer);
+      room.on(RoomEvent.RoomMetadataChanged, leerMetadata);
+      // Si se cae la conexión antes de haber empezado, se reintenta en vez de cerrar el egress
+      // Quién habla (para el rótulo automático): el más activo de los que están al aire
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        const alAire = ultimoAlAire.map((id) => id.replace(/#pantalla$/, ''));
+        const s = speakers.find((sp) => !sp.isLocal && alAire.includes(sp.identity));
+        if (s && s.identity !== hablando) { hablando = s.identity; pintarRotulo(); }
+      });
+      room.on(RoomEvent.Disconnected, (motivo) => {
+        console.log('desconectado', motivo);
+        if (grabando) { console.log('END_RECORDING'); } else { conectar(); }
+      });
+
+      let intentos = 0;
+      async function conectar() {
+        intentos += 1;
+        if (intentos > 6) { espera.textContent = 'No se pudo conectar con el servidor de video'; console.log('END_RECORDING'); return; }
+        espera.textContent = intentos > 1 ? 'Reconectando (' + intentos + ')…' : 'Esperando la cámara…';
+        try {
+          await room.connect(url, token, { autoSubscribe: true });
+          leerMetadata();
+          componer();
+        } catch (e) {
+          console.error('conexión fallida', e && e.message);
+          setTimeout(conectar, 3000);
+        }
+      }
+      await conectar();
+      // Si nadie publica en 20 s pero hay conexión, igual se empieza (pantalla de espera) para que Facebook reciba señal
+      setTimeout(() => { if (room.state === 'connected') empezar(); }, 20000);
+    }
+    main().catch((e) => { document.getElementById('espera').textContent = 'No se pudo conectar: ' + e.message; console.error(e); });
+  </script>
+</body>
+</html>

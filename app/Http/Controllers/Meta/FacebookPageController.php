@@ -1079,6 +1079,14 @@ class FacebookPageController extends Controller
     {
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
 
+        // Conexión iniciada desde la app del editor (sin sesión de editus): la resuelve CuentasAppController
+        if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
+            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackFacebook($request, (array) $vinculo, $redirectUrl, app(\App\Services\CuentasAppService::class));
+        }
+        if (!Auth::check()) {
+            return redirect()->route('login')->with('error', 'Inicia sesión en editus para conectar páginas.');
+        }
+
         // Si Facebook devolvió un error (usuario canceló, permisos denegados, etc.)
         if ($request->has('error')) {
             $desc = $request->get('error_description')
@@ -1206,161 +1214,8 @@ class FacebookPageController extends Controller
 
     private function performSync(User $user, SocialAccount $social): int
     {
-        $version = config('services.facebook.version', 'v23.0');
-        $base = "https://graph.facebook.com/{$version}";
-
-        $fieldsFull = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
-        // Sin el campo de Instagram: para tokens que aún no tienen instagram_basic,
-        // Facebook rechaza la llamada completa si se pide ese campo.
-        $fieldsBasic = 'id,name,category,access_token,tasks';
-
-        $http = Http::withToken($social->access_token)->timeout(30)->connectTimeout(10);
-        $pages = [];
-
-        /**
-         * Recorre un edge paginado. Si Facebook rechaza los campos completos
-         * (error #100 por campo/permiso), reintenta con los básicos.
-         * @return array{0: array, 1: ?string} [páginas, error]
-         */
-        $fetchEdge = function (string $edge) use ($http, $base, $fieldsFull, $fieldsBasic): array {
-            foreach ([$fieldsFull, $fieldsBasic] as $attempt => $fields) {
-                $rows = [];
-                $url = "{$base}/me/{$edge}?fields={$fields}&limit=100";
-                $failed = null;
-
-                while ($url) {
-                    $resp = $http->get($url);
-                    if (!$resp->ok()) {
-                        $failed = $resp->body();
-                        break;
-                    }
-                    $json = $resp->json();
-                    $rows = array_merge($rows, (array) data_get($json, 'data', []));
-                    $url = data_get($json, 'paging.next');
-                }
-
-                if ($failed === null) {
-                    return [$rows, null];
-                }
-
-                $code = (int) data_get(json_decode($failed, true), 'error.code');
-                $isFieldError = $code === 100 || str_contains($failed, 'nonexisting field') || str_contains($failed, 'instagram');
-                if ($attempt === 0 && $isFieldError) {
-                    Log::info('[sync] campos completos rechazados, reintentando con básicos', ['edge' => $edge]);
-                    continue;
-                }
-
-                return [[], $failed];
-            }
-
-            return [[], null];
-        };
-
-        // 1) Páginas "clásicas" del usuario: /me/accounts
-        [$pages, $err] = $fetchEdge('accounts');
-        if ($err !== null) {
-            Log::error('FB /me/accounts error', ['body' => $err]);
-            throw new \RuntimeException('No se pudieron obtener las páginas: ' . $this->graphErrorMessage($err));
-        }
-
-        // 2) Fallback: páginas asignadas vía Business Manager: /me/assigned_pages
-        if (empty($pages)) {
-            [$pages, $err] = $fetchEdge('assigned_pages');
-            if ($err !== null) {
-                Log::warning('FB /me/assigned_pages error', ['body' => $err]);
-            }
-        }
-
-        // 3) Si sigue vacío, no hay páginas para ese usuario
-        if (empty($pages)) {
-            throw new \RuntimeException("No se encontraron páginas.
-- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.
-- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.
-- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
-        }
-
-        // 4) Guardado página por página: un fallo en una no bloquea a las demás
-        $saved = 0;
-        foreach ($pages as $page) {
-            try {
-            DB::transaction(function () use ($page, $user, $social, $base, $http) {
-                $pageId = (string) data_get($page, 'id');
-                $name = data_get($page, 'name');
-                $category = data_get($page, 'category');
-                $igId = data_get($page, 'connected_instagram_business_account.id');
-                $picture = "{$base}/{$pageId}/picture?type=normal";
-
-                $pageAccessToken = data_get($page, 'access_token');
-
-                if (!$pageAccessToken) {
-                    $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
-                    if ($try->ok()) {
-                        $pageAccessToken = data_get($try->json(), 'access_token');
-                    } else {
-                        Log::warning('No page_access_token (fallback)', $try->json() ?? []);
-                    }
-                }
-
-                $tasks = data_get($page, 'tasks', []);
-                if (!is_array($tasks)) {
-                    $tasks = $tasks ? [$tasks] : [];
-                }
-
-                $canAnalyze = in_array('ANALYZE', $tasks, true);
-
-                $metaPage = MetaPage::updateOrCreate(
-                    ['page_id' => $pageId],
-                    [
-                        'name' => $name,
-                        'category' => $category,
-                        'instagram_business_account_id' => $igId,
-                        'picture_url' => $picture,
-                        'tasks' => array_values($tasks),
-                    ]
-                );
-
-                $user->metaPages()->syncWithoutDetaching([
-                    $metaPage->id => [
-                        'page_access_token' => $pageAccessToken,
-                        'social_account_id' => $social->id,
-                        'expires_at' => null,
-                        'is_active' => $pageAccessToken ? 1 : 0,
-                        'updated_at' => now(),
-                    ]
-                ]);
-
-                if (!$pageAccessToken) {
-                    Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', [
-                        'page_id' => $pageId,
-                        'tasks' => $tasks,
-                    ]);
-                } elseif (!$canAnalyze) {
-                    Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', [
-                        'page_id' => $pageId,
-                        'tasks' => $tasks,
-                    ]);
-                }
-            });
-            $saved++;
-            } catch (\Throwable $e) {
-                Log::warning('[sync] página no guardada', [
-                    'page' => data_get($page, 'id'),
-                    'name' => data_get($page, 'name'),
-                    'err' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        return $saved;
-    }
-
-    /** Mensaje legible a partir del cuerpo de error de la Graph API. */
-    private function graphErrorMessage(string $body): string
-    {
-        $json = json_decode($body, true);
-        $msg = data_get($json, 'error.message');
-        $code = data_get($json, 'error.code');
-        return $msg ? trim($msg . ($code ? " (código {$code})" : '')) : mb_substr($body, 0, 300);
+        // Misma lógica para la web y para las cuentas conectadas desde la app (CuentasAppService)
+        return app(\App\Services\CuentasAppService::class)->sincronizarPaginas($social, $user->id, null);
     }
 
     public function startRepairTokens(Request $request)

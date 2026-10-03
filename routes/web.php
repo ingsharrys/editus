@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\EditorAppController;
 use App\Http\Controllers\Auth\FacebookAuthController;
 use App\Http\Controllers\InformeController;
 use App\Http\Controllers\Meta\FacebookPageController;
@@ -12,6 +13,29 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn() => view('welcome'));
 
 Route::view('/privacy', 'privacy')->name('privacy');
+
+// Escena de las transmisiones en vivo (la carga el egress de LiveKit con su propio token)
+// Escena que compone el egress (HTML estático en infra/en-vivo/escena; también se puede servir desde el VPS, ver LIVEKIT_ESCENA_URL)
+Route::get('/en-vivo/escena', fn() => response(file_get_contents(base_path('infra/en-vivo/escena/index.html')), 200, ['Content-Type' => 'text/html; charset=utf-8']))->name('en-vivo.escena');
+// Invitados a una transmisión (cámara remota desde el navegador, con código de invitación)
+Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoPagina'])->name('en-vivo.invitado');
+Route::post('/en-vivo/invitado/{codigo}/token', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoToken'])
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->name('en-vivo.invitado.token');
+
+/*
+|--------------------------------------------------------------------------
+| Callbacks de OAuth (públicos: la sesión de editus o la conexión iniciada
+| desde la app deciden qué hacer) y conexión de cuentas desde la app del editor
+|--------------------------------------------------------------------------
+*/
+Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.connect.callback');
+Route::get('/auth/facebook/link/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.link.callback');
+Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.legacy.callback');
+Route::get('/auth/youtube/callback', [\App\Http\Controllers\Admin\YoutubeController::class, 'callback'])->name('youtube.callback');
+
+// Enlaces firmados por el backend de esnoticia (u, exp, sig) que la app abre en el navegador
+Route::get('/auth/app/facebook', [\App\Http\Controllers\Web\CuentasAppController::class, 'facebook'])->name('app.cuentas.facebook');
+Route::get('/auth/app/youtube', [\App\Http\Controllers\Web\CuentasAppController::class, 'youtube'])->name('app.cuentas.youtube');
 
 Route::view('/terms', 'terms')->name('terms');
 
@@ -84,13 +108,9 @@ Route::middleware(['auth'])->group(function () {
         ->name('meta.pages.repairTokens.step');
 
     Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.connect');
-    Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.connect.callback');
-
 
     // Aliases de compatibilidad
     Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])->name('facebook.link.redirect');
-    Route::get('/auth/facebook/link/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.link.callback');
-    Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.legacy.callback');
 
     // Desvincular cuenta/página
     Route::delete('/auth/facebook/unlink', [FacebookPageController::class, 'unlinkAccount'])->name('facebook.unlink');
@@ -133,6 +153,36 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/admin/informe', [InformeController::class, 'index'])->name('informe.index');
         Route::get('/admin/informe/{key}', [InformeController::class, 'show'])->name('informe.show');
         Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->name('informe.pdf'); // << NUEVO
+
+        // Módulo: App del editor (páginas visibles en la app móvil + plantillas de imagen)
+        Route::get('/admin/app-editor', [EditorAppController::class, 'index'])->name('editor-app.index');
+        Route::post('/admin/app-editor/paginas', [EditorAppController::class, 'paginas'])->name('editor-app.paginas');
+        Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
+        Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
+        Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
+        // YouTube Live: conectar canales (OAuth de Google), visibilidad en la app y desconexión
+        Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->name('youtube.connect');
+        Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->name('youtube.visible');
+        Route::post('/admin/youtube/{canal}/usuarios', [\App\Http\Controllers\Admin\YoutubeController::class, 'usuarios'])->name('youtube.usuarios');
+        Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->name('youtube.desconectar');
+        Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');
+        Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');
+
+        // Inteligencia de audiencia (campañas, temas, tablero, informes)
+        Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->name('inteligencia.index');
+        Route::post('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'store'])->name('inteligencia.store');
+        Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
+        Route::put('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'update'])->name('inteligencia.update');
+        Route::delete('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'destroy'])->name('inteligencia.destroy');
+        Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->name('inteligencia.temas.store');
+        Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->name('inteligencia.temas.update');
+        Route::delete('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaDestroy'])->name('inteligencia.temas.destroy');
+        Route::post('/admin/inteligencia/{campana}/publicaciones/{publicacion}/tema', [\App\Http\Controllers\Admin\InteligenciaController::class, 'publicacionTema'])->name('inteligencia.publicacion.tema');
+        Route::post('/admin/inteligencia/{campana}/recolectar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectar'])->name('inteligencia.recolectar');
+        Route::post('/admin/inteligencia/{campana}/analizar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizar'])->name('inteligencia.analizar');
+        Route::post('/admin/inteligencia/{campana}/informes', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informeGenerar'])->name('inteligencia.informes.generar');
+        Route::get('/admin/inteligencia/{campana}/informes/{informe}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informe'])->name('inteligencia.informe');
+        Route::get('/admin/inteligencia/{campana}/proyeccion', [\App\Http\Controllers\Admin\InteligenciaController::class, 'proyeccion'])->name('inteligencia.proyeccion');
     });
 });
 // routes/web.php

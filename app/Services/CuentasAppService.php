@@ -1,0 +1,317 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\MetaPage;
+use App\Models\MetaPageUser;
+use App\Models\SocialAccount;
+use App\Models\YoutubeCanal;
+use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * Cuentas conectadas por los usuarios de la app del editor.
+ *
+ * Cada usuario de la app (id del backend de esnoticia = usuario_app) vincula
+ * sus propias páginas de Facebook y canales de YouTube con un enlace firmado
+ * que abre el navegador; editus guarda los tokens con su usuario_app y la
+ * app solo ve (y transmite a) lo suyo más lo que la organización conectó
+ * desde la web de editus (usuario_app NULL, marcado como visible en la app).
+ */
+class CuentasAppService
+{
+    /** Vigencia máxima (segundos) del enlace firmado para abrir la conexión. */
+    public const ENLACE_VIGENCIA = 900;
+
+    /**
+     * Verifica la firma del backend: sig = HMAC-SHA256("{u}|{exp}", EDITUS_INGEST_TOKEN).
+     * Devuelve el usuario de la app o null si la firma no sirve o venció.
+     */
+    public static function usuarioFirmado(Request $request): ?string
+    {
+        $u = trim((string) $request->input('u', ''));
+        $exp = (int) $request->input('exp', 0);
+        $sig = (string) $request->input('sig', '');
+        $token = (string) config('services.editus.ingest_token');
+        if ($token === '' || $u === '' || $exp <= 0 || $sig === '' || $exp < time()) return null;
+        if (!hash_equals(hash_hmac('sha256', "{$u}|{$exp}", $token), $sig)) return null;
+        return $u;
+    }
+
+    /** Esquema de la app (deep link) al que vuelve el navegador al terminar. */
+    public static function urlVolverApp(string $destino = 'cuentas', array $datos = []): string
+    {
+        $esquema = trim((string) config('services.editor_app.scheme', 'editor')) ?: 'editor';
+        return $esquema . '://' . ltrim($destino, '/') . ($datos ? '?' . http_build_query($datos) : '');
+    }
+
+    // ------------------------------------------------------------------
+    // Qué ve cada usuario
+    // ------------------------------------------------------------------
+
+    /**
+     * Páginas de Facebook disponibles para un usuario de la app: las suyas
+     * (conectadas desde la app) más las de la organización visibles en el editor.
+     * Sin usuario → solo las de la organización (comportamiento anterior).
+     */
+    public function paginasDe(?string $usuarioApp, ?string $usuarioNombre = null): Collection
+    {
+        $conUsuarioApp = Schema::hasColumn('meta_page_user', 'usuario_app');
+        $visible = Schema::hasColumn('meta_pages', 'visible_en_editor');
+        $activo = fn($q) => $q->where('is_active', 1)->whereNotNull('page_access_token');
+
+        $q = MetaPage::query()->where(function ($w) use ($usuarioApp, $conUsuarioApp, $visible, $activo) {
+            // De la organización (visible en la app)
+            $w->where(function ($o) use ($conUsuarioApp, $visible, $activo) {
+                if ($visible) $o->where('visible_en_editor', 1);
+                $o->whereHas('vinculos', function ($v) use ($conUsuarioApp, $activo) {
+                    $activo($v);
+                    if ($conUsuarioApp) $v->whereNull('usuario_app');
+                });
+            });
+            // Las propias del usuario
+            if ($usuarioApp !== null && $usuarioApp !== '' && $conUsuarioApp) {
+                $w->orWhereHas('vinculos', fn($v) => $activo($v)->where('usuario_app', $usuarioApp));
+            }
+        });
+
+        $propias = ($usuarioApp !== null && $usuarioApp !== '' && $conUsuarioApp)
+            ? MetaPageUser::where('usuario_app', $usuarioApp)->where('is_active', 1)->whereNotNull('page_access_token')->pluck('meta_page_id')->flip()
+            : collect();
+
+        $enApp = $usuarioApp !== null && $usuarioApp !== '';
+        return $q->orderBy('name')->get()
+            ->each(fn(MetaPage $p) => $p->setAttribute('propia', $propias->has($p->id)))
+            // Las de la organización pueden estar limitadas a ciertos usuarios de la app (Admin → App del editor)
+            ->filter(fn(MetaPage $p) => $p->getAttribute('propia') || !$enApp || $p->visibleParaUsuarioApp($usuarioNombre))
+            ->values();
+    }
+
+    /** Ids (page_id de Facebook) accesibles para el usuario. */
+    public function puedeUsarPaginas(?string $usuarioApp, array $pageIds, ?string $usuarioNombre = null): bool
+    {
+        if ($usuarioApp === null || $usuarioApp === '') return true;
+        $permitidas = $this->paginasDe($usuarioApp, $usuarioNombre)->pluck('page_id')->map(fn($x) => (string) $x)->flip();
+        foreach ($pageIds as $id) {
+            if (!$permitidas->has((string) $id)) return false;
+        }
+        return true;
+    }
+
+    /** Canales de YouTube disponibles: los propios más los de la organización visibles. */
+    public function canalesDe(?string $usuarioApp, ?string $usuarioNombre = null): Collection
+    {
+        if (!Schema::hasTable('youtube_canales')) return collect();
+        $conUsuarioApp = Schema::hasColumn('youtube_canales', 'usuario_app');
+        $enApp = $usuarioApp !== null && $usuarioApp !== '';
+        return YoutubeCanal::query()->where(function ($w) use ($usuarioApp, $conUsuarioApp) {
+            $w->where(function ($o) use ($conUsuarioApp) {
+                $o->where('visible_en_editor', true);
+                if ($conUsuarioApp) $o->whereNull('usuario_app');
+            });
+            if ($usuarioApp !== null && $usuarioApp !== '' && $conUsuarioApp) {
+                $w->orWhere('usuario_app', $usuarioApp);
+            }
+        })->orderBy('titulo')->get()
+            ->filter(fn(YoutubeCanal $c) => !$enApp || (string) $c->usuario_app === $usuarioApp || $c->visibleParaUsuarioApp($usuarioNombre))
+            ->values();
+    }
+
+    public function puedeUsarCanales(?string $usuarioApp, array $canalIds, ?string $usuarioNombre = null): bool
+    {
+        if ($usuarioApp === null || $usuarioApp === '' || !$canalIds) return true;
+        $permitidos = $this->canalesDe($usuarioApp, $usuarioNombre)->pluck('id')->flip();
+        foreach ($canalIds as $id) {
+            if (!$permitidos->has((int) $id)) return false;
+        }
+        return true;
+    }
+
+    /** Resumen de las cuentas del usuario para la pantalla "Mis cuentas" de la app. */
+    public function resumen(string $usuarioApp, ?string $usuarioNombre = null): array
+    {
+        $social = Schema::hasColumn('social_accounts', 'usuario_app')
+            ? SocialAccount::where('provider', 'facebook')->where('usuario_app', $usuarioApp)->latest('updated_at')->first()
+            : null;
+        $paginas = $this->paginasDe($usuarioApp, $usuarioNombre)->map(fn(MetaPage $p) => [
+            'id' => $p->id,
+            'page_id' => (string) $p->page_id,
+            'nombre' => (string) $p->name,
+            'foto' => $p->pictureUrl('small'),
+            'instagram' => !empty($p->instagram_business_account_id),
+            'propia' => (bool) $p->getAttribute('propia'),
+        ])->values();
+        $canales = $this->canalesDe($usuarioApp, $usuarioNombre)->map(fn(YoutubeCanal $c) => $c->paraApi($usuarioApp))->values();
+
+        return [
+            'facebook' => [
+                'configurado' => (string) config('services.facebook.client_id') !== '',
+                'conectada' => (bool) $social,
+                'nombre' => $social?->name,
+                'foto' => $social?->avatar,
+                'conectada_en' => $social?->updated_at?->toIso8601String(),
+                'paginas' => $paginas,
+            ],
+            'youtube' => [
+                'configurado' => (string) config('services.google.client_id') !== '',
+                'canales' => $canales,
+            ],
+        ];
+    }
+
+    // ------------------------------------------------------------------
+    // Facebook: sincronizar páginas de una cuenta conectada
+    // ------------------------------------------------------------------
+
+    /**
+     * Lee las páginas que administra la cuenta de Facebook y guarda el token
+     * de cada una (para un usuario de editus o para un usuario de la app).
+     * Devuelve cuántas páginas quedaron vinculadas.
+     */
+    public function sincronizarPaginas(SocialAccount $social, ?int $userId, ?string $usuarioApp = null): int
+    {
+        $version = config('services.facebook.version', 'v23.0');
+        $base = "https://graph.facebook.com/{$version}";
+        // Sin el campo de Instagram: para tokens que aún no tienen instagram_basic,
+        // Facebook rechaza la llamada completa si se pide ese campo.
+        $fieldsFull = 'id,name,category,access_token,tasks,instagram_business_account,picture{url}';
+        $fieldsBasic = 'id,name,category,access_token,tasks';
+        $http = Http::withToken($social->access_token)->timeout(30)->connectTimeout(10);
+
+        // 1) Páginas "clásicas" (/me/accounts); 2) asignadas por Business Manager (/me/assigned_pages)
+        [$pages, $err] = $this->leerEdge($http, $base, 'accounts', [$fieldsFull, $fieldsBasic]);
+        if ($err !== null) {
+            Log::error('FB /me/accounts error', ['body' => $err]);
+            throw new \RuntimeException('No se pudieron obtener las páginas: ' . $this->mensajeGraph($err));
+        }
+        if (empty($pages)) {
+            [$pages, $err] = $this->leerEdge($http, $base, 'assigned_pages', [$fieldsFull, $fieldsBasic]);
+            if ($err !== null) Log::warning('FB /me/assigned_pages error', ['body' => $err]);
+        }
+        if (empty($pages)) {
+            throw new \RuntimeException("No se encontraron páginas.
+- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.
+- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.
+- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
+        }
+
+        // 3) Guardado página por página: un fallo en una no bloquea a las demás
+        $guardadas = 0;
+        foreach ($pages as $page) {
+            try {
+                DB::transaction(function () use ($page, $userId, $usuarioApp, $social, $base, $http) {
+                    $pageId = (string) data_get($page, 'id');
+                    $tasks = data_get($page, 'tasks', []);
+                    if (!is_array($tasks)) $tasks = $tasks ? [$tasks] : [];
+
+                    $pageAccessToken = data_get($page, 'access_token');
+                    if (!$pageAccessToken) {
+                        $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
+                        if ($try->ok()) $pageAccessToken = data_get($try->json(), 'access_token');
+                        else Log::warning('No page_access_token (fallback)', $try->json() ?? []);
+                    }
+
+                    $metaPage = MetaPage::updateOrCreate(['page_id' => $pageId], [
+                        'name' => data_get($page, 'name'),
+                        'category' => data_get($page, 'category'),
+                        'instagram_business_account_id' => data_get($page, 'instagram_business_account.id') ?: data_get($page, 'connected_instagram_business_account.id'),
+                        'picture_url' => "{$base}/{$pageId}/picture?type=normal",
+                        'tasks' => array_values($tasks),
+                    ]);
+
+                    $clave = ['meta_page_id' => $metaPage->id, 'user_id' => $userId];
+                    if (Schema::hasColumn('meta_page_user', 'usuario_app')) $clave['usuario_app'] = $usuarioApp;
+                    $vinculo = MetaPageUser::query()->where($clave)->first() ?: new MetaPageUser($clave);
+                    $vinculo->fill([
+                        'page_access_token' => $pageAccessToken,
+                        'social_account_id' => $social->id,
+                        'expires_at' => null,
+                        'is_active' => $pageAccessToken ? 1 : 0,
+                    ]);
+                    $vinculo->save();
+
+                    if (!$pageAccessToken) {
+                        Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', ['page_id' => $pageId, 'tasks' => $tasks]);
+                    } elseif (!in_array('ANALYZE', $tasks, true)) {
+                        Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', ['page_id' => $pageId, 'tasks' => $tasks]);
+                    }
+                });
+                $guardadas++;
+            } catch (\Throwable $e) {
+                Log::warning('[sync] página no guardada', ['page' => data_get($page, 'id'), 'name' => data_get($page, 'name'), 'err' => $e->getMessage()]);
+            }
+        }
+
+        return $guardadas;
+    }
+
+    /**
+     * Recorre un edge paginado de Graph. Si Facebook rechaza los campos completos
+     * (error #100 por campo/permiso), reintenta con los básicos.
+     * @return array{0: array, 1: ?string} [páginas, error]
+     */
+    private function leerEdge($http, string $base, string $edge, array $intentos): array
+    {
+        foreach ($intentos as $i => $fields) {
+            $rows = [];
+            $url = "{$base}/me/{$edge}?fields={$fields}&limit=100";
+            $fallo = null;
+            while ($url) {
+                $resp = $http->get($url);
+                if (!$resp->ok()) { $fallo = $resp->body(); break; }
+                $json = $resp->json();
+                $rows = array_merge($rows, (array) data_get($json, 'data', []));
+                $url = data_get($json, 'paging.next');
+            }
+            if ($fallo === null) return [$rows, null];
+
+            $code = (int) data_get(json_decode($fallo, true), 'error.code');
+            $errorDeCampo = $code === 100 || str_contains($fallo, 'nonexisting field') || str_contains($fallo, 'instagram');
+            if ($i < count($intentos) - 1 && $errorDeCampo) {
+                Log::info('[sync] campos completos rechazados, reintentando con básicos', ['edge' => $edge]);
+                continue;
+            }
+            return [[], $fallo];
+        }
+        return [[], null];
+    }
+
+    private function mensajeGraph(string $body): string
+    {
+        $json = json_decode($body, true);
+        $msg = data_get($json, 'error.message');
+        $code = data_get($json, 'error.code');
+        return $msg ? trim($msg . ($code ? " (código {$code})" : '')) : mb_substr($body, 0, 300);
+    }
+
+    /** Vuelve a leer las páginas de la cuenta de Facebook del usuario de la app. */
+    public function resincronizarFacebook(string $usuarioApp): int
+    {
+        $social = SocialAccount::where('provider', 'facebook')->where('usuario_app', $usuarioApp)->latest('updated_at')->first();
+        if (!$social) throw new \RuntimeException('Primero conecta tu cuenta de Facebook desde la app.');
+        return $this->sincronizarPaginas($social, null, $usuarioApp);
+    }
+
+    /** Borra los tokens y la cuenta de Facebook del usuario de la app. */
+    public function desconectarFacebook(string $usuarioApp): int
+    {
+        return DB::transaction(function () use ($usuarioApp) {
+            $n = MetaPageUser::where('usuario_app', $usuarioApp)->delete();
+            SocialAccount::where('provider', 'facebook')->where('usuario_app', $usuarioApp)->delete();
+            return $n;
+        });
+    }
+
+    /** Desconecta un canal de YouTube solo si lo conectó ese usuario. */
+    public function desconectarCanal(YoutubeCanal $canal, string $usuarioApp): void
+    {
+        if ((string) $canal->usuario_app !== $usuarioApp) {
+            throw new \RuntimeException('Ese canal lo conectó la organización: solo se puede desconectar desde la web de editus.');
+        }
+        $canal->delete();
+    }
+}

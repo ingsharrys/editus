@@ -82,6 +82,25 @@ return [
 
 
 
+    // App del editor (React Native): esquema del deep link al que vuelve el navegador
+    // después de conectar una cuenta desde la app (editor://cuentas)
+    'editor_app' => [
+        'scheme' => env('EDITOR_APP_SCHEME', 'editor'),
+    ],
+
+    // Google (YouTube Live): OAuth para conectar canales y transmitir en vivo desde la app
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', env('APP_URL') . '/auth/youtube/callback'),
+    ],
+
+    // IA (Claude) para la inteligencia de audiencia: clasificar temas, leer comentarios y redactar informes
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+        'model' => env('ANTHROPIC_MODEL', 'claude-opus-5-5'),
+    ],
+
     'metrics' => [
         // Si 'true', el scheduler ejecuta métricas según METRICS_CRON.
         // Si 'false', el scheduler NO ejecuta métricas (puedes correrlas por cron separado).
@@ -107,6 +126,20 @@ return [
         ],
     ],
 
+
+    // Transmisiones en vivo (servidor LiveKit propio: ver infra/en-vivo/README.md)
+    'livekit' => [
+        'url'        => env('LIVEKIT_URL'),            // wss://live.tudominio.com (lo usan la app y la escena)
+        'api_url'    => env('LIVEKIT_API_URL'),        // https://live.tudominio.com (API Twirp); si falta, se deriva de url
+        'api_key'    => env('LIVEKIT_API_KEY'),
+        'api_secret' => env('LIVEKIT_API_SECRET'),
+        // Página de la escena (plantilla en tiempo real) que compone el egress; por defecto /en-vivo/escena de este editus
+        'escena_url' => env('LIVEKIT_ESCENA_URL'),
+        // Calidad de la transmisión que sale a Facebook: 1080 (por defecto) o 720 si el VPS se queda corto
+        'calidad'    => env('LIVEKIT_CALIDAD', '1080'),
+        // Opcional: origen desde el que la escena carga los recursos (intro, plantillas, publicidad), p. ej. https://live.tudominio.com/recursos
+        'recursos_url' => env('LIVEKIT_RECURSOS_URL'),
+    ],
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),

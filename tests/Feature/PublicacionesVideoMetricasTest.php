@@ -1,0 +1,215 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\MetaPage;
+use App\Models\MetaPost;
+use App\Models\Role;
+use App\Models\User;
+use App\Services\SocialVideoPublisher;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
+use Tests\TestCase;
+
+/** API de video (Facebook + Reel) y de métricas en vivo. */
+class PublicacionesVideoMetricasTest extends TestCase
+{
+    private const TOKEN = 'token-de-prueba';
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['services.editus.ingest_token' => self::TOKEN, 'services.facebook.version' => 'v23.0']);
+        Schema::dropAllTables();
+        Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('name')->unique(); $t->string('slug')->unique(); $t->timestamps(); });
+        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('email')->unique(); $t->timestamp('email_verified_at')->nullable(); $t->string('password'); $t->rememberToken(); $t->foreignId('role_id')->nullable(); $t->timestamps(); });
+        Schema::create('social_accounts', function (Blueprint $t) { $t->id(); $t->foreignId('user_id'); $t->string('provider'); $t->string('provider_user_id'); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->json('raw')->nullable(); $t->timestamps(); });
+        Schema::create('meta_pages', function (Blueprint $t) { $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable(); $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->timestamps(); });
+        Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
+        Schema::create('meta_posts', function (Blueprint $t) {
+            $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->uuid('batch_uuid')->nullable(); $t->string('type'); $t->text('message')->nullable(); $t->string('link')->nullable();
+            $t->json('local_media')->nullable(); $t->json('fb_media_ids')->nullable(); $t->string('fb_post_id')->nullable(); $t->string('fb_permalink_url')->nullable(); $t->string('status')->default('pending');
+            $t->unsignedInteger('alcance')->nullable(); $t->unsignedInteger('visualizaciones')->nullable(); $t->unsignedInteger('interacciones')->nullable(); $t->string('evidencia_path')->nullable();
+            $t->timestamp('last_insights_at')->nullable(); $t->text('error')->nullable(); $t->timestamp('published_at')->nullable(); $t->timestamps();
+        });
+        // Sin pausas entre consultas de estado
+        $this->app->resolving(SocialVideoPublisher::class, function (SocialVideoPublisher $p) { $p->pausa = 0; $p->esperaFacebook = 2; $p->esperaInstagram = 2; });
+    }
+
+    private function pagina(string $pageId = '111', ?string $ig = '222'): MetaPage
+    {
+        $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
+        $user = User::factory()->create(['role_id' => $rol->id]);
+        $page = MetaPage::create(['page_id' => $pageId, 'name' => 'Página ' . $pageId, 'instagram_business_account_id' => $ig]);
+        $page->users()->attach($user->id, ['page_access_token' => 'tok-pagina', 'is_active' => true]);
+        return $page;
+    }
+
+    public function test_publica_video_en_facebook_y_reel_en_instagram(): void
+    {
+        $page = $this->pagina();
+        $estadoFb = 0; $estadoIg = 0;
+        Http::fake([
+            'graph-video.facebook.com/v23.0/111/videos' => Http::response(['id' => '9001'], 200),
+            'graph.facebook.com/v23.0/9001*' => function () use (&$estadoFb) {
+                $estadoFb++;
+                return Http::response($estadoFb < 2
+                    ? ['status' => ['video_status' => 'processing']]
+                    : ['status' => ['video_status' => 'ready'], 'post_id' => '111_9001', 'permalink_url' => '/pagina/videos/9001/'], 200);
+            },
+            'graph.facebook.com/v23.0/222/media' => Http::response(['id' => '5001'], 200),
+            'graph.facebook.com/v23.0/5001*' => function () use (&$estadoIg) {
+                $estadoIg++;
+                return Http::response(['status_code' => $estadoIg < 2 ? 'IN_PROGRESS' : 'FINISHED'], 200);
+            },
+            'graph.facebook.com/v23.0/222/media_publish' => Http::response(['id' => '18001'], 200),
+            'graph.facebook.com/v23.0/18001*' => Http::response(['permalink' => 'https://www.instagram.com/reel/XYZ/'], 200),
+        ]);
+
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', [
+            'texto' => "Resumen.\n\nVer más: https://backend.esnoticia.org/public/r/abc",
+            'texto_instagram' => 'Texto completo para el reel',
+            'video_url' => 'https://backend.esnoticia.org/public/redes/videos/v1.mp4',
+            'imagen_url' => 'https://backend.esnoticia.org/public/redes/imagenes/p1.jpg',
+            'paginas' => [['id' => $page->id, 'facebook' => true, 'instagram' => true, 'enlace' => 'https://backend.esnoticia.org/public/r/abc']],
+        ]);
+        $r->assertOk()->assertJsonPath('success', true)
+          ->assertJsonPath('resultados.0.facebook.ok', true)
+          ->assertJsonPath('resultados.0.facebook.post_id', '111_9001')
+          ->assertJsonPath('resultados.0.facebook.media_id', '9001')
+          ->assertJsonPath('resultados.0.facebook.permalink', 'https://www.facebook.com/pagina/videos/9001/')
+          ->assertJsonPath('resultados.0.instagram.ok', true)
+          ->assertJsonPath('resultados.0.instagram.post_id', '18001')
+          ->assertJsonPath('resultados.0.instagram.permalink', 'https://www.instagram.com/reel/XYZ/');
+
+        Http::assertSent(fn($req) => str_contains($req->url(), 'graph-video.facebook.com') && $req['file_url'] === 'https://backend.esnoticia.org/public/redes/videos/v1.mp4' && str_ends_with($req['description'], 'Ver más: https://backend.esnoticia.org/public/r/abc'));
+        Http::assertSent(fn($req) => str_contains($req->url(), '/222/media') && !str_contains($req->url(), 'publish') && $req['media_type'] === 'REELS' && $req['video_url'] === 'https://backend.esnoticia.org/public/redes/videos/v1.mp4' && $req['caption'] === 'Texto completo para el reel' && $req['cover_url'] === 'https://backend.esnoticia.org/public/redes/imagenes/p1.jpg');
+
+        $post = MetaPost::first();
+        $this->assertSame('video', $post->type);
+        $this->assertSame('success', $post->status);
+        $this->assertSame('111_9001', $post->fb_post_id);
+    }
+
+    public function test_reel_rechazado_informa_el_motivo(): void
+    {
+        $page = $this->pagina();
+        Http::fake([
+            'graph.facebook.com/v23.0/222/media' => Http::response(['id' => '5001'], 200),
+            'graph.facebook.com/v23.0/5001*' => Http::response(['status_code' => 'ERROR', 'status' => 'Error: Unsupported aspect ratio'], 200),
+        ]);
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', [
+            'texto' => 'Hola', 'video_url' => 'https://backend.esnoticia.org/public/redes/videos/v.mp4', 'paginas' => [['page_id' => '111', 'facebook' => false, 'instagram' => true]],
+        ]);
+        $r->assertOk()->assertJsonPath('success', false)->assertJsonPath('resultados.0.instagram.ok', false);
+        $this->assertStringContainsString('Unsupported aspect ratio', $r->json('resultados.0.instagram.error'));
+    }
+
+    public function test_lista_videos_publicados_en_cada_pagina(): void
+    {
+        $page = $this->pagina('111', '222');
+        $page->update(['medio_slug' => 'opanoticias']);
+        Http::fake([
+            'graph.facebook.com/v23.0/111/videos*' => Http::response(['data' => [
+                ['id' => '9001', 'title' => 'Obras', 'description' => 'Recorrido por las obras', 'permalink_url' => '/opa/videos/9001/', 'created_time' => '2026-09-30T10:00:00+0000', 'picture' => 'https://scontent/x.jpg', 'length' => 61.4, 'status' => ['video_status' => 'ready']],
+                ['id' => '9002', 'description' => 'procesando', 'status' => ['video_status' => 'processing']],
+            ]], 200),
+            'graph.facebook.com/v23.0/111/video_reels*' => Http::response(['data' => [
+                ['id' => '9003', 'description' => 'Reel de la feria', 'permalink_url' => 'https://www.facebook.com/reel/9003', 'created_time' => '2026-10-01T08:00:00+0000', 'picture' => 'https://scontent/r.jpg', 'length' => 30],
+            ]], 200),
+            'graph.facebook.com/v23.0/222/media*' => Http::response(['data' => [
+                ['id' => '18001', 'media_type' => 'VIDEO', 'media_product_type' => 'REELS', 'caption' => 'Reel IG', 'permalink' => 'https://www.instagram.com/reel/XYZ/', 'thumbnail_url' => 'https://scontent/ig.jpg', 'timestamp' => '2026-10-01T09:00:00+0000'],
+                ['id' => '18002', 'media_type' => 'IMAGE', 'permalink' => 'https://www.instagram.com/p/FOTO/'],
+            ]], 200),
+        ]);
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/videos?limite=10');
+        $r->assertOk()->assertJsonCount(1, 'paginas')
+          ->assertJsonPath('paginas.0.medio', 'opanoticias')
+          ->assertJsonCount(3, 'paginas.0.videos')
+          ->assertJsonPath('paginas.0.videos.0.red', 'instagram')->assertJsonPath('paginas.0.videos.0.tipo', 'reel')
+          ->assertJsonPath('paginas.0.videos.1.id', '9003')->assertJsonPath('paginas.0.videos.1.tipo', 'reel')
+          ->assertJsonPath('paginas.0.videos.2.id', '9001')->assertJsonPath('paginas.0.videos.2.permalink', 'https://www.facebook.com/opa/videos/9001/')
+          ->assertJsonPath('paginas.0.videos.2.duracion', 61)->assertJsonPath('paginas.0.error', null);
+    }
+
+    public function test_subida_temporal_firmada_y_publicacion_con_video_id(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $page = $this->pagina('111', null);
+        $exp = time() + 600;
+        $sig = hash_hmac('sha256', "5|{$exp}", self::TOKEN);
+        $archivo = \Illuminate\Http\UploadedFile::fake()->create('clip.mp4', 2048, 'video/mp4');
+
+        // Firma mala → 401
+        $this->post('/api/subidas/video', ['u' => '5', 'exp' => $exp, 'sig' => 'x', 'video' => $archivo])->assertStatus(401);
+        // Firma vencida → 401
+        $this->post('/api/subidas/video', ['u' => '5', 'exp' => time() - 10, 'sig' => hash_hmac('sha256', '5|' . (time() - 10), self::TOKEN), 'video' => $archivo])->assertStatus(401);
+
+        $r = $this->post('/api/subidas/video', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'video' => $archivo]);
+        $r->assertOk()->assertJsonPath('success', true);
+        $videoId = $r->json('video_id');
+        $this->assertMatchesRegularExpression('/^[0-9a-f-]{36}$/', $videoId);
+        $this->assertStringEndsWith("/storage/videos/tmp/{$videoId}.mp4", $r->json('url'));
+        \Illuminate\Support\Facades\Storage::disk('public')->assertExists("videos/tmp/{$videoId}.mp4");
+
+        Http::fake([
+            'graph-video.facebook.com/v23.0/111/videos' => Http::response(['id' => '9001'], 200),
+            'graph.facebook.com/v23.0/9001?fields=status*' => Http::response(['status' => ['video_status' => 'ready'], 'post_id' => '111_9001', 'permalink_url' => '/p/videos/9001/'], 200),
+            'graph.facebook.com/v23.0/9001?fields=picture*' => Http::response(['picture' => 'https://scontent/thumb.jpg'], 200),
+            'graph.facebook.com/v23.0/9001' => Http::response(['success' => true], 200),
+        ]);
+        $p = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', [
+            'texto' => 'Resumen', 'video_id' => $videoId, 'paginas' => [['id' => $page->id, 'facebook' => true, 'instagram' => false]],
+        ]);
+        $p->assertOk()->assertJsonPath('success', true)
+          ->assertJsonPath('resultados.0.facebook.media_id', '9001')
+          ->assertJsonPath('resultados.0.facebook.miniatura', 'https://scontent/thumb.jpg');
+        Http::assertSent(fn($req) => str_contains($req->url(), 'graph-video') && str_ends_with($req['file_url'], "/storage/videos/tmp/{$videoId}.mp4"));
+        // El temporal se borra al publicar
+        \Illuminate\Support\Facades\Storage::disk('public')->assertMissing("videos/tmp/{$videoId}.mp4");
+
+        // Un video_id ya borrado → 422 claro
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video', ['texto' => 'x', 'video_id' => $videoId, 'paginas' => [['id' => $page->id]]])->assertStatus(422);
+
+        // Descripción del video en Facebook (para agregar el enlace de la web)
+        $d = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/video/descripcion', ['page_id' => '111', 'video_id' => '9001', 'descripcion' => "Resumen\n\nVer más: https://b/r/x"]);
+        $d->assertOk()->assertJsonPath('success', true);
+        Http::assertSent(fn($req) => $req->url() === 'https://graph.facebook.com/v23.0/9001' && $req['description'] === "Resumen\n\nVer más: https://b/r/x");
+    }
+
+    public function test_metricas_de_facebook_e_instagram(): void
+    {
+        $this->pagina();
+        Http::fake([
+            'graph.facebook.com/v23.0/111_55/insights*' => Http::response(['data' => [
+                ['name' => 'post_impressions', 'values' => [['value' => 1500]]],
+                ['name' => 'post_impressions_unique', 'values' => [['value' => 1200]]],
+            ]], 200),
+            'graph.facebook.com/v23.0/111_55?*' => Http::response(['reactions' => ['summary' => ['total_count' => 40]], 'comments' => ['summary' => ['total_count' => 5]], 'shares' => ['count' => 7]], 200),
+            'graph.facebook.com/v23.0/9001/video_insights*' => Http::response(['data' => [['name' => 'total_video_views', 'values' => [['value' => 830]]]]], 200),
+            'graph.facebook.com/v23.0/18001/insights*' => Http::response(['data' => [
+                ['name' => 'reach', 'values' => [['value' => 600]]], ['name' => 'views', 'values' => [['value' => 900]]],
+                ['name' => 'likes', 'values' => [['value' => 30]]], ['name' => 'comments', 'values' => [['value' => 2]]],
+                ['name' => 'shares', 'values' => [['value' => 4]]], ['name' => 'saved', 'values' => [['value' => 6]]],
+            ]], 200),
+            'graph.facebook.com/v23.0/404*' => Http::response(['error' => ['message' => 'Unsupported get request', 'code' => 100]], 400),
+        ]);
+
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/publicaciones/metricas', ['items' => [
+            ['red' => 'facebook', 'post_id' => '111_55', 'page_id' => '111', 'media_id' => '9001', 'tipo' => 'video'],
+            ['red' => 'instagram', 'post_id' => '18001', 'page_id' => '111', 'tipo' => 'video'],
+            ['red' => 'instagram', 'post_id' => '404', 'page_id' => '111'],
+            ['red' => 'facebook', 'post_id' => '1_2', 'page_id' => '999'],
+        ]]);
+        $r->assertOk()
+          ->assertJsonPath('metricas.0.ok', true)->assertJsonPath('metricas.0.alcance', 1200)->assertJsonPath('metricas.0.impresiones', 1500)
+          ->assertJsonPath('metricas.0.interacciones', 52)->assertJsonPath('metricas.0.reproducciones', 830)->assertJsonPath('metricas.0.compartidos', 7)
+          ->assertJsonPath('metricas.1.ok', true)->assertJsonPath('metricas.1.alcance', 600)->assertJsonPath('metricas.1.reproducciones', 900)
+          ->assertJsonPath('metricas.1.interacciones', 42)->assertJsonPath('metricas.1.guardados', 6)
+          ->assertJsonPath('metricas.2.ok', false)
+          ->assertJsonPath('metricas.3.ok', false);
+        $this->assertStringContainsString('Unsupported', $r->json('metricas.2.error'));
+        $this->assertStringContainsString('token', $r->json('metricas.3.error'));
+    }
+}

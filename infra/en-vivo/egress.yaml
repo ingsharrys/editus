@@ -1,0 +1,12 @@
+# Egress de LiveKit: compone la escena (Chrome sin cabeza) y la envía por RTMP.
+api_key: APIcambiame
+api_secret: secretocambiame-debe-tener-al-menos-32-caracteres
+ws_url: wss://live.esnoticia.org
+redis:
+  address: 127.0.0.1:6379
+logging:
+  level: info
+debug:
+  enable_chrome_logging: true   # consola del navegador de la escena en /tmp/chrome.log (dentro del contenedor)
+# Un solo egress a la vez por transmisión; con varias transmisiones simultáneas
+# sube cpu_cost_* o agrega otro contenedor egress.
