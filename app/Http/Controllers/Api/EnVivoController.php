@@ -7,8 +7,10 @@ use App\Models\MetaPage;
 use App\Models\RecursoEnVivo;
 use App\Models\TransmisionEnVivo;
 use Illuminate\Support\Facades\Schema;
+use App\Models\YoutubeCanal;
 use App\Services\FacebookLiveService;
 use App\Services\LiveKitClient;
+use App\Services\YouTubeLiveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -32,7 +34,7 @@ use Illuminate\Support\Str;
  */
 class EnVivoController extends Controller
 {
-    public function __construct(private LiveKitClient $livekit, private FacebookLiveService $facebook)
+    public function __construct(private LiveKitClient $livekit, private FacebookLiveService $facebook, private YouTubeLiveService $youtube)
     {
     }
 
@@ -46,6 +48,8 @@ class EnVivoController extends Controller
             'page_id' => ['nullable', 'string'],
             'page_ids' => ['nullable', 'array', 'max:10'],
             'page_ids.*' => ['string'],
+            'youtube_canal_ids' => ['nullable', 'array', 'max:5'],
+            'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'],
             'descripcion' => ['nullable', 'string', 'max:5000'],
             'usuario' => ['nullable', 'string', 'max:60'],
@@ -56,10 +60,15 @@ class EnVivoController extends Controller
         }
         $ids = array_values(array_unique(array_filter(array_merge([(string) ($datos['page_id'] ?? '')], (array) ($datos['page_ids'] ?? [])))));
         $pages = MetaPage::whereIn('page_id', $ids)->get()->sortBy(fn($p) => array_search($p->page_id, $ids, true))->values();
-        if ($pages->isEmpty()) {
-            return response()->json(['success' => false, 'error' => 'Página no encontrada en editus'], 422);
+        $canales = Schema::hasTable('youtube_canales') ? YoutubeCanal::whereIn('id', array_map('intval', (array) ($datos['youtube_canal_ids'] ?? [])))->get() : collect();
+        if ($pages->isEmpty() && $canales->isEmpty()) {
+            return response()->json(['success' => false, 'error' => 'Elige al menos una página de Facebook o un canal de YouTube'], 422);
         }
-        $page = $pages->first();
+        // La sala se nombra por la primera página (o el primer canal); meta_page_id es obligatorio en la tabla
+        $page = $pages->first() ?: MetaPage::orderBy('id')->first();
+        if (!$page) {
+            return response()->json(['success' => false, 'error' => 'No hay páginas conectadas en editus'], 422);
+        }
         $plantilla = self::normalizarPlantilla($datos['plantilla'] ?? [], $datos['titulo']);
         $room = 'envivo-' . $page->page_id . '-' . Str::lower(Str::random(6));
         $t = TransmisionEnVivo::create([
@@ -71,8 +80,12 @@ class EnVivoController extends Controller
             'estado' => 'sala',
             'plantilla' => $plantilla,
             'escena' => self::escenaInicial(),
-            'destinos' => $pages->map(fn($p) => ['meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => null, 'fb_video_id' => null,
-                'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null])->values()->all(),
+            'destinos' => array_merge(
+                $pages->map(fn($p) => ['red' => 'facebook', 'meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => null, 'fb_video_id' => null,
+                    'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null])->values()->all(),
+                $canales->map(fn($c) => ['red' => 'youtube', 'canal_id' => $c->id, 'page_id' => 'yt:' . $c->channel_id, 'pagina' => (string) $c->titulo, 'fb_live_id' => null, 'fb_video_id' => null,
+                    'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null])->values()->all(),
+            ),
         ]);
         try {
             $this->livekit->crearSala($room, $t->metadataSala(), 900);
@@ -102,25 +115,32 @@ class EnVivoController extends Controller
         $t = $transmision;
         $room = $t->room;
         try {
-            // 1) Un Facebook Live por página (cada uno da su URL RTMP secreta)
+            // 1) Un Live por destino: páginas de Facebook y canales de YouTube (cada uno da su URL RTMP secreta)
             $destinos = [];
             $errores = [];
             foreach ($t->destinosLista() as $d) {
-                $p = MetaPage::find($d['meta_page_id'] ?? 0);
-                if (!$p) continue;
+                $red = $d['red'] ?? 'facebook';
                 try {
-                    $live = $this->facebook->crear($p, $t->titulo, (string) ($t->descripcion ?? ''));
-                    $destinos[] = ['meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => $live['id'], 'fb_video_id' => $live['video_id'],
-                        'permalink' => $live['permalink'], 'stream_url' => $live['stream_url'], 'estado' => 'ok', 'error' => null];
+                    if ($red === 'youtube') {
+                        $c = YoutubeCanal::find($d['canal_id'] ?? 0);
+                        if (!$c) continue;
+                        $live = $this->youtube->crear($c, $t->titulo, (string) ($t->descripcion ?? ''));
+                    } else {
+                        $p = MetaPage::find($d['meta_page_id'] ?? 0);
+                        if (!$p) continue;
+                        $live = $this->facebook->crear($p, $t->titulo, (string) ($t->descripcion ?? ''));
+                    }
+                    $destinos[] = array_merge($d, ['red' => $red, 'fb_live_id' => $live['id'], 'fb_video_id' => $live['video_id'], 'permalink' => $live['permalink'], 'stream_url' => $live['stream_url'], 'estado' => 'ok', 'error' => null]);
                 } catch (\Throwable $e) {
-                    $errores[] = "{$p->name}: " . $e->getMessage();
-                    $destinos[] = ['meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => null, 'fb_video_id' => null,
-                        'permalink' => null, 'stream_url' => null, 'estado' => 'error', 'error' => Str::limit($e->getMessage(), 300, '')];
+                    $errores[] = ($d['pagina'] ?? $red) . ': ' . $e->getMessage();
+                    $destinos[] = array_merge($d, ['red' => $red, 'fb_live_id' => null, 'fb_video_id' => null, 'permalink' => null, 'stream_url' => null, 'estado' => 'error', 'error' => Str::limit($e->getMessage(), 300, '')]);
                 }
             }
             $ok = array_values(array_filter($destinos, fn($d) => $d['estado'] === 'ok'));
             if (!$ok) throw new \RuntimeException(implode(' | ', $errores));
-            $t->fill(['destinos' => $destinos, 'meta_page_id' => $ok[0]['meta_page_id'], 'fb_live_id' => $ok[0]['fb_live_id'], 'stream_url' => $ok[0]['stream_url'], 'fb_permalink' => $ok[0]['permalink'], 'fb_video_id' => $ok[0]['fb_video_id']])->save();
+            $principalFb = collect($ok)->first(fn($d) => ($d['red'] ?? 'facebook') === 'facebook') ?: $ok[0];
+            $t->fill(['destinos' => $destinos, 'fb_live_id' => $principalFb['fb_live_id'], 'stream_url' => $principalFb['stream_url'], 'fb_permalink' => $principalFb['permalink'], 'fb_video_id' => $principalFb['fb_video_id']])->save();
+            if (!empty($principalFb['meta_page_id'])) $t->fill(['meta_page_id' => $principalFb['meta_page_id']])->save();
 
             // 2) Intro (video o imagen) al aire desde el primer segundo
             $escena = $t->escena ?? self::escenaInicial();
@@ -139,9 +159,7 @@ class EnVivoController extends Controller
         } catch (\Throwable $e) {
             Log::warning('[EN VIVO] no se pudo salir al aire', ['room' => $room, 'err' => $e->getMessage()]);
             // Se cierran los lives que alcanzaron a crearse; la sala sigue viva para reintentar
-            foreach ($t->destinosLista() as $d) {
-                if (!empty($d['fb_live_id'])) { $p = MetaPage::find($d['meta_page_id'] ?? 0); if ($p) $this->facebook->terminar($p, $d['fb_live_id']); }
-            }
+            $this->cerrarLives($t);
             $t->fill(['destinos' => array_map(fn($d) => $d + ['fb_live_id' => null, 'stream_url' => null, 'estado' => 'pendiente'], $t->destinosLista()), 'fb_live_id' => null, 'stream_url' => null, 'error' => Str::limit($e->getMessage(), 500, '')])->save();
             return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 300, '')], 422);
         }
@@ -361,12 +379,10 @@ class EnVivoController extends Controller
         $destinos = $transmision->destinosLista();
         foreach ($destinos as $i => $d) {
             if (empty($d['fb_live_id']) || !empty($d['fb_video_id'])) continue;
-            $p = MetaPage::find($d['meta_page_id'] ?? 0);
-            if (!$p) continue;
-            $st = $this->facebook->estado($p, $d['fb_live_id']);
+            $st = $this->estadoDestino($d);
             if (!empty($st['video_id'])) { $destinos[$i]['fb_video_id'] = $st['video_id']; $destinos[$i]['permalink'] = $st['permalink'] ?? $d['permalink']; }
         }
-        $principal = collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok');
+        $principal = collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok' && ($d['red'] ?? 'facebook') === 'facebook') ?: collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok');
         $transmision->fill(['destinos' => $destinos, 'fb_video_id' => $principal['fb_video_id'] ?? $transmision->fb_video_id, 'fb_permalink' => $principal['permalink'] ?? $transmision->fb_permalink])->save();
         return response()->json(['success' => true, 'transmision' => $transmision->fresh()->paraApi()]);
     }
@@ -379,10 +395,9 @@ class EnVivoController extends Controller
         $fb = [];
         foreach ($transmision->destinosLista() as $d) {
             if (empty($d['fb_live_id'])) continue;
-            $p = MetaPage::find($d['meta_page_id'] ?? 0);
-            $st = $p ? $this->facebook->estado($p, $d['fb_live_id']) : [];
+            $st = $this->estadoDestino($d);
             if (!$fb) $fb = $st;
-            $porPagina[] = ['pagina' => $d['pagina'] ?? '', 'page_id' => $d['page_id'] ?? '', 'status' => $st['status'] ?? null, 'espectadores' => $st['espectadores'] ?? null, 'permalink' => $d['permalink'] ?? null];
+            $porPagina[] = ['red' => $d['red'] ?? 'facebook', 'pagina' => $d['pagina'] ?? '', 'page_id' => $d['page_id'] ?? '', 'status' => $st['status'] ?? null, 'espectadores' => $st['espectadores'] ?? null, 'permalink' => $d['permalink'] ?? null];
             if (($st['espectadores'] ?? null) !== null) $total = ($total ?? 0) + (int) $st['espectadores'];
         }
         $info = $transmision->egress_id ? $this->livekit->infoEgress($transmision->egress_id) : [];
@@ -435,12 +450,41 @@ class EnVivoController extends Controller
     private function limpiar(TransmisionEnVivo $t): void
     {
         if ($t->egress_id) $this->livekit->detenerEgress($t->egress_id);
+        $this->cerrarLives($t);
+        if ($t->room) $this->livekit->borrarSala($t->room);
+    }
+
+    /** Cierra el Live de cada destino (Facebook o YouTube) que alcanzó a crearse. */
+    private function cerrarLives(TransmisionEnVivo $t): void
+    {
         foreach ($t->destinosLista() as $d) {
             if (empty($d['fb_live_id'])) continue;
-            $p = MetaPage::find($d['meta_page_id'] ?? 0);
-            if ($p) $this->facebook->terminar($p, $d['fb_live_id']);
+            if (($d['red'] ?? 'facebook') === 'youtube') {
+                $c = YoutubeCanal::find($d['canal_id'] ?? 0);
+                if ($c) $this->youtube->terminar($c, $d['fb_live_id']);
+            } else {
+                $p = MetaPage::find($d['meta_page_id'] ?? 0);
+                if ($p) $this->facebook->terminar($p, $d['fb_live_id']);
+            }
         }
-        if ($t->room) $this->livekit->borrarSala($t->room);
+    }
+
+    /** Estado (espectadores, video resultante) de un destino según su red. */
+    private function estadoDestino(array $d): array
+    {
+        if (($d['red'] ?? 'facebook') === 'youtube') {
+            $c = YoutubeCanal::find($d['canal_id'] ?? 0);
+            return $c ? $this->youtube->estado($c, $d['fb_live_id']) : [];
+        }
+        $p = MetaPage::find($d['meta_page_id'] ?? 0);
+        return $p ? $this->facebook->estado($p, $d['fb_live_id']) : [];
+    }
+
+    /** GET /api/en-vivo/youtube: canales de YouTube disponibles para la app. */
+    public function youtubeCanales(): JsonResponse
+    {
+        $lista = Schema::hasTable('youtube_canales') ? YoutubeCanal::where('visible_en_editor', true)->orderBy('titulo')->get()->map(fn($c) => $c->paraApi())->values() : collect();
+        return response()->json(['success' => true, 'canales' => $lista, 'configurado' => (string) config('services.google.client_id') !== '']);
     }
 
     /** Plantilla en tiempo real (misma idea que las piezas de Redes). */

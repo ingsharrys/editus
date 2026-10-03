@@ -88,6 +88,13 @@ return [
         'ingest_token' => env('EDITUS_INGEST_TOKEN'),
     ],
 
+    // Google (YouTube Live): OAuth para conectar canales y transmitir en vivo desde la app
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', env('APP_URL') . '/auth/youtube/callback'),
+    ],
+
     // IA (Claude) para la inteligencia de audiencia: clasificar temas, leer comentarios y redactar informes
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),

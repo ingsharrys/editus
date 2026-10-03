@@ -130,6 +130,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
         Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
         Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
+        // YouTube Live: conectar canales (OAuth de Google), visibilidad en la app y desconexión
+        Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->name('youtube.connect');
+        Route::get('/auth/youtube/callback', [\App\Http\Controllers\Admin\YoutubeController::class, 'callback'])->name('youtube.callback');
+        Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->name('youtube.visible');
+        Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->name('youtube.desconectar');
         Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');
         Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');
 

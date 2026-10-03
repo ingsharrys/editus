@@ -50,6 +50,26 @@ mismo. En `livekit.yaml`, dentro de `rtc:`, agrega
 `enable_loopback_candidate: true` y reinicia: `docker compose restart livekit`.
 (El instalador ya lo deja puesto.)
 
+## YouTube Live en paralelo
+
+1. **Google Cloud** (console.cloud.google.com): crea un proyecto, habilita
+   "YouTube Data API v3", configura la pantalla de consentimiento (tipo externo,
+   agrega tu cuenta de Google como usuario de prueba) y crea una credencial
+   "ID de cliente de OAuth" de tipo aplicación web con la URI de redirección
+   `https://app.editus.online/auth/youtube/callback`.
+2. En el `.env` de editus: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y
+   `php artisan config:clear`.
+3. Admin → App del editor → **YouTube Live** → "Conectar canal": inicia sesión
+   con la cuenta dueña del canal (si tiene varios canales, Google te deja elegir).
+4. El canal debe tener las transmisiones en vivo activadas en YouTube Studio
+   (la primera vez tarda 24 h).
+5. En la app, al preparar la sala, marca el canal junto a las páginas de Facebook.
+
+Mientras la app de Google esté "en pruebas", el acceso vence cada 7 días y hay
+que volver a pulsar "Conectar canal". Para que sea permanente hay que publicar
+la app en Google y pasar su verificación (pide un video y una política de
+privacidad), lo que tarda unas semanas.
+
 ## Flujo: sala primero, al aire después
 
 1. En la app se eligen las páginas y el título y se toca **Entrar a la sala**:

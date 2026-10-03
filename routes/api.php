@@ -40,6 +40,7 @@ Route::middleware('editus.token')->group(function () {
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Api\EnVivoController::class, 'preparar'])->name('api.envivo.preparar');
     Route::post('/en-vivo/{transmision}/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'salirAlAire'])->name('api.envivo.aire');
     Route::post('/en-vivo/recursos/{recurso}/borrar', [\App\Http\Controllers\Api\EnVivoController::class, 'recursoBorrar'])->name('api.envivo.recursos.borrar');
+    Route::get('/en-vivo/youtube', [\App\Http\Controllers\Api\EnVivoController::class, 'youtubeCanales'])->name('api.envivo.youtube');
     Route::get('/en-vivo/recursos', [\App\Http\Controllers\Api\EnVivoController::class, 'recursos'])->name('api.envivo.recursos');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Api\EnVivoController::class, 'escena'])->name('api.envivo.escena');
     Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Api\EnVivoController::class, 'invitacion'])->name('api.envivo.invitacion');

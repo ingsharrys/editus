@@ -35,8 +35,10 @@ class EditorAppController extends Controller
 
         $medios = array_keys((array) config('services.editus.medios', []));
         $recursos = Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::query()->orderBy('orden')->orderBy('id')->get() : collect();
+        $canalesYoutube = Schema::hasTable('youtube_canales') ? \App\Models\YoutubeCanal::orderBy('titulo')->get() : collect();
+        $googleListo = (string) config('services.google.client_id') !== '';
 
-        return view('admin.editor-app.index', compact('paginas', 'plantillas', 'editar', 'medios', 'recursos'));
+        return view('admin.editor-app.index', compact('paginas', 'plantillas', 'editar', 'medios', 'recursos', 'canalesYoutube', 'googleListo'));
     }
 
     /** Guarda qué páginas se ven en la app y a qué medio pertenece cada una. */

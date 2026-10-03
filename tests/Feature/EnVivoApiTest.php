@@ -45,6 +45,8 @@ class EnVivoApiTest extends TestCase
         $page->users()->attach($user->id, ['page_access_token' => 'tok-pagina', 'is_active' => true]);
         $page2 = MetaPage::create(['page_id' => '222', 'name' => 'Neiva 24']);
         $page2->users()->attach($user->id, ['page_access_token' => 'tok-pagina-2', 'is_active' => true]);
+        Schema::create('youtube_canales', function (Blueprint $t) { $t->id(); $t->foreignId('user_id')->nullable(); $t->string('channel_id', 64)->unique(); $t->string('titulo', 150); $t->text('foto')->nullable(); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expira_en')->nullable(); $t->string('stream_id', 64)->nullable(); $t->boolean('visible_en_editor')->default(true); $t->timestamps(); });
+        config(['services.google.client_id' => 'cid', 'services.google.client_secret' => 'csec']);
         Schema::create('recursos_en_vivo', function (Blueprint $t) { $t->id(); $t->string('tipo', 10); $t->string('uso', 15)->default('publicidad'); $t->string('nombre', 80); $t->string('archivo', 300); $t->unsignedInteger('duracion')->nullable(); $t->unsignedSmallInteger('orden')->default(0); $t->boolean('activo')->default(true); $t->timestamps(); });
     }
 
@@ -309,6 +311,59 @@ class EnVivoApiTest extends TestCase
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/recursos/' . $p->json('recurso.id') . '/borrar')->assertOk();
         $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/recursos')->assertOk()->assertJsonCount(2, 'recursos');
         $this->assertSame(2, count(\Illuminate\Support\Facades\Storage::disk('public')->files('en-vivo/recursos')));
+    }
+
+    public function test_youtube_en_paralelo_con_facebook(): void
+    {
+        $canal = \App\Models\YoutubeCanal::create(['channel_id' => 'UC123', 'titulo' => 'Opa TV', 'access_token' => 'viejo', 'refresh_token' => 'refresco', 'expira_en' => now()->subHour(), 'visible_en_editor' => true]);
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response(['access_token' => 'nuevo-token', 'expires_in' => 3600], 200),
+            'www.googleapis.com/youtube/v3/liveStreams?part=snippet,cdn,contentDetails' => Http::response(['id' => 'ST1', 'cdn' => ['ingestionInfo' => ['ingestionAddress' => 'rtmp://a.rtmp.youtube.com/live2', 'rtmpsIngestionAddress' => 'rtmps://a.rtmps.youtube.com/live2', 'streamName' => 'clave-yt-secreta']]], 200),
+            'www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails' => Http::response(['id' => 'BC1'], 200),
+            'www.googleapis.com/youtube/v3/liveBroadcasts/bind*' => Http::response(['id' => 'BC1'], 200),
+            'www.googleapis.com/youtube/v3/liveBroadcasts/transition*' => Http::response(['id' => 'BC1', 'status' => ['lifeCycleStatus' => 'complete']], 200),
+            'www.googleapis.com/youtube/v3/videos*' => Http::response(['items' => [['id' => 'BC1', 'snippet' => ['liveBroadcastContent' => 'live'], 'liveStreamingDetails' => ['concurrentViewers' => '17']]]], 200),
+        ]);
+        $this->fakeTodo();
+
+        $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/youtube')->assertOk()->assertJsonPath('canales.0.nombre', 'Opa TV')->assertJsonPath('configurado', true);
+
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_ids' => ['111'], 'youtube_canal_ids' => [$canal->id], 'titulo' => 'Noticiero']);
+        $r->assertOk()->assertJsonCount(2, 'transmision.destinos')->assertJsonPath('transmision.destinos.1.red', 'youtube')->assertJsonPath('transmision.paginas', ['Opa Noticias', 'Opa TV']);
+        $id = $r->json('transmision.id');
+
+        $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar");
+        $a->assertOk()->assertJsonPath('transmision.estado', 'en_vivo')->assertJsonPath('transmision.destinos.1.fb_live_id', 'BC1')->assertJsonPath('transmision.destinos.1.permalink', 'https://www.youtube.com/watch?v=BC1');
+        $this->assertStringNotContainsString('clave-yt-secreta', $a->getContent());
+        // Token renovado, stream reutilizable guardado, broadcast con título y auto-inicio, egress con las dos salidas
+        $this->assertSame('ST1', $canal->fresh()->stream_id);
+        $this->assertSame('nuevo-token', $canal->fresh()->access_token);
+        Http::assertSent(fn($req) => str_contains($req->url(), '/liveBroadcasts?part=') && $req['snippet']['title'] === 'Noticiero' && $req['contentDetails']['enableAutoStart'] === true && $req->header('Authorization')[0] === 'Bearer nuevo-token');
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/StartRoomCompositeEgress') && in_array('rtmps://a.rtmps.youtube.com/live2/clave-yt-secreta', $req['stream_outputs'][0]['urls'], true) && count($req['stream_outputs'][0]['urls']) === 2);
+
+        // Espectadores sumados (42 Facebook + 17 YouTube)
+        $this->withHeader('X-Editus-Token', self::TOKEN)->getJson("/api/en-vivo/{$id}/estado")->assertOk()->assertJsonPath('facebook.espectadores', 59)->assertJsonPath('facebook.por_pagina.1.red', 'youtube');
+
+        // Terminar cierra el broadcast
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/terminar")->assertOk();
+        Http::assertSent(fn($req) => str_contains($req->url(), '/liveBroadcasts/transition') && str_contains($req->url(), 'broadcastStatus=complete'));
+    }
+
+    public function test_solo_youtube_sin_facebook(): void
+    {
+        $canal = \App\Models\YoutubeCanal::create(['channel_id' => 'UC9', 'titulo' => 'Canal', 'access_token' => 'tok', 'refresh_token' => 'r', 'expira_en' => now()->addHour(), 'stream_id' => 'ST9', 'visible_en_editor' => true]);
+        Http::fake([
+            'www.googleapis.com/youtube/v3/liveStreams?*' => Http::response(['items' => [['id' => 'ST9', 'cdn' => ['ingestionInfo' => ['ingestionAddress' => 'rtmp://a.rtmp.youtube.com/live2', 'streamName' => 'k9']]]]], 200),
+            'www.googleapis.com/youtube/v3/liveBroadcasts?part=snippet,status,contentDetails' => Http::response(['id' => 'BC9'], 200),
+            'www.googleapis.com/youtube/v3/liveBroadcasts/bind*' => Http::response(['id' => 'BC9'], 200),
+        ]);
+        $this->fakeTodo();
+        $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['youtube_canal_ids' => [$canal->id], 'titulo' => 'Solo YouTube']);
+        $r->assertOk()->assertJsonCount(1, 'transmision.destinos');
+        $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/' . $r->json('transmision.id') . '/iniciar');
+        $a->assertOk()->assertJsonPath('transmision.estado', 'en_vivo')->assertJsonPath('transmision.destinos.0.permalink', 'https://www.youtube.com/watch?v=BC9');
+        Http::assertNotSent(fn($req) => str_contains($req->url(), '/live_videos'));
+        Http::assertSent(fn($req) => str_ends_with($req->url(), '/StartRoomCompositeEgress') && $req['stream_outputs'][0]['urls'] === ['rtmp://a.rtmp.youtube.com/live2/k9']);
     }
 
     public function test_si_facebook_falla_al_salir_al_aire_la_sala_sigue(): void

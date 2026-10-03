@@ -269,6 +269,45 @@
             </div>
         </div>
 
+        {{-- ===================== YOUTUBE ===================== --}}
+        <div id="youtube" class="rounded-3xl border border-gray-200 bg-white p-5 shadow-md mb-8">
+            <div class="flex items-center justify-between gap-4 mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-gray-800">YouTube Live</h2>
+                    <p class="text-sm text-gray-500">
+                        Conecta los canales con los que se transmite desde la app. Cada transmisión crea el video en YouTube con el título y la descripción de la app, en paralelo a Facebook.
+                        El canal debe tener las transmisiones en vivo activadas en YouTube Studio.
+                    </p>
+                </div>
+                @if ($googleListo)
+                    <a href="{{ route('youtube.connect') }}" class="shrink-0 rounded-lg bg-red-600 text-white font-semibold px-4 py-2 hover:opacity-90">Conectar canal</a>
+                @else
+                    <span class="shrink-0 text-xs text-amber-700">Faltan GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en el .env</span>
+                @endif
+            </div>
+            @if ($canalesYoutube->isEmpty())
+                <p class="text-sm text-gray-500">No hay canales conectados.</p>
+            @else
+                <div class="space-y-2">
+                    @foreach ($canalesYoutube as $c)
+                        <div class="flex items-center gap-3 rounded-2xl border border-gray-100 p-3 {{ $c->visible_en_editor ? '' : 'opacity-60' }}">
+                            @if ($c->foto)<img src="{{ $c->foto }}" alt="" class="h-10 w-10 rounded-full bg-gray-100">@else<div class="h-10 w-10 rounded-full bg-gray-200"></div>@endif
+                            <div class="flex-1 min-w-0">
+                                <div class="font-semibold text-gray-800 truncate">{{ $c->titulo }}</div>
+                                <div class="text-xs text-gray-500">
+                                    <a href="https://www.youtube.com/channel/{{ $c->channel_id }}" target="_blank" class="underline">Ver canal</a>
+                                    · {{ $c->refresh_token ? 'acceso permanente' : 'sin acceso permanente' }}
+                                    @if ($c->expira_en) · token hasta {{ $c->expira_en->format('d/m H:i') }} @endif
+                                </div>
+                            </div>
+                            <form method="POST" action="{{ route('youtube.visible', $c) }}">@csrf<input type="hidden" name="visible" value="{{ $c->visible_en_editor ? 0 : 1 }}"><button class="text-xs rounded-lg border border-gray-300 px-2 py-1">{{ $c->visible_en_editor ? 'Ocultar en la app' : 'Mostrar en la app' }}</button></form>
+                            <form method="POST" action="{{ route('youtube.desconectar', $c) }}" onsubmit="return confirm('¿Desconectar el canal «{{ $c->titulo }}»?')">@csrf @method('DELETE')<button class="text-xs text-red-600 hover:underline">Desconectar</button></form>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+
         {{-- ===================== RECURSOS EN VIVO ===================== --}}
         <div id="recursos" class="rounded-3xl border border-gray-200 bg-white p-5 shadow-md mb-8">
             <div class="mb-4">
