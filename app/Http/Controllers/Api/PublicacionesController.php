@@ -28,13 +28,11 @@ use Illuminate\Support\Str;
  */
 class PublicacionesController extends Controller
 {
-    public function paginas(): JsonResponse
+    public function paginas(Request $request, \App\Services\CuentasAppService $cuentas): JsonResponse
     {
-        $paginas = MetaPage::query()
-            ->whereHas('users', fn($q) => $q->where('meta_page_user.is_active', 1)->whereNotNull('meta_page_user.page_access_token'))
-            ->when(Schema::hasColumn('meta_pages', 'visible_en_editor'), fn($q) => $q->where('visible_en_editor', 1))
-            ->orderBy('name')
-            ->get()
+        // Con ?usuario= (id del usuario de la app): sus páginas conectadas desde la app + las de la organización
+        $usuario = trim((string) $request->query('usuario', '')) ?: null;
+        $paginas = $cuentas->paginasDe($usuario)
             ->map(fn(MetaPage $p) => [
                 'id' => $p->id,
                 'page_id' => (string) $p->page_id,
@@ -44,6 +42,7 @@ class PublicacionesController extends Controller
                 'instagram' => !empty($p->instagram_business_account_id),
                 'instagram_id' => $p->instagram_business_account_id,
                 'medio' => $p->medio_slug ?: null,
+                'propia' => (bool) $p->getAttribute('propia'),
             ])
             ->values();
 
@@ -79,7 +78,9 @@ class PublicacionesController extends Controller
             'paginas.*.instagram' => ['nullable', 'boolean'],
             'paginas.*.enlace' => ['nullable', 'url'],
             'referencia' => ['nullable', 'string', 'max:100'],
+            'usuario' => ['nullable', 'string', 'max:60'],
         ]);
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
 
         $batch = (string) Str::uuid();
         $resultados = [];
@@ -195,7 +196,9 @@ class PublicacionesController extends Controller
             'paginas.*.instagram' => ['nullable', 'boolean'],
             'paginas.*.enlace' => ['nullable', 'url'],
             'referencia' => ['nullable', 'string', 'max:100'],
+            'usuario' => ['nullable', 'string', 'max:60'],
         ]);
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
         @set_time_limit(600);
 
         // Video subido temporalmente desde la app (SubidasController): se usa

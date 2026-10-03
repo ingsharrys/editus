@@ -30,8 +30,15 @@ class YoutubeController extends Controller
             ->redirect();
     }
 
-    public function callback(Request $request, YouTubeLiveService $youtube): RedirectResponse
+    public function callback(Request $request, YouTubeLiveService $youtube): RedirectResponse|\Illuminate\Contracts\View\View
     {
+        // Conexión iniciada desde la app del editor (sin sesión de editus)
+        if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
+            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackYoutube($request, (array) $vinculo, $youtube);
+        }
+        if (!auth()->check() || !auth()->user()->isAdmin()) {
+            return redirect()->route('login')->with('error', 'Inicia sesión como administrador para conectar canales.');
+        }
         if ($request->has('error')) {
             return redirect()->route('editor-app.index')->with('error', 'Google devolvió un error: ' . $request->get('error_description', $request->get('error')))->withFragment('youtube');
         }

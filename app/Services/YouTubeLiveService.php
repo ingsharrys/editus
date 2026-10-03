@@ -17,14 +17,16 @@ class YouTubeLiveService
     private const API = 'https://www.googleapis.com/youtube/v3/';
 
     /** Guarda o actualiza el canal a partir de los tokens de Google (callback de OAuth). */
-    public function registrarCanal(string $accessToken, ?string $refreshToken, ?int $expiraEn, ?int $userId): YoutubeCanal
+    public function registrarCanal(string $accessToken, ?string $refreshToken, ?int $expiraEn, ?int $userId, ?string $usuarioApp = null): YoutubeCanal
     {
         $r = Http::timeout(20)->withToken($accessToken)->get(self::API . 'channels', ['part' => 'snippet', 'mine' => 'true']);
         $item = data_get($r->json(), 'items.0');
         if (!$r->ok() || !$item) {
             throw new \RuntimeException('Google no devolvió ningún canal de YouTube para esta cuenta: ' . (data_get($r->json(), 'error.message') ?: 'revisa que la cuenta tenga un canal'));
         }
-        $canal = YoutubeCanal::firstOrNew(['channel_id' => (string) $item['id']]);
+        $clave = ['channel_id' => (string) $item['id']];
+        if (\Illuminate\Support\Facades\Schema::hasColumn('youtube_canales', 'usuario_app')) $clave['usuario_app'] = $usuarioApp;
+        $canal = YoutubeCanal::firstOrNew($clave);
         $canal->fill([
             'user_id' => $userId,
             'titulo' => Str::limit((string) data_get($item, 'snippet.title', 'Canal'), 150, ''),

@@ -31,6 +31,12 @@ class MetaPage extends Model
             ->withTimestamps();
     }
 
+    /** Vínculos (tokens de página) de usuarios de editus y de usuarios de la app. */
+    public function vinculos()
+    {
+        return $this->hasMany(MetaPageUser::class, 'meta_page_id');
+    }
+
     public function pictureUrl(string $type = 'normal', ?int $width = null, ?int $height = null): string
     {
         // Si prefieres forzar siempre Graph:

@@ -88,6 +88,12 @@ return [
         'ingest_token' => env('EDITUS_INGEST_TOKEN'),
     ],
 
+    // App del editor (React Native): esquema del deep link al que vuelve el navegador
+    // después de conectar una cuenta desde la app (editor://cuentas)
+    'editor_app' => [
+        'scheme' => env('EDITOR_APP_SCHEME', 'editor'),
+    ],
+
     // Google (YouTube Live): OAuth para conectar canales y transmitir en vivo desde la app
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),

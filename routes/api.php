@@ -46,6 +46,12 @@ Route::middleware('editus.token')->group(function () {
     Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Api\EnVivoController::class, 'invitacion'])->name('api.envivo.invitacion');
     Route::get('/en-vivo/{transmision}/participantes', [\App\Http\Controllers\Api\EnVivoController::class, 'participantes'])->name('api.envivo.participantes');
     Route::post('/en-vivo/{transmision}/participantes/{identity}/expulsar', [\App\Http\Controllers\Api\EnVivoController::class, 'expulsar'])->name('api.envivo.expulsar');
+
+    // Cuentas de cada usuario de la app (páginas de Facebook y canales de YouTube propios)
+    Route::get('/cuentas', [\App\Http\Controllers\Api\CuentasController::class, 'index'])->name('api.cuentas');
+    Route::post('/cuentas/facebook/sincronizar', [\App\Http\Controllers\Api\CuentasController::class, 'sincronizarFacebook'])->name('api.cuentas.facebook.sincronizar');
+    Route::post('/cuentas/facebook/desconectar', [\App\Http\Controllers\Api\CuentasController::class, 'desconectarFacebook'])->name('api.cuentas.facebook.desconectar');
+    Route::post('/cuentas/youtube/{canal}/desconectar', [\App\Http\Controllers\Api\CuentasController::class, 'desconectarYoutube'])->name('api.cuentas.youtube.desconectar');
 });
 
 // Subida temporal de videos desde la app del editor: la firma (HMAC con el

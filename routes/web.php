@@ -22,6 +22,21 @@ Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoContro
 Route::post('/en-vivo/invitado/{codigo}/token', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoToken'])
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->name('en-vivo.invitado.token');
 
+/*
+|--------------------------------------------------------------------------
+| Callbacks de OAuth (públicos: la sesión de editus o la conexión iniciada
+| desde la app deciden qué hacer) y conexión de cuentas desde la app del editor
+|--------------------------------------------------------------------------
+*/
+Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.connect.callback');
+Route::get('/auth/facebook/link/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.link.callback');
+Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.legacy.callback');
+Route::get('/auth/youtube/callback', [\App\Http\Controllers\Admin\YoutubeController::class, 'callback'])->name('youtube.callback');
+
+// Enlaces firmados por el backend de esnoticia (u, exp, sig) que la app abre en el navegador
+Route::get('/auth/app/facebook', [\App\Http\Controllers\Web\CuentasAppController::class, 'facebook'])->name('app.cuentas.facebook');
+Route::get('/auth/app/youtube', [\App\Http\Controllers\Web\CuentasAppController::class, 'youtube'])->name('app.cuentas.youtube');
+
 Route::view('/terms', 'terms')->name('terms');
 
 Route::view('/data-deletion', 'data-deletion')->name('data-deletion');
@@ -89,13 +104,9 @@ Route::middleware(['auth'])->group(function () {
         ->name('meta.pages.repairTokens.step');
 
     Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.connect');
-    Route::get('/auth/facebook/connect/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.connect.callback');
-
 
     // Aliases de compatibilidad
     Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])->name('facebook.link.redirect');
-    Route::get('/auth/facebook/link/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.link.callback');
-    Route::get('/auth/facebook/callback', [FacebookPageController::class, 'linkCallback'])->name('facebook.legacy.callback');
 
     // Desvincular cuenta/página
     Route::delete('/auth/facebook/unlink', [FacebookPageController::class, 'unlinkAccount'])->name('facebook.unlink');
@@ -132,7 +143,6 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
         // YouTube Live: conectar canales (OAuth de Google), visibilidad en la app y desconexión
         Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->name('youtube.connect');
-        Route::get('/auth/youtube/callback', [\App\Http\Controllers\Admin\YoutubeController::class, 'callback'])->name('youtube.callback');
         Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->name('youtube.visible');
         Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->name('youtube.desconectar');
         Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');

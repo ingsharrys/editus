@@ -298,6 +298,7 @@
                                     <a href="https://www.youtube.com/channel/{{ $c->channel_id }}" target="_blank" class="underline">Ver canal</a>
                                     · {{ $c->refresh_token ? 'acceso permanente' : 'sin acceso permanente' }}
                                     @if ($c->expira_en) · token hasta {{ $c->expira_en->format('d/m H:i') }} @endif
+                                    @if (!empty($c->usuario_app)) · <span class="text-indigo-600">conectado desde la app por el usuario #{{ $c->usuario_app }}</span> @endif
                                 </div>
                             </div>
                             <form method="POST" action="{{ route('youtube.visible', $c) }}">@csrf<input type="hidden" name="visible" value="{{ $c->visible_en_editor ? 0 : 1 }}"><button class="text-xs rounded-lg border border-gray-300 px-2 py-1">{{ $c->visible_en_editor ? 'Ocultar en la app' : 'Mostrar en la app' }}</button></form>

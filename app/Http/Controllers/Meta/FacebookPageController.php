@@ -795,6 +795,14 @@ class FacebookPageController extends Controller
     {
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
 
+        // Conexión iniciada desde la app del editor (sin sesión de editus): la resuelve CuentasAppController
+        if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
+            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackFacebook($request, (array) $vinculo, $redirectUrl, app(\App\Services\CuentasAppService::class));
+        }
+        if (!Auth::check()) {
+            return redirect()->route('login')->with('error', 'Inicia sesión en editus para conectar páginas.');
+        }
+
         // Si Facebook devolvió un error (usuario canceló, permisos denegados, etc.)
         if ($request->has('error')) {
             $desc = $request->get('error_description')
@@ -922,127 +930,8 @@ class FacebookPageController extends Controller
 
     private function performSync(User $user, SocialAccount $social): int
     {
-        $version = config('services.facebook.version', 'v23.0');
-        $base = "https://graph.facebook.com/{$version}";
-
-        $fields = 'id,name,category,access_token,tasks,connected_instagram_business_account,picture{url}';
-
-        $http = Http::withToken($social->access_token);
-        $pages = [];
-
-        // 1) Páginas "clásicas" del usuario: /me/accounts
-        $url = "{$base}/me/accounts?fields={$fields}";
-
-        while ($url) {
-            $resp = $http->get($url);
-
-            if (!$resp->ok()) {
-                Log::error('FB /me/accounts error', [
-                    'status' => $resp->status(),
-                    'body' => $resp->body(),
-                ]);
-                throw new \RuntimeException('No se pudieron obtener las páginas: ' . $resp->body());
-            }
-
-            $json = $resp->json();
-            $data = data_get($json, 'data', []);
-            $pages = array_merge($pages, $data);
-            $url = data_get($json, 'paging.next');
-        }
-
-        // 2) Fallback: páginas asignadas vía Business Manager: /me/assigned_pages
-        if (empty($pages)) {
-            $url = "{$base}/me/assigned_pages?fields={$fields}";
-
-            while ($url) {
-                $resp = $http->get($url);
-
-                if (!$resp->ok()) {
-                    Log::warning('FB /me/assigned_pages error', [
-                        'status' => $resp->status(),
-                        'body' => $resp->body(),
-                    ]);
-                    break;
-                }
-
-                $json = $resp->json();
-                $data = data_get($json, 'data', []);
-                $pages = array_merge($pages, $data);
-                $url = data_get($json, 'paging.next');
-            }
-        }
-
-        // 3) Si sigue vacío, no hay páginas para ese usuario
-        if (empty($pages)) {
-            throw new \RuntimeException("No se encontraron páginas.
-- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.
-- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.
-- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
-        }
-
-        // 4) Tu lógica de guardado, igual a la que ya tenías
-        DB::transaction(function () use ($pages, $user, $social, $base, $http) {
-            foreach ($pages as $page) {
-                $pageId = (string) data_get($page, 'id');
-                $name = data_get($page, 'name');
-                $category = data_get($page, 'category');
-                $igId = data_get($page, 'connected_instagram_business_account.id');
-                $picture = "{$base}/{$pageId}/picture?type=normal";
-
-                $pageAccessToken = data_get($page, 'access_token');
-
-                if (!$pageAccessToken) {
-                    $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
-                    if ($try->ok()) {
-                        $pageAccessToken = data_get($try->json(), 'access_token');
-                    } else {
-                        Log::warning('No page_access_token (fallback)', $try->json() ?? []);
-                    }
-                }
-
-                $tasks = data_get($page, 'tasks', []);
-                if (!is_array($tasks)) {
-                    $tasks = $tasks ? [$tasks] : [];
-                }
-
-                $canAnalyze = in_array('ANALYZE', $tasks, true);
-
-                $metaPage = MetaPage::updateOrCreate(
-                    ['page_id' => $pageId],
-                    [
-                        'name' => $name,
-                        'category' => $category,
-                        'instagram_business_account_id' => $igId,
-                        'picture_url' => $picture,
-                        'tasks' => array_values($tasks),
-                    ]
-                );
-
-                $user->metaPages()->syncWithoutDetaching([
-                    $metaPage->id => [
-                        'page_access_token' => $pageAccessToken,
-                        'social_account_id' => $social->id,
-                        'expires_at' => null,
-                        'is_active' => $pageAccessToken ? 1 : 0,
-                        'updated_at' => now(),
-                    ]
-                ]);
-
-                if (!$pageAccessToken) {
-                    Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', [
-                        'page_id' => $pageId,
-                        'tasks' => $tasks,
-                    ]);
-                } elseif (!$canAnalyze) {
-                    Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', [
-                        'page_id' => $pageId,
-                        'tasks' => $tasks,
-                    ]);
-                }
-            }
-        });
-
-        return count($pages);
+        // Misma lógica para la web y para las cuentas conectadas desde la app (CuentasAppService)
+        return app(\App\Services\CuentasAppService::class)->sincronizarPaginas($social, $user->id, null);
     }
 
     public function startRepairTokens(Request $request)

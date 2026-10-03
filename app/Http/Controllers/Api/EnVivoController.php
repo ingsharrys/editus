@@ -60,10 +60,18 @@ class EnVivoController extends Controller
         }
         $ids = array_values(array_unique(array_filter(array_merge([(string) ($datos['page_id'] ?? '')], (array) ($datos['page_ids'] ?? [])))));
         $pages = MetaPage::whereIn('page_id', $ids)->get()->sortBy(fn($p) => array_search($p->page_id, $ids, true))->values();
-        $canales = Schema::hasTable('youtube_canales') ? YoutubeCanal::whereIn('id', array_map('intval', (array) ($datos['youtube_canal_ids'] ?? [])))->get() : collect();
+        $canalIds = array_map('intval', (array) ($datos['youtube_canal_ids'] ?? []));
+        $canales = Schema::hasTable('youtube_canales') ? YoutubeCanal::whereIn('id', $canalIds)->get() : collect();
         if ($pages->isEmpty() && $canales->isEmpty()) {
             return response()->json(['success' => false, 'error' => 'Elige al menos una página de Facebook o un canal de YouTube'], 422);
         }
+        // Cada usuario de la app solo transmite a sus páginas / canales (o a los de la organización)
+        $usuarioApp = trim((string) ($datos['usuario'] ?? '')) ?: null;
+        $cuentas = app(\App\Services\CuentasAppService::class);
+        if (!$cuentas->puedeUsarPaginas($usuarioApp, $pages->pluck('page_id')->all()) || !$cuentas->puedeUsarCanales($usuarioApp, $canales->pluck('id')->all())) {
+            return response()->json(['success' => false, 'error' => 'Alguna de las páginas o canales elegidos no está conectada a tu cuenta. Revisa "Mis cuentas" en la app.'], 422);
+        }
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($usuarioApp);
         // La sala se nombra por la primera página (o el primer canal); meta_page_id es obligatorio en la tabla
         $page = $pages->first() ?: MetaPage::orderBy('id')->first();
         if (!$page) {
@@ -107,6 +115,7 @@ class EnVivoController extends Controller
      */
     public function salirAlAire(Request $request, TransmisionEnVivo $transmision): JsonResponse
     {
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($transmision->usuario_app);
         $datos = $request->validate(['intro_recurso_id' => ['nullable', 'integer']]);
         if ($transmision->estado !== 'sala') {
             return response()->json(['success' => false, 'error' => 'La transmisión no está en la sala de espera (estado: ' . $transmision->estado . ')'], 422);
@@ -371,6 +380,7 @@ class EnVivoController extends Controller
 
     public function terminar(TransmisionEnVivo $transmision): JsonResponse
     {
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($transmision->usuario_app);
         $this->limpiar($transmision);
         if ($transmision->estado !== 'error') {
             $transmision->fill(['estado' => 'terminada', 'terminada_en' => now()])->save();
@@ -389,6 +399,7 @@ class EnVivoController extends Controller
 
     public function estado(TransmisionEnVivo $transmision): JsonResponse
     {
+        \App\Services\MetaPageTokenResolver::preferirUsuarioApp($transmision->usuario_app);
         // Espectadores: suma de todas las páginas
         $porPagina = [];
         $total = null;
@@ -481,9 +492,11 @@ class EnVivoController extends Controller
     }
 
     /** GET /api/en-vivo/youtube: canales de YouTube disponibles para la app. */
-    public function youtubeCanales(): JsonResponse
+    public function youtubeCanales(Request $request): JsonResponse
     {
-        $lista = Schema::hasTable('youtube_canales') ? YoutubeCanal::where('visible_en_editor', true)->orderBy('titulo')->get()->map(fn($c) => $c->paraApi())->values() : collect();
+        // Con ?usuario=: los canales que ese usuario conectó desde la app + los de la organización visibles
+        $usuario = trim((string) $request->query('usuario', '')) ?: null;
+        $lista = app(\App\Services\CuentasAppService::class)->canalesDe($usuario)->map(fn($c) => $c->paraApi($usuario))->values();
         return response()->json(['success' => true, 'canales' => $lista, 'configurado' => (string) config('services.google.client_id') !== '']);
     }
 

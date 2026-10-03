@@ -70,6 +70,37 @@ que volver a pulsar "Conectar canal". Para que sea permanente hay que publicar
 la app en Google y pasar su verificación (pide un video y una política de
 privacidad), lo que tarda unas semanas.
 
+## Cuentas de cada usuario desde la app ("Mis cuentas")
+
+Cada usuario de la app conecta **sus propias** páginas de Facebook y canales de
+YouTube sin entrar a la web de editus:
+
+1. En la app: menú → **Mis cuentas** → "Conectar Facebook" o "Conectar YouTube".
+   El backend de esnoticia genera un enlace firmado (`/auth/app/facebook` o
+   `/auth/app/youtube` con `u`, `exp`, `sig` = HMAC del `EDITUS_TOKEN`) y la app lo
+   abre en el navegador del teléfono.
+2. El usuario inicia sesión en Facebook / Google y acepta los permisos. Se usan
+   los mismos callbacks de siempre (`FACEBOOK_LINK_REDIRECT_URI` y
+   `/auth/youtube/callback`), así que no hay que registrar nada nuevo en Meta ni
+   en Google. editus guarda los tokens con el id del usuario de la app
+   (`usuario_app`) y muestra una página que vuelve a la app (`editor://cuentas`,
+   esquema configurable con `EDITOR_APP_SCHEME`).
+3. Desde ese momento, en Redes y En vivo ese usuario ve sus páginas y canales
+   (marcados como "mía") junto con los de la organización (los que conectó un
+   administrador desde la web de editus y marcó como visibles en la app). Las
+   publicaciones y los Lives en sus páginas se hacen con **su** token.
+4. "Actualizar páginas" vuelve a leer las páginas de su cuenta de Facebook;
+   "Desconectar" borra sus tokens (los de la organización no se tocan).
+
+Requisitos en Meta: mientras la app de Facebook no tenga aprobados en App Review
+los permisos `pages_show_list`, `pages_manage_posts`, `pages_read_engagement` y
+`publish_video` (Live Video API), solo pueden conectar cuentas con rol en la app
+(administrador, desarrollador o probador). En Google, mientras el cliente esté
+"en pruebas", solo los usuarios de prueba y el acceso vence cada 7 días.
+
+Migración necesaria: `php artisan migrate --force` (agrega `usuario_app` a
+`social_accounts`, `meta_page_user` y `youtube_canales`).
+
 ## Flujo: sala primero, al aire después
 
 1. En la app se eligen las páginas y el título y se toca **Entrar a la sala**:
