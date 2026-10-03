@@ -252,6 +252,45 @@ class InteligenciaAudienciaTest extends TestCase
         $this->assertSame(2, $campana->informes()->count());
     }
 
+    public function test_vista_general_de_todas_las_paginas_y_recoleccion_fuera_de_campanas(): void
+    {
+        $this->fakeGraph();
+        $campana = $this->campana();
+        // Página integrada que NO está en ninguna campaña
+        $otra = MetaPage::create(['page_id' => '222', 'name' => 'Neiva 24', 'medio_slug' => 'neiva24']);
+        $otra->users()->attach($this->admin->id, ['page_access_token' => 'tok-2', 'is_active' => true]);
+        config(['services.editus.medios' => ['opanoticias' => 'Opanoticias', 'neiva24' => 'Neiva 24']]);
+
+        // La recolección por defecto cubre las dos (la de campaña primero), aunque la segunda falle en Meta
+        $this->artisan('inteligencia:recolectar --dias=2 --pausa=0')
+            ->expectsOutputToContain('Recolectando 2 página(s)')
+            ->expectsOutputToContain('★ Opa Noticias')
+            ->expectsOutputToContain('Neiva 24')
+            ->assertExitCode(0);
+        $this->artisan('inteligencia:recolectar --dias=2 --pausa=0 --solo-campanas')->expectsOutputToContain('Recolectando 1 página(s)')->assertExitCode(0);
+        $this->assertSame(3, PublicacionRed::where('meta_page_id', $this->page->id)->count());
+
+        PublicacionRed::create(['meta_page_id' => $otra->id, 'red' => 'facebook', 'post_id' => '222_1', 'tipo' => 'foto', 'texto' => 'Nota de Neiva 24', 'permalink' => 'https://fb.com/n24', 'publicado_en' => Carbon::now()->subDay(), 'alcance' => 5000, 'interacciones' => 100, 'comentarios' => 3]);
+
+        // Vista general: todas las páginas, comparativa de campañas y filtros por medio / página
+        $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Vista general de todas las páginas');
+        $r = $this->actingAs($this->admin)->get('/admin/inteligencia/general?desde=' . Carbon::today()->subDays(6)->toDateString() . '&hasta=' . Carbon::today()->toDateString());
+        $r->assertOk()->assertSee('Toda la organización')->assertSee('2 de 2 página(s) integradas')->assertSee('Nota de Neiva 24');
+        $r = $this->actingAs($this->admin)->get('/admin/inteligencia/general?tab=paginas');
+        $r->assertOk()->assertSee('Neiva 24')->assertSee('Opa Noticias')->assertSee('Alcaldía 2027')->assertSee('Campañas frente al total');
+        $this->actingAs($this->admin)->get('/admin/inteligencia/general?medio=neiva24')->assertOk()->assertSee('1 de 2 página(s) integradas')->assertSee('Nota de Neiva 24')->assertDontSee('Capturan a tres');
+        $this->actingAs($this->admin)->get('/admin/inteligencia/general?paginas[]=' . $this->page->id . '&tab=publicaciones')->assertOk()->assertSee('Capturan a tres')->assertDontSee('Nota de Neiva 24');
+        foreach (['audiencia', 'horarios'] as $tab) $this->actingAs($this->admin)->get('/admin/inteligencia/general?tab=' . $tab)->assertOk();
+
+        // Tablero por páginas directo: la página fuera de campaña cuenta
+        $t = app(AnalisisService::class)->tableroPaginas(MetaPage::all(), Tema::all(), Carbon::today()->subDays(6), Carbon::today());
+        $this->assertSame(4, $t['resumen']['publicaciones']);
+        $this->assertCount(2, $t['por_pagina']);
+
+        // Recolectar desde la web (filtrado por medio)
+        $this->actingAs($this->admin)->post('/admin/inteligencia/general/recolectar', ['dias' => 2, 'medio' => 'neiva24'])->assertRedirect()->assertSessionHas('success');
+    }
+
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void
     {
         config(['services.anthropic.key' => '']);
