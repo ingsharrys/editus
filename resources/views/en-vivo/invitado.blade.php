@@ -95,7 +95,7 @@
       if (!j.success) throw new Error(j.error || 'No se pudo entrar');
       const { Room, RoomEvent, Track } = LivekitClient;
       if (local) local.getTracks().forEach(t => t.stop());
-      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { facingMode: frontal ? 'user' : 'environment', resolution: { width: 1280, height: 720, frameRate: 30 } } });
+      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { facingMode: frontal ? 'user' : 'environment', resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
       room.on(RoomEvent.Disconnected, () => { estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
       await room.connect(j.url, j.token);

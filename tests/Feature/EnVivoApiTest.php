@@ -96,7 +96,8 @@ class EnVivoApiTest extends TestCase
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/CreateRoom') && $req['name'] === $room && str_contains($req['metadata'], '"logo_texto":"OPA Noticias"') && str_starts_with($req->header('Authorization')[0], 'Bearer '));
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/StartRoomCompositeEgress') && $req['room_name'] === $room
             && $req['stream_outputs'][0]['urls'][0] === 'rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-SECRETA'
-            && str_contains($req['custom_base_url'], '/en-vivo/escena'));
+            && str_contains($req['custom_base_url'], '/en-vivo/escena')
+            && $req['advanced']['width'] === 1920 && $req['advanced']['height'] === 1080 && $req['advanced']['key_frame_interval'] === 2 && $req['advanced']['audio_codec'] === 'AAC');
         // Facebook: live creado con título
         Http::assertSent(fn($req) => str_contains($req->url(), '/111/live_videos') && $req['status'] === 'LIVE_NOW' && $req['title'] === 'Consejo de Neiva en vivo');
 

@@ -108,6 +108,8 @@ return [
         'api_secret' => env('LIVEKIT_API_SECRET'),
         // Página de la escena (plantilla en tiempo real) que compone el egress; por defecto /en-vivo/escena de este editus
         'escena_url' => env('LIVEKIT_ESCENA_URL'),
+        // Calidad de la transmisión que sale a Facebook: 1080 (por defecto) o 720 si el VPS se queda corto
+        'calidad'    => env('LIVEKIT_CALIDAD', '1080'),
     ],
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),

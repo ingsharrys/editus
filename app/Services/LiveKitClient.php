@@ -141,11 +141,32 @@ class LiveKitClient
             'layout' => $layout,
             'custom_base_url' => $escenaBaseUrl,
             'stream_outputs' => [['protocol' => 'RTMP', 'urls' => array_values($rtmpUrls)]],
-            'preset' => 'H264_720P_30',
+            'advanced' => self::codificacion(),
         ], $room);
         $id = (string) ($r['egress_id'] ?? $r['egressId'] ?? '');
         if ($id === '') throw new \RuntimeException('LiveKit no devolvió egress_id');
         return $id;
+    }
+
+    /**
+     * Calidad de salida (LIVEKIT_CALIDAD=1080|720). Facebook Live admite 1080p a 30 fps
+     * con hasta 4 Mbps y pide un fotograma clave cada 2 segundos.
+     */
+    public static function codificacion(): array
+    {
+        $calidad = (string) config('services.livekit.calidad', '1080');
+        $hd = $calidad !== '720';
+        return [
+            'width' => $hd ? 1920 : 1280,
+            'height' => $hd ? 1080 : 720,
+            'framerate' => 30,
+            'video_codec' => 'H264_MAIN',
+            'video_bitrate' => $hd ? 4000 : 2500,
+            'audio_codec' => 'AAC',
+            'audio_bitrate' => 128,
+            'audio_frequency' => 44100,
+            'key_frame_interval' => 2,
+        ];
     }
 
     public function detenerEgress(string $egressId): void
