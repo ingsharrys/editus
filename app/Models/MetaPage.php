@@ -25,18 +25,35 @@ class MetaPage extends Model
         'app_usuarios' => 'array',
     ];
 
-    /** Normaliza la lista de usuarios de la app escrita por el administrador ("willy, karol"). */
-    public static function usuariosApp(?string $texto): ?array
+    /**
+     * Normaliza la lista de periodistas que ven una página / canal de la organización.
+     * Acepta el selector múltiple (array) o texto "willy, karol". '*' = todos los periodistas;
+     * lista vacía = ninguno (solo quien conecte la página desde la app).
+     */
+    public static function usuariosApp(array|string|null $valor): array
     {
-        $lista = array_values(array_unique(array_filter(array_map(fn($x) => strtolower(trim($x)), preg_split('/[\s,;]+/', (string) $texto) ?: []))));
-        return $lista ?: null;
+        $items = is_array($valor) ? $valor : (preg_split('/[\s,;]+/', (string) $valor) ?: []);
+        $lista = array_values(array_unique(array_filter(array_map(fn($x) => strtolower(trim((string) $x)), $items), fn($x) => $x !== '')));
+        if (in_array('*', $lista, true) || in_array('todos', $lista, true)) return ['*'];
+        return $lista;
+    }
+
+    /** Etiqueta corta de quién ve la página en la app. */
+    public function resumenUsuariosApp(): string
+    {
+        $lista = $this->app_usuarios;
+        if ($lista === null || in_array('*', (array) $lista, true)) return 'Todos los periodistas';
+        if (!$lista) return 'Nadie (solo quien la conecte desde la app)';
+        return implode(', ', $lista);
     }
 
     /** ¿Este usuario de la app (nombre de usuario) puede ver la página de la organización? Lista vacía = todos. */
     public function visibleParaUsuarioApp(?string $nombre): bool
     {
-        $lista = is_array($this->app_usuarios) ? $this->app_usuarios : [];
-        if (!$lista) return true;
+        $lista = $this->app_usuarios;
+        if ($lista === null) return true;                  // nunca configurada: todos (compatibilidad)
+        if (!is_array($lista) || !$lista) return false;    // lista vacía: ningún periodista
+        if (in_array('*', $lista, true)) return true;      // todos los periodistas
         return $nombre !== null && in_array(strtolower(trim($nombre)), $lista, true);
     }
 

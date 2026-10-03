@@ -82,6 +82,12 @@ return [
 
 
 
+    // Backend de esnoticia (usuarios de la app = periodistas). editus le pide la lista
+    // con el mismo token de integración para el selector "Periodistas que ven esta página".
+    'esnoticia' => [
+        'url' => env('ESNOTICIA_URL', 'https://backend.esnoticia.org/public'),
+    ],
+
     // App del editor (React Native): esquema del deep link al que vuelve el navegador
     // después de conectar una cuenta desde la app (editor://cuentas)
     'editor_app' => [

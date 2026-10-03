@@ -13,35 +13,48 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 /**
- * Configuración de la app móvil del editor (sección Redes):
- * qué páginas de Facebook / Instagram se ofrecen en la app y las
- * plantillas de imagen con las que se componen las piezas.
+ * Configuración de la app móvil del editor:
+ *  - Páginas de Facebook / Instagram de la organización (conectadas desde la web
+ *    de editus o desde la app) y qué periodistas las ven en la app.
+ *  - Canales de YouTube de la organización.
+ *  - Recursos para las transmisiones en vivo.
+ * Las plantillas de imagen viven en su propia pantalla (plantillas()).
  */
 class EditorAppController extends Controller
 {
-    public function index(Request $request): View
+    public const TABS = ['paginas', 'youtube', 'recursos'];
+
+    public function index(Request $request, \App\Services\UsuariosAppService $usuariosApp): View
     {
+        $tab = in_array($request->query('tab'), self::TABS, true) ? $request->query('tab') : 'paginas';
+        $conApp = Schema::hasColumn('meta_page_user', 'usuario_app');
+
         $paginas = MetaPage::query()
-            ->with(['users' => fn($q) => $q->where('meta_page_user.is_active', 1)->whereNotNull('meta_page_user.page_access_token')])
+            ->with(['vinculos' => fn($q) => $q->where('is_active', 1)->whereNotNull('page_access_token')->with('user:id,name')])
             ->orderBy('name')
             ->get();
 
-        $plantillas = PlantillaEditor::query()->orderBy('orden')->orderBy('id')->get();
-
-        $editar = null;
-        if ($request->filled('editar')) {
-            $editar = PlantillaEditor::find((int) $request->query('editar'));
-        }
-
-        $medios = array_keys((array) config('services.editus.medios', []));
+        $medios = (array) config('services.editus.medios', []);
         $recursos = Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::query()->orderBy('orden')->orderBy('id')->get() : collect();
         $canalesYoutube = Schema::hasTable('youtube_canales') ? \App\Models\YoutubeCanal::orderBy('titulo')->get() : collect();
         $googleListo = (string) config('services.google.client_id') !== '';
 
-        return view('admin.editor-app.index', compact('paginas', 'plantillas', 'editar', 'medios', 'recursos', 'canalesYoutube', 'googleListo'));
+        // Periodistas (usuarios de la app) desde el backend de esnoticia
+        $periodistas = $usuariosApp->listar($request->boolean('recargar_usuarios'));
+        $nombresApp = $usuariosApp->nombresPorId();
+        $backendListo = $usuariosApp->configurado();
+
+        $resumen = [
+            'total' => $paginas->count(),
+            'visibles' => $paginas->where('visible_en_editor', true)->count(),
+            'desde_app' => $conApp ? $paginas->filter(fn($p) => $p->vinculos->contains(fn($v) => !empty($v->usuario_app)))->count() : 0,
+            'sin_token' => $paginas->filter(fn($p) => $p->vinculos->isEmpty())->count(),
+        ];
+
+        return view('admin.editor-app.index', compact('tab', 'paginas', 'medios', 'recursos', 'canalesYoutube', 'googleListo', 'periodistas', 'nombresApp', 'backendListo', 'resumen', 'conApp'));
     }
 
-    /** Guarda qué páginas se ven en la app y a qué medio pertenece cada una. */
+    /** Guarda qué páginas se ven en la app, su medio y qué periodistas las ven. */
     public function paginas(Request $request): RedirectResponse
     {
         $datos = $request->validate([
@@ -50,7 +63,7 @@ class EditorAppController extends Controller
             'medio' => ['nullable', 'array'],
             'medio.*' => ['nullable', 'string', 'max:100'],
             'usuarios' => ['nullable', 'array'],
-            'usuarios.*' => ['nullable', 'string', 'max:500'],
+            'usuarios.*' => ['nullable'],
         ]);
 
         $visibles = array_map('intval', $datos['visible'] ?? []);
@@ -63,11 +76,21 @@ class EditorAppController extends Controller
             $slug = preg_replace('/[^a-z0-9_-]/', '', $slug) ?: null;
             $p->visible_en_editor = in_array($p->id, $visibles, true);
             $p->medio_slug = $slug;
-            if ($conUsuarios) $p->app_usuarios = MetaPage::usuariosApp($usuarios[$p->id] ?? null);
+            // Solo se guarda la lista de periodistas si el formulario la trae (array o texto); si no, se conserva
+            if ($conUsuarios && array_key_exists($p->id, $usuarios)) $p->app_usuarios = MetaPage::usuariosApp($usuarios[$p->id]);
             $p->save();
         }
 
-        return redirect()->route('editor-app.index')->with('success', 'Páginas de la app actualizadas.');
+        return redirect()->route('editor-app.index', ['tab' => 'paginas'])->with('success', 'Páginas de la app actualizadas.');
+    }
+
+    // ---------------------------------------------- Plantillas de imagen (pantalla propia)
+
+    public function plantillas(Request $request): View
+    {
+        $plantillas = PlantillaEditor::query()->orderBy('orden')->orderBy('id')->get();
+        $editar = $request->filled('editar') ? PlantillaEditor::find((int) $request->query('editar')) : null;
+        return view('admin.editor-app.plantillas', compact('plantillas', 'editar'));
     }
 
     public function plantillaStore(Request $request): RedirectResponse
@@ -75,14 +98,14 @@ class EditorAppController extends Controller
         $plantilla = new PlantillaEditor();
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.index')->with('success', "Plantilla «{$plantilla->nombre}» creada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$plantilla->nombre}» creada.");
     }
 
     public function plantillaUpdate(Request $request, PlantillaEditor $plantilla): RedirectResponse
     {
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.index')->with('success', "Plantilla «{$plantilla->nombre}» guardada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$plantilla->nombre}» guardada.");
     }
 
     public function plantillaDestroy(PlantillaEditor $plantilla): RedirectResponse
@@ -93,7 +116,7 @@ class EditorAppController extends Controller
         $nombre = $plantilla->nombre;
         $plantilla->delete();
 
-        return redirect()->route('editor-app.index')->with('success', "Plantilla «{$nombre}» eliminada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$nombre}» eliminada.");
     }
 
     // ---------------------------------------------- Recursos para las transmisiones en vivo
@@ -122,7 +145,7 @@ class EditorAppController extends Controller
             'tipo' => $tipo, 'uso' => $uso, 'nombre' => $datos['nombre'], 'archivo' => $ruta,
             'duracion' => $datos['duracion'] ?? null, 'orden' => $datos['orden'] ?? 0, 'activo' => true,
         ]);
-        return redirect()->route('editor-app.index')->with('success', "Recurso «{$datos['nombre']}» subido.")->withFragment('recursos');
+        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', "Recurso «{$datos['nombre']}» subido.");
     }
 
     public function recursoDestroy(RecursoEnVivo $recurso): RedirectResponse
@@ -130,7 +153,7 @@ class EditorAppController extends Controller
         Storage::disk('public')->delete($recurso->archivo);
         $nombre = $recurso->nombre;
         $recurso->delete();
-        return redirect()->route('editor-app.index')->with('success', "Recurso «{$nombre}» eliminado.")->withFragment('recursos');
+        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', "Recurso «{$nombre}» eliminado.");
     }
 
     private function guardarPlantilla(Request $request, PlantillaEditor $plantilla): void

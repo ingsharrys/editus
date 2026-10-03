@@ -14,8 +14,10 @@ class YoutubeCanal extends Model
     /** ¿Este usuario de la app puede ver el canal de la organización? Lista vacía = todos. */
     public function visibleParaUsuarioApp(?string $nombre): bool
     {
-        $lista = is_array($this->app_usuarios) ? $this->app_usuarios : [];
-        if (!$lista) return true;
+        $lista = $this->app_usuarios;
+        if ($lista === null) return true;                  // nunca configurada: todos (compatibilidad)
+        if (!is_array($lista) || !$lista) return false;    // lista vacía: ningún periodista
+        if (in_array('*', $lista, true)) return true;      // todos los periodistas
         return $nombre !== null && in_array(strtolower(trim($nombre)), $lista, true);
     }
 
