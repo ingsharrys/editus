@@ -39,6 +39,7 @@ Route::middleware('editus.token')->group(function () {
     Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Api\EnVivoController::class, 'estado'])->name('api.envivo.estado');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Api\EnVivoController::class, 'preparar'])->name('api.envivo.preparar');
     Route::post('/en-vivo/{transmision}/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'salirAlAire'])->name('api.envivo.aire');
+    Route::post('/en-vivo/recursos/{recurso}/borrar', [\App\Http\Controllers\Api\EnVivoController::class, 'recursoBorrar'])->name('api.envivo.recursos.borrar');
     Route::get('/en-vivo/recursos', [\App\Http\Controllers\Api\EnVivoController::class, 'recursos'])->name('api.envivo.recursos');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Api\EnVivoController::class, 'escena'])->name('api.envivo.escena');
     Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Api\EnVivoController::class, 'invitacion'])->name('api.envivo.invitacion');
@@ -50,3 +51,5 @@ Route::middleware('editus.token')->group(function () {
 // token de integración) la genera el backend de esnoticia, no va token en la app.
 Route::post('/subidas/video', [\App\Http\Controllers\Api\SubidasController::class, 'video'])
     ->name('api.subidas.video');
+Route::post('/subidas/recurso', [\App\Http\Controllers\Api\SubidasController::class, 'recurso'])
+    ->name('api.subidas.recurso');

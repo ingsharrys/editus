@@ -199,6 +199,10 @@ class EnVivoController extends Controller
             'recurso_id' => ['nullable', 'integer'],
             'quitar_recurso' => ['nullable', 'boolean'],
             'nombres' => ['nullable', 'array', 'max:20'],
+            'nombres.*.personas' => ['nullable', 'array', 'max:12'],
+            'nombres.*.personas.*.nombre' => ['nullable', 'string', 'max:60'],
+            'nombres.*.personas.*.cargo' => ['nullable', 'string', 'max:60'],
+            'nombres.*.activa' => ['nullable', 'integer', 'min:0'],
             'nombres.*.nombre' => ['nullable', 'string', 'max:60'],
             'nombres.*.cargo' => ['nullable', 'string', 'max:60'],
             'rotulo_de' => ['nullable', 'string', 'max:90'],
@@ -206,13 +210,24 @@ class EnVivoController extends Controller
             'rotulo_auto' => ['nullable', 'boolean'],
         ]);
         $escena = ($transmision->escena ?? []) + self::escenaInicial();
-        // Nombres de los presentadores por cámara y qué rótulo se muestra (uno fijo o el de quien habla)
+        // Personas por cámara (una cámara puede enfocar a varias; "activa" es la que está en cuadro)
+        // y qué rótulo se muestra (uno fijo o el de quien habla)
         if (array_key_exists('nombres', $datos) && is_array($datos['nombres'])) {
             $nombres = [];
             foreach ($datos['nombres'] as $identity => $n) {
                 $identity = preg_replace('/[^A-Za-z0-9_\-#]/', '', (string) $identity);
                 if ($identity === '' || !is_array($n)) continue;
-                $nombres[$identity] = ['nombre' => Str::limit(trim((string) ($n['nombre'] ?? '')), 60, ''), 'cargo' => Str::limit(trim((string) ($n['cargo'] ?? '')), 60, '')];
+                $personas = [];
+                $lista = isset($n['personas']) && is_array($n['personas']) ? $n['personas'] : [['nombre' => $n['nombre'] ?? '', 'cargo' => $n['cargo'] ?? '']];
+                foreach ($lista as $p) {
+                    if (!is_array($p)) continue;
+                    $nombre = Str::limit(trim((string) ($p['nombre'] ?? '')), 60, '');
+                    if ($nombre === '') continue;
+                    $personas[] = ['nombre' => $nombre, 'cargo' => Str::limit(trim((string) ($p['cargo'] ?? '')), 60, '')];
+                }
+                if (!$personas) continue;
+                $activa = max(0, min(count($personas) - 1, (int) ($n['activa'] ?? 0)));
+                $nombres[$identity] = ['personas' => $personas, 'activa' => $activa];
             }
             $escena['nombres'] = (object) $nombres;
         }
@@ -247,6 +262,14 @@ class EnVivoController extends Controller
     {
         $lista = Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->orderBy('orden')->orderBy('id')->get()->map(fn($r) => $r->paraApi())->values() : collect();
         return response()->json(['success' => true, 'recursos' => $lista]);
+    }
+
+    /** POST /api/en-vivo/recursos/{id}/borrar */
+    public function recursoBorrar(RecursoEnVivo $recurso): JsonResponse
+    {
+        \Illuminate\Support\Facades\Storage::disk('public')->delete($recurso->archivo);
+        $recurso->delete();
+        return response()->json(['success' => true]);
     }
 
     /** POST /api/en-vivo/{id}/invitacion {nombre?}: enlace para que alguien envíe su cámara desde el navegador. */

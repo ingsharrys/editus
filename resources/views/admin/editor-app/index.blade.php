@@ -293,7 +293,7 @@
                                     @endif
                                     <div class="flex-1 min-w-0">
                                         <div class="font-semibold text-gray-800 truncate">{{ $r->nombre }}</div>
-                                        <div class="text-xs text-gray-500">{{ $r->tipo === 'video' ? 'Video (intro, cortinilla o comercial)' : ($r->tipo === 'plantilla' ? 'Plantilla de video (marco PNG)' : 'Imagen a pantalla completa') }}{{ $r->duracion ? " · {$r->duracion} s" : '' }} · orden {{ $r->orden }}</div>
+                                        <div class="text-xs text-gray-500">{{ ['intro' => 'Intro', 'plantilla' => 'Plantilla de video (PNG)', 'publicidad' => 'Publicidad'][$r->uso ?? 'publicidad'] ?? 'Publicidad' }} · {{ $r->tipo === 'video' ? 'video' : 'imagen' }}{{ $r->duracion ? " · {$r->duracion} s" : '' }}</div>
                                     </div>
                                     <form method="POST" action="{{ route('editor-app.recursos.destroy', $r) }}" onsubmit="return confirm('¿Eliminar el recurso «{{ $r->nombre }}»?')">
                                         @csrf @method('DELETE')
@@ -311,7 +311,8 @@
                     <div><label class="block text-gray-600 mb-1">Archivo</label><input type="file" name="archivo" required accept=".mp4,.webm,.png,.jpg,.jpeg,.webp" class="w-full text-sm"></div>
                     <div><label class="block text-gray-600 mb-1">Uso</label>
                         <select name="uso" class="w-full rounded-lg border-gray-300">
-                            <option value="auto">Automático (video → cortinilla/comercial/intro; imagen → pantalla completa)</option>
+                            <option value="publicidad">Publicidad: imagen o video que se saca al aire durante la transmisión</option>
+                            <option value="intro">Intro: video que abre la transmisión antes de las cámaras</option>
                             <option value="plantilla">Plantilla de video: PNG transparente 1920×1080 que va sobre las cámaras</option>
                         </select></div>
                     <div class="grid grid-cols-2 gap-2">

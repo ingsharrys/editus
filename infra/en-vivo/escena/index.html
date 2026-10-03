@@ -140,10 +140,13 @@
       const p = plantillaActual || {};
       const rot = document.getElementById('rotulo');
       const nombres = escenaActual.nombres || {};
+      // Persona en cuadro de una cámara: formato nuevo {personas:[...], activa} o antiguo {nombre, cargo}
+      const persona = (id) => { const n = nombres[id]; if (!n) return null; if (Array.isArray(n.personas)) return n.personas[n.activa || 0] || n.personas[0] || null; return n; };
       let nombre = '', cargo = '';
-      const de = escenaActual.rotulo_de && nombres[escenaActual.rotulo_de] ? nombres[escenaActual.rotulo_de] : null;
+      const de = escenaActual.rotulo_de ? persona(escenaActual.rotulo_de) : null;
+      const hab = escenaActual.rotulo_auto && hablando ? persona(hablando) : null;
       if (de && (de.nombre || '').trim()) { nombre = de.nombre; cargo = de.cargo || ''; }
-      else if (escenaActual.rotulo_auto && hablando && nombres[hablando] && (nombres[hablando].nombre || '').trim()) { nombre = nombres[hablando].nombre; cargo = nombres[hablando].cargo || ''; }
+      else if (hab && (hab.nombre || '').trim()) { nombre = hab.nombre; cargo = hab.cargo || ''; }
       else if (p.rotulo_mostrar && (p.rotulo_nombre || '').trim()) { nombre = p.rotulo_nombre; cargo = p.rotulo_cargo || ''; }
       rot.classList.toggle('oculto', !nombre);
       rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';

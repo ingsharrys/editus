@@ -45,7 +45,7 @@ class EnVivoApiTest extends TestCase
         $page->users()->attach($user->id, ['page_access_token' => 'tok-pagina', 'is_active' => true]);
         $page2 = MetaPage::create(['page_id' => '222', 'name' => 'Neiva 24']);
         $page2->users()->attach($user->id, ['page_access_token' => 'tok-pagina-2', 'is_active' => true]);
-        Schema::create('recursos_en_vivo', function (Blueprint $t) { $t->id(); $t->string('tipo', 10); $t->string('nombre', 80); $t->string('archivo', 300); $t->unsignedInteger('duracion')->nullable(); $t->unsignedSmallInteger('orden')->default(0); $t->boolean('activo')->default(true); $t->timestamps(); });
+        Schema::create('recursos_en_vivo', function (Blueprint $t) { $t->id(); $t->string('tipo', 10); $t->string('uso', 15)->default('publicidad'); $t->string('nombre', 80); $t->string('archivo', 300); $t->unsignedInteger('duracion')->nullable(); $t->unsignedSmallInteger('orden')->default(0); $t->boolean('activo')->default(true); $t->timestamps(); });
     }
 
     private function fakeTodo(array $listEgress = [['egress_id' => 'EG_1', 'status' => 'EGRESS_ACTIVE']]): void
@@ -231,8 +231,8 @@ class EnVivoApiTest extends TestCase
     public function test_sala_primero_y_luego_al_aire_con_intro_y_nombres(): void
     {
         $this->fakeTodo();
-        $intro = \App\Models\RecursoEnVivo::create(['tipo' => 'video', 'nombre' => 'Intro Opa', 'archivo' => 'en-vivo/recursos/intro.mp4', 'orden' => 0, 'activo' => true]);
-        $marco = \App\Models\RecursoEnVivo::create(['tipo' => 'plantilla', 'nombre' => 'Marco rojo', 'archivo' => 'en-vivo/recursos/marco.png', 'orden' => 1, 'activo' => true]);
+        $intro = \App\Models\RecursoEnVivo::create(['tipo' => 'video', 'uso' => 'intro', 'nombre' => 'Intro Opa', 'archivo' => 'en-vivo/recursos/intro.mp4', 'orden' => 0, 'activo' => true]);
+        $marco = \App\Models\RecursoEnVivo::create(['tipo' => 'imagen', 'uso' => 'plantilla', 'nombre' => 'Marco rojo', 'archivo' => 'en-vivo/recursos/marco.png', 'orden' => 1, 'activo' => true]);
 
         // 1) Sala: hay room y token, pero no hay Live en Facebook ni egress
         $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_ids' => ['111', '222'], 'titulo' => 'Noticiero', 'plantilla' => ['marco_url' => $marco->url()]]);
@@ -249,8 +249,12 @@ class EnVivoApiTest extends TestCase
         $this->postJson('/en-vivo/invitado/' . $i->json('codigo') . '/token')->assertOk()->assertJsonPath('identity', 'invitado-' . $i->json('codigo'));
 
         // Nombres por cámara y rótulo de quien habla → metadata de la sala
-        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['nombres' => ['camara-principal' => ['nombre' => 'Ana Ruiz', 'cargo' => 'Presentadora'], 'invitado-abc' => ['nombre' => 'Luis', 'cargo' => '']], 'rotulo_de' => 'camara-principal']);
-        $e->assertOk()->assertJsonPath('escena.nombres.camara-principal.nombre', 'Ana Ruiz')->assertJsonPath('escena.rotulo_de', 'camara-principal');
+        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['nombres' => [
+            'camara-principal' => ['personas' => [['nombre' => 'Ana Ruiz', 'cargo' => 'Presentadora'], ['nombre' => 'Pedro Gil', 'cargo' => 'Invitado']], 'activa' => 1],
+            'invitado-abc' => ['nombre' => 'Luis', 'cargo' => ''], // formato antiguo: una sola persona
+        ], 'rotulo_de' => 'camara-principal']);
+        $e->assertOk()->assertJsonPath('escena.nombres.camara-principal.personas.1.nombre', 'Pedro Gil')->assertJsonPath('escena.nombres.camara-principal.activa', 1)
+          ->assertJsonPath('escena.nombres.invitado-abc.personas.0.nombre', 'Luis')->assertJsonPath('escena.rotulo_de', 'camara-principal');
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], 'Ana Ruiz') && str_contains($req['metadata'], '"rotulo_de":"camara-principal"'));
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['rotulo_auto' => true, 'quitar_rotulo' => true])->assertOk()->assertJsonPath('escena.rotulo_auto', true)->assertJsonPath('escena.rotulo_de', null);
 
@@ -261,6 +265,36 @@ class EnVivoApiTest extends TestCase
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], 'intro.mp4'));
         // No se puede salir al aire dos veces
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar")->assertStatus(422);
+    }
+
+    public function test_subida_de_recursos_desde_la_app_y_borrado(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $exp = time() + 600;
+        $sig = hash_hmac('sha256', "5|{$exp}", self::TOKEN);
+        // Intro en video
+        $r = $this->post('/api/subidas/recurso', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'nombre' => 'Intro', 'uso' => 'intro',
+            'archivo' => \Illuminate\Http\UploadedFile::fake()->create('intro.mp4', 1200, 'video/mp4')]);
+        $r->assertOk()->assertJsonPath('recurso.uso', 'intro')->assertJsonPath('recurso.tipo', 'video');
+        // Plantilla debe ser PNG
+        $this->post('/api/subidas/recurso', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'nombre' => 'Marco', 'uso' => 'plantilla',
+            'archivo' => \Illuminate\Http\UploadedFile::fake()->image('marco.jpg', 1920, 1080)])->assertStatus(422);
+        $p = $this->post('/api/subidas/recurso', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'nombre' => 'Marco', 'uso' => 'plantilla',
+            'archivo' => \Illuminate\Http\UploadedFile::fake()->image('marco.png', 1920, 1080)]);
+        $p->assertOk()->assertJsonPath('recurso.uso', 'plantilla')->assertJsonPath('recurso.tipo', 'imagen');
+        // Publicidad en imagen con duración
+        $this->post('/api/subidas/recurso', ['u' => '5', 'exp' => $exp, 'sig' => $sig, 'nombre' => 'Aviso', 'uso' => 'publicidad', 'duracion' => 15,
+            'archivo' => \Illuminate\Http\UploadedFile::fake()->image('aviso.jpg', 1920, 1080)])->assertOk()->assertJsonPath('recurso.duracion', 15);
+        // Firma inválida
+        $this->post('/api/subidas/recurso', ['u' => '5', 'exp' => $exp, 'sig' => 'mala', 'nombre' => 'X', 'uso' => 'intro',
+            'archivo' => \Illuminate\Http\UploadedFile::fake()->create('x.mp4', 10, 'video/mp4')])->assertStatus(401);
+
+        $lista = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/recursos');
+        $lista->assertOk()->assertJsonCount(3, 'recursos');
+        $this->assertSame(3, count(\Illuminate\Support\Facades\Storage::disk('public')->files('en-vivo/recursos')));
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/recursos/' . $p->json('recurso.id') . '/borrar')->assertOk();
+        $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/recursos')->assertOk()->assertJsonCount(2, 'recursos');
+        $this->assertSame(2, count(\Illuminate\Support\Facades\Storage::disk('public')->files('en-vivo/recursos')));
     }
 
     public function test_si_facebook_falla_al_salir_al_aire_la_sala_sigue(): void

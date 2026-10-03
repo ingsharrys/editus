@@ -66,6 +66,44 @@ class SubidasController extends Controller
         ]);
     }
 
+    /**
+     * Subida de un RECURSO de producción para las transmisiones (intro, plantilla PNG o publicidad)
+     * desde la app, con la misma firma del backend. Queda guardado (no es temporal).
+     */
+    public function recurso(Request $request): JsonResponse
+    {
+        $u = (string) $request->input('u', '');
+        $exp = (int) $request->input('exp', 0);
+        $sig = (string) $request->input('sig', '');
+        $token = (string) config('services.editus.ingest_token');
+        if ($token === '' || $u === '' || $exp <= 0 || $sig === '') return response()->json(['success' => false, 'error' => 'Subida no autorizada'], 401);
+        if ($exp < time()) return response()->json(['success' => false, 'error' => 'La autorización de subida venció: vuelve a intentarlo'], 401);
+        if (!hash_equals(hash_hmac('sha256', "{$u}|{$exp}", $token), $sig)) return response()->json(['success' => false, 'error' => 'Firma de subida inválida'], 401);
+
+        $datos = $request->validate([
+            'nombre' => ['required', 'string', 'max:80'],
+            'uso' => ['required', 'string', 'in:intro,plantilla,publicidad'],
+            'duracion' => ['nullable', 'integer', 'min:1', 'max:600'],
+            'archivo' => ['required', 'file', 'mimes:mp4,mov,m4v,webm,png,jpg,jpeg,webp', 'max:204800'],
+        ], [
+            'archivo.mimes' => 'Sube un video (MP4, MOV, WebM) o una imagen (PNG, JPG, WEBP).',
+            'archivo.max' => 'El archivo no puede superar 200 MB.',
+        ]);
+        $archivo = $datos['archivo'];
+        $ext = strtolower($archivo->getClientOriginalExtension() ?: '');
+        $mime = (string) $archivo->getMimeType();
+        $esVideo = str_starts_with($mime, 'video/') || in_array($ext, ['mp4', 'mov', 'm4v', 'webm'], true);
+        if ($datos['uso'] === 'intro' && !$esVideo) return response()->json(['success' => false, 'error' => 'La intro debe ser un video'], 422);
+        if ($datos['uso'] === 'plantilla' && !($ext === 'png' || $mime === 'image/png')) return response()->json(['success' => false, 'error' => 'La plantilla debe ser un PNG con transparencia (1920×1080)'], 422);
+        $ruta = $archivo->store('en-vivo/recursos', 'public');
+        if (!$ruta) return response()->json(['success' => false, 'error' => 'No se pudo guardar el archivo'], 500);
+        $r = \App\Models\RecursoEnVivo::create([
+            'tipo' => $esVideo ? 'video' : 'imagen', 'uso' => $datos['uso'], 'nombre' => $datos['nombre'], 'archivo' => $ruta,
+            'duracion' => $datos['duracion'] ?? null, 'orden' => (int) (\App\Models\RecursoEnVivo::max('orden') ?? 0) + 1, 'activo' => true,
+        ]);
+        return response()->json(['success' => true, 'recurso' => $r->paraApi()]);
+    }
+
     /** Ruta relativa (disco public) del temporal de un video_id, o null si no existe. */
     public static function rutaDe(string $videoId): ?string
     {
