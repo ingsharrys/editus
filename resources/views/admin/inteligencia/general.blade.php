@@ -105,7 +105,7 @@
         <div class="grid lg:grid-cols-3 gap-5">
             <div class="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
                 <h3 class="font-bold text-gray-800 mb-2">Alcance e interacciones por día</h3>
-                <canvas id="gSerie" height="110"></canvas>
+                <div class="h-64 sm:h-80"><canvas id="gSerie"></canvas></div>
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
                 <h3 class="font-bold text-gray-800 mb-2">Por red</h3>
@@ -128,7 +128,7 @@
         <div class="grid lg:grid-cols-2 gap-5 mt-5">
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
                 <h3 class="font-bold text-gray-800 mb-2">Por formato</h3>
-                <canvas id="gFormato" height="150"></canvas>
+                <div class="h-56 sm:h-64"><canvas id="gFormato"></canvas></div>
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
                 <h3 class="font-bold text-gray-800 mb-2">Páginas con más alcance</h3>
@@ -199,7 +199,7 @@
             <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">Todavía no hay demografía. Se recoge al recolectar datos; Facebook puede no entregarla para páginas con pocos seguidores e Instagram la entrega a partir de 100 seguidores.</div>
         @endif
         <div class="grid lg:grid-cols-3 gap-5">
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0"><h3 class="font-bold text-gray-800 mb-2">Edad y género</h3><canvas id="gEdad" height="220"></canvas>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0"><h3 class="font-bold text-gray-800 mb-2">Edad y género</h3><div class="h-56"><canvas id="gEdad"></canvas></div>
                 @php $tg = max(1, array_sum($d['genero'])); @endphp
                 <p class="text-xs text-gray-500 mt-2">Mujeres {{ round(100 * $d['genero']['F'] / $tg) }}% · Hombres {{ round(100 * $d['genero']['M'] / $tg) }}%{{ $d['genero']['U'] ? ' · Sin dato ' . round(100 * $d['genero']['U'] / $tg) . '%' : '' }}</p></div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0"><h3 class="font-bold text-gray-800 mb-2">Ciudades</h3>
@@ -278,16 +278,16 @@
     { label: 'Alcance de página', data: T.serie.map(d => d.alcance_pagina), borderColor: '#00024f', backgroundColor: 'rgba(0,2,79,.08)', fill: true, tension: .3, yAxisID: 'y' },
     { label: 'Interacciones de publicaciones', data: T.serie.map(d => d.interacciones), borderColor: '#dc2626', tension: .3, yAxisID: 'y1' },
     { label: 'Publicaciones', data: T.serie.map(d => d.publicaciones), type: 'bar', backgroundColor: 'rgba(148,163,184,.4)', yAxisID: 'y2' } ] },
-    options: { responsive: true, interaction: { mode: 'index', intersect: false }, scales: { y: { position: 'left', ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } }, y2: { display: false } } } });
+    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, scales: { y: { position: 'left', ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } }, y2: { display: false } } } });
   if (g('gFormato')) new Chart(g('gFormato'), { type: 'bar', data: { labels: T.por_formato.map(f => f.nombre + ' (' + f.n + ')'), datasets: [
     { label: 'Alcance promedio', data: T.por_formato.map(f => f.alcance_prom), backgroundColor: 'rgba(0,2,79,.75)' },
     { label: 'Interacciones promedio', data: T.por_formato.map(f => f.interacciones_prom), backgroundColor: 'rgba(220,38,38,.7)', yAxisID: 'y1' } ] },
-    options: { scales: { y: { ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } } });
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } } });
   if (g('gEdad')) { const d = T.demografia.edad_genero; const edades = Object.keys(d);
     new Chart(g('gEdad'), { type: 'bar', data: { labels: edades, datasets: [
       { label: 'Mujeres', data: edades.map(e => d[e].F || 0), backgroundColor: 'rgba(219,39,119,.75)' },
       { label: 'Hombres', data: edades.map(e => d[e].M || 0), backgroundColor: 'rgba(37,99,235,.75)' } ] },
-      options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: fmt } } } } }); }
+      options: { responsive: true, maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: fmt } } } } }); }
   // Ordenar la tabla de páginas al tocar un encabezado
   const tabla = g('tabla-paginas-gral');
   if (tabla) tabla.querySelectorAll('th[data-col]').forEach(th => th.addEventListener('click', () => {
