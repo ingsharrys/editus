@@ -56,6 +56,12 @@
   /* Marco (plantilla PNG transparente) sobre las cámaras y debajo de los textos */
   #marco { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
   #recurso img, #recurso video { width: 100%; height: 100%; object-fit: contain; }
+  /* Formato "mitad": las cámaras a la izquierda (escaladas) y la publicidad a la derecha */
+  #escenario.mitad #lienzo { transform: scale(0.5); transform-origin: 0 50%; }
+  #escenario.mitad #recurso { inset: 0 0 0 640px; }
+  #escenario.mitad #inferior { max-width: 560px; }
+  #escenario.mitad #cintillo { max-width: 560px; }
+  #escenario.mitad #titulo { font-size: 32px; }
   #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
   #titulo { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
   #pie { position: absolute; left: 44px; right: 44px; bottom: 36px; display: flex; justify-content: space-between; color: #fff; font-weight: 600; font-size: 20px; }
@@ -209,29 +215,32 @@
       let recursoActual = null;
       function mostrarRecurso(r) {
         const cont = document.getElementById('recurso');
-        const clave = r ? (r.id + ':' + r.inicio) : null;
+        const escenario = document.getElementById('escenario');
+        const clave = r ? (r.id + ':' + r.inicio + ':' + (r.formato || 'completa')) : null;
         if (clave === recursoActual) return;
         recursoActual = clave;
         cont.innerHTML = ''; silenciarCamaras = false;
-        if (!r) { cont.classList.add('oculto'); sonar(ultimoAlAire); return; }
+        const terminar = () => { cont.classList.add('oculto'); cont.innerHTML = ''; escenario.classList.remove('mitad'); silenciarCamaras = false; sonar(ultimoAlAire); };
+        if (!r) { terminar(); return; }
+        escenario.classList.toggle('mitad', r.formato === 'mitad');
         const desfase = r.inicio ? Math.max(0, (Date.now() - r.inicio) / 1000) : 0;
         if (r.tipo === 'video') {
-          if (r.duracion && desfase > r.duracion + 2) { cont.classList.add('oculto'); return; }
+          if (r.duracion && desfase > r.duracion + 2) { terminar(); return; }
           const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR;
           v.onloadedmetadata = () => { if (desfase > 1 && desfase < v.duration) v.currentTime = desfase; };
-          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); cont.classList.add('oculto'); cont.innerHTML = ''; silenciarCamaras = false; sonar(ultimoAlAire); };
-          v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); cont.classList.add('oculto'); silenciarCamaras = false; sonar(ultimoAlAire); };
+          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); terminar(); };
+          v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); terminar(); };
           cont.appendChild(v); silenciarCamaras = true; sonar(ultimoAlAire);
           v.play && v.play().catch((e) => console.log('escena: play falló ' + (e && e.message)));
         } else {
-          if (r.duracion && desfase > r.duracion) { cont.classList.add('oculto'); return; }
+          if (r.duracion && desfase > r.duracion) { terminar(); return; }
           const img = document.createElement('img'); img.src = r.url; img.onerror = () => console.log('escena: no cargó la imagen ' + r.url);
           cont.appendChild(img);
-          if (r.duracion) setTimeout(() => { if (recursoActual === clave) { cont.classList.add('oculto'); cont.innerHTML = ''; } }, Math.max(0, r.duracion - desfase) * 1000);
+          if (r.duracion) setTimeout(() => { if (recursoActual === clave) terminar(); }, Math.max(0, r.duracion - desfase) * 1000);
         }
         cont.classList.remove('oculto');
         empezar(); // con una intro al aire la transmisión arranca aunque aún no haya cámara
-        console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre);
+        console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre + ' (' + (r.formato || 'completa') + ')');
       }
       let ultimoAlAire = [];
 

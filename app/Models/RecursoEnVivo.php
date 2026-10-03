@@ -34,8 +34,9 @@ class RecursoEnVivo extends Model
     }
 
     /** Lo que va a la metadata de la sala cuando el recurso sale al aire. */
-    public function paraEscena(): array
+    public function paraEscena(string $formato = 'completa'): array
     {
-        return ['id' => $this->id, 'tipo' => $this->tipo, 'nombre' => $this->nombre, 'url' => $this->url(), 'duracion' => $this->duracion, 'inicio' => (int) round(microtime(true) * 1000)];
+        return ['id' => $this->id, 'tipo' => $this->tipo, 'nombre' => $this->nombre, 'url' => $this->url(), 'duracion' => $this->duracion,
+            'formato' => $formato === 'mitad' ? 'mitad' : 'completa', 'inicio' => (int) round(microtime(true) * 1000)];
     }
 }

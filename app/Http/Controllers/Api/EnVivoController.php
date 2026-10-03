@@ -199,6 +199,7 @@ class EnVivoController extends Controller
             'visibles' => ['nullable', 'array', 'max:8'],
             'visibles.*' => ['string', 'max:80'],
             'recurso_id' => ['nullable', 'integer'],
+            'formato' => ['nullable', 'string', 'in:completa,mitad'],
             'quitar_recurso' => ['nullable', 'boolean'],
             'nombres' => ['nullable', 'array', 'max:20'],
             'nombres.*.personas' => ['nullable', 'array', 'max:12'],
@@ -245,7 +246,7 @@ class EnVivoController extends Controller
         } elseif (!empty($datos['recurso_id'])) {
             $r = RecursoEnVivo::where('activo', true)->find((int) $datos['recurso_id']);
             if (!$r) return response()->json(['success' => false, 'error' => 'Recurso no encontrado'], 422);
-            $escena['recurso'] = $r->paraEscena();
+            $escena['recurso'] = $r->paraEscena($datos['formato'] ?? 'completa');
         }
         $transmision->escena = $escena;
         $transmision->save();

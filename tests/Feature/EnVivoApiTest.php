@@ -215,7 +215,9 @@ class EnVivoApiTest extends TestCase
 
         // Recursos y cortinilla al aire
         $this->withHeader('X-Editus-Token', self::TOKEN)->getJson('/api/en-vivo/recursos')->assertOk()->assertJsonPath('recursos.0.nombre', 'Cortinilla')->assertJsonPath('recursos.0.tipo', 'video');
-        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $recurso->id])->assertOk()->assertJsonPath('escena.recurso.nombre', 'Cortinilla')->assertJsonPath('escena.recurso.duracion', 12);
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $recurso->id])->assertOk()->assertJsonPath('escena.recurso.nombre', 'Cortinilla')->assertJsonPath('escena.recurso.duracion', 12)->assertJsonPath('escena.recurso.formato', 'completa');
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $recurso->id, 'formato' => 'mitad'])->assertOk()->assertJsonPath('escena.recurso.formato', 'mitad');
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $recurso->id, 'formato' => 'tercio'])->assertStatus(422);
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], '"recurso":{') && str_contains($req['metadata'], 'c.mp4'));
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['quitar_recurso' => true])->assertOk()->assertJsonMissingPath('escena.recurso');
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => 999])->assertStatus(422);
