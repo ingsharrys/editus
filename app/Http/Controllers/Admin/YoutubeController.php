@@ -60,6 +60,14 @@ class YoutubeController extends Controller
         return redirect()->route('editor-app.index')->with('success', "Canal «{$canal->titulo}» " . ($canal->visible_en_editor ? 'visible' : 'oculto') . ' en la app.')->withFragment('youtube');
     }
 
+    /** Qué usuarios de la app ven este canal de la organización (vacío = todos). */
+    public function usuarios(Request $request, YoutubeCanal $canal): RedirectResponse
+    {
+        $canal->app_usuarios = \App\Models\MetaPage::usuariosApp((string) $request->input('usuarios', ''));
+        $canal->save();
+        return redirect()->route('editor-app.index')->with('success', "Canal «{$canal->titulo}»: " . ($canal->app_usuarios ? 'solo para ' . implode(', ', $canal->app_usuarios) : 'para todos los usuarios de la app') . '.')->withFragment('youtube');
+    }
+
     public function desconectar(YoutubeCanal $canal): RedirectResponse
     {
         $nombre = $canal->titulo;

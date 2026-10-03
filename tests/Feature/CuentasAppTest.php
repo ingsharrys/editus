@@ -45,9 +45,9 @@ class CuentasAppTest extends TestCase
         Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('name')->unique(); $t->string('slug')->unique(); $t->timestamps(); });
         Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('email')->unique(); $t->timestamp('email_verified_at')->nullable(); $t->string('password'); $t->rememberToken(); $t->foreignId('role_id')->nullable(); $t->timestamps(); });
         Schema::create('social_accounts', function (Blueprint $t) { $t->id(); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->string('provider'); $t->string('provider_user_id'); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->json('raw')->nullable(); $t->timestamps(); });
-        Schema::create('meta_pages', function (Blueprint $t) { $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable(); $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->timestamps(); });
+        Schema::create('meta_pages', function (Blueprint $t) { $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable(); $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->text('app_usuarios')->nullable(); $t->timestamps(); });
         Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
-        Schema::create('youtube_canales', function (Blueprint $t) { $t->id(); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->string('channel_id', 64); $t->string('titulo', 150); $t->text('foto')->nullable(); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expira_en')->nullable(); $t->string('stream_id', 64)->nullable(); $t->boolean('visible_en_editor')->default(true); $t->timestamps(); });
+        Schema::create('youtube_canales', function (Blueprint $t) { $t->id(); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->string('channel_id', 64); $t->string('titulo', 150); $t->text('foto')->nullable(); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expira_en')->nullable(); $t->string('stream_id', 64)->nullable(); $t->boolean('visible_en_editor')->default(true); $t->text('app_usuarios')->nullable(); $t->timestamps(); });
         Schema::create('transmisiones_en_vivo', function (Blueprint $t) {
             $t->id(); $t->foreignId('meta_page_id'); $t->string('usuario_app', 60)->nullable(); $t->string('titulo', 200); $t->text('descripcion')->nullable(); $t->string('room', 80)->unique();
             $t->string('fb_live_id', 60)->nullable(); $t->string('fb_video_id', 60)->nullable(); $t->string('fb_permalink', 500)->nullable(); $t->text('stream_url')->nullable(); $t->string('egress_id', 80)->nullable(); $t->json('destinos')->nullable();
@@ -223,6 +223,32 @@ class CuentasAppTest extends TestCase
         $this->assertStringContainsString('organización', $this->api()->postJson("/api/cuentas/youtube/{$org->id}/desconectar", ['usuario' => '7'])->assertStatus(422)->json('error'));
         $this->api()->postJson("/api/cuentas/youtube/{$canal->id}/desconectar", ['usuario' => '7'])->assertOk()->assertJsonCount(1, 'youtube.canales');
         $this->assertSame(0, YoutubeCanal::where('usuario_app', '7')->count());
+    }
+
+    public function test_las_paginas_de_la_organizacion_se_limitan_a_ciertos_usuarios(): void
+    {
+        $this->assertSame(['willy', 'karol'], MetaPage::usuariosApp(' Willy, KAROL;  '));
+        $this->assertNull(MetaPage::usuariosApp('  '));
+        MetaPage::where('page_id', '111')->update(['app_usuarios' => json_encode(['willy'])]);
+        YoutubeCanal::where('channel_id', 'UCORG')->update(['app_usuarios' => json_encode(['willy'])]);
+
+        // willy la ve; karol no (ni la página ni el canal); sin usuario (web / llamadas viejas) se ve todo
+        $this->api()->get('/api/paginas?usuario=7&usuario_nombre=Willy')->assertOk()->assertJsonCount(1, 'paginas');
+        $this->api()->get('/api/paginas?usuario=8&usuario_nombre=karol')->assertOk()->assertJsonCount(0, 'paginas');
+        $this->api()->get('/api/paginas?usuario=8')->assertOk()->assertJsonCount(0, 'paginas');
+        $this->api()->get('/api/paginas')->assertOk()->assertJsonCount(1, 'paginas');
+        $this->api()->get('/api/en-vivo/youtube?usuario=8&usuario_nombre=karol')->assertOk()->assertJsonCount(0, 'canales');
+        $this->api()->get('/api/en-vivo/youtube?usuario=7&usuario_nombre=willy')->assertOk()->assertJsonCount(1, 'canales');
+        $this->api()->get('/api/cuentas?usuario=8&usuario_nombre=karol')->assertOk()->assertJsonCount(0, 'facebook.paginas')->assertJsonCount(0, 'youtube.canales');
+
+        // karol no puede transmitir en la página 111; willy sí
+        $this->api()->postJson('/api/en-vivo/preparar', ['page_ids' => ['111'], 'titulo' => 'x', 'usuario' => '8', 'usuario_nombre' => 'karol'])->assertStatus(422);
+        Http::fake(['live.prueba.test/*' => Http::response(['name' => 'x'], 200)]);
+        $this->api()->postJson('/api/en-vivo/preparar', ['page_ids' => ['111'], 'titulo' => 'x', 'usuario' => '7', 'usuario_nombre' => 'willy'])->assertOk();
+
+        // Karol la conecta como propia desde la app: entonces sí la ve
+        MetaPageUser::create(['meta_page_id' => MetaPage::where('page_id', '111')->value('id'), 'user_id' => null, 'usuario_app' => '8', 'page_access_token' => 'tok-karol', 'is_active' => 1]);
+        $this->api()->get('/api/paginas?usuario=8&usuario_nombre=karol')->assertOk()->assertJsonCount(1, 'paginas')->assertJsonPath('paginas.0.propia', true);
     }
 
     public function test_los_callbacks_web_sin_sesion_mandan_a_iniciar_sesion(): void

@@ -91,6 +91,10 @@ YouTube sin entrar a la web de editus:
    publicaciones y los Lives en sus páginas se hacen con **su** token.
 4. "Actualizar páginas" vuelve a leer las páginas de su cuenta de Facebook;
    "Desconectar" borra sus tokens (los de la organización no se tocan).
+5. Las páginas y canales de la organización se pueden limitar a ciertos usuarios:
+   en Admin → App del editor, columna **Usuarios de la app** (nombres de usuario
+   del backend de esnoticia separados por coma; vacío = todos). Lo mismo por
+   canal en la tarjeta YouTube Live.
 
 Requisitos en Meta: mientras la app de Facebook no tenga aprobados en App Review
 los permisos `pages_show_list`, `pages_manage_posts`, `pages_read_engagement` y

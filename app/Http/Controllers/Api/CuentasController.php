@@ -29,7 +29,7 @@ class CuentasController extends Controller
     {
         $usuario = $this->usuario($request);
         if ($usuario === null) return response()->json(['success' => false, 'error' => 'Falta el usuario'], 422);
-        return response()->json(['success' => true] + $this->cuentas->resumen($usuario));
+        return response()->json(['success' => true] + $this->cuentas->resumen($usuario, $this->nombre($request)));
     }
 
     public function sincronizarFacebook(Request $request): JsonResponse
@@ -41,7 +41,7 @@ class CuentasController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
-        return response()->json(['success' => true, 'paginas' => $n] + $this->cuentas->resumen($usuario));
+        return response()->json(['success' => true, 'paginas' => $n] + $this->cuentas->resumen($usuario, $this->nombre($request)));
     }
 
     public function desconectarFacebook(Request $request): JsonResponse
@@ -49,7 +49,7 @@ class CuentasController extends Controller
         $usuario = $this->usuario($request);
         if ($usuario === null) return response()->json(['success' => false, 'error' => 'Falta el usuario'], 422);
         $n = $this->cuentas->desconectarFacebook($usuario);
-        return response()->json(['success' => true, 'paginas' => $n] + $this->cuentas->resumen($usuario));
+        return response()->json(['success' => true, 'paginas' => $n] + $this->cuentas->resumen($usuario, $this->nombre($request)));
     }
 
     public function desconectarYoutube(Request $request, YoutubeCanal $canal): JsonResponse
@@ -61,7 +61,13 @@ class CuentasController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
-        return response()->json(['success' => true] + $this->cuentas->resumen($usuario));
+        return response()->json(['success' => true] + $this->cuentas->resumen($usuario, $this->nombre($request)));
+    }
+
+    private function nombre(Request $request): ?string
+    {
+        $n = trim((string) $request->input('usuario_nombre', $request->query('usuario_nombre', '')));
+        return $n === '' ? null : $n;
     }
 
     private function usuario(Request $request): ?string

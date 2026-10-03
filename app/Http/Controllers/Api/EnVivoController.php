@@ -53,6 +53,7 @@ class EnVivoController extends Controller
             'titulo' => ['required', 'string', 'max:200'],
             'descripcion' => ['nullable', 'string', 'max:5000'],
             'usuario' => ['nullable', 'string', 'max:60'],
+            'usuario_nombre' => ['nullable', 'string', 'max:100'],
             'plantilla' => ['nullable', 'array'],
         ]);
         if (!$this->livekit->configurado()) {
@@ -67,8 +68,9 @@ class EnVivoController extends Controller
         }
         // Cada usuario de la app solo transmite a sus páginas / canales (o a los de la organización)
         $usuarioApp = trim((string) ($datos['usuario'] ?? '')) ?: null;
+        $usuarioNombre = trim((string) ($datos['usuario_nombre'] ?? '')) ?: null;
         $cuentas = app(\App\Services\CuentasAppService::class);
-        if (!$cuentas->puedeUsarPaginas($usuarioApp, $pages->pluck('page_id')->all()) || !$cuentas->puedeUsarCanales($usuarioApp, $canales->pluck('id')->all())) {
+        if (!$cuentas->puedeUsarPaginas($usuarioApp, $pages->pluck('page_id')->all(), $usuarioNombre) || !$cuentas->puedeUsarCanales($usuarioApp, $canales->pluck('id')->all(), $usuarioNombre)) {
             return response()->json(['success' => false, 'error' => 'Alguna de las páginas o canales elegidos no está conectada a tu cuenta. Revisa "Mis cuentas" en la app.'], 422);
         }
         \App\Services\MetaPageTokenResolver::preferirUsuarioApp($usuarioApp);
@@ -496,7 +498,8 @@ class EnVivoController extends Controller
     {
         // Con ?usuario=: los canales que ese usuario conectó desde la app + los de la organización visibles
         $usuario = trim((string) $request->query('usuario', '')) ?: null;
-        $lista = app(\App\Services\CuentasAppService::class)->canalesDe($usuario)->map(fn($c) => $c->paraApi($usuario))->values();
+        $nombre = trim((string) $request->query('usuario_nombre', '')) ?: null;
+        $lista = app(\App\Services\CuentasAppService::class)->canalesDe($usuario, $nombre)->map(fn($c) => $c->paraApi($usuario))->values();
         return response()->json(['success' => true, 'canales' => $lista, 'configurado' => (string) config('services.google.client_id') !== '']);
     }
 

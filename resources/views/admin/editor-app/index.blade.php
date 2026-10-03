@@ -56,6 +56,7 @@
                                     <th class="px-3 py-2 text-left">Instagram</th>
                                     <th class="px-3 py-2 text-left">Token</th>
                                     <th class="px-3 py-2 text-left">Medio (slug)</th>
+                                    <th class="px-3 py-2 text-left">Usuarios de la app <span class="font-normal text-gray-400" title="Nombres de usuario del backend de esnoticia separados por coma. Vacío = todos los usuarios la ven.">(vacío = todos)</span></th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -93,6 +94,11 @@
                                         <td class="px-3 py-2">
                                             <input type="text" name="medio[{{ $p->id }}]" value="{{ $p->medio_slug }}" list="medios-lista"
                                                    placeholder="opanoticias"
+                                                   class="w-44 border border-gray-300 rounded-xl px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 text-sm">
+                                        </td>
+                                        <td class="px-3 py-2">
+                                            <input type="text" name="usuarios[{{ $p->id }}]" value="{{ is_array($p->app_usuarios ?? null) ? implode(', ', $p->app_usuarios) : '' }}"
+                                                   placeholder="todos"
                                                    class="w-44 border border-gray-300 rounded-xl px-3 py-1.5 bg-white focus:ring-2 focus:ring-indigo-500 text-sm">
                                         </td>
                                     </tr>
@@ -301,6 +307,12 @@
                                     @if (!empty($c->usuario_app)) · <span class="text-indigo-600">conectado desde la app por el usuario #{{ $c->usuario_app }}</span> @endif
                                 </div>
                             </div>
+                            @if (empty($c->usuario_app))
+                                <form method="POST" action="{{ route('youtube.usuarios', $c) }}" class="flex items-center gap-1">@csrf
+                                    <input type="text" name="usuarios" value="{{ is_array($c->app_usuarios ?? null) ? implode(', ', $c->app_usuarios) : '' }}" placeholder="usuarios de la app (vacío = todos)" title="Nombres de usuario del backend de esnoticia separados por coma. Vacío = todos los usuarios ven este canal." class="w-52 border border-gray-300 rounded-lg px-2 py-1 text-xs">
+                                    <button class="text-xs rounded-lg border border-gray-300 px-2 py-1">Guardar</button>
+                                </form>
+                            @endif
                             <form method="POST" action="{{ route('youtube.visible', $c) }}">@csrf<input type="hidden" name="visible" value="{{ $c->visible_en_editor ? 0 : 1 }}"><button class="text-xs rounded-lg border border-gray-300 px-2 py-1">{{ $c->visible_en_editor ? 'Ocultar en la app' : 'Mostrar en la app' }}</button></form>
                             <form method="POST" action="{{ route('youtube.desconectar', $c) }}" onsubmit="return confirm('¿Desconectar el canal «{{ $c->titulo }}»?')">@csrf @method('DELETE')<button class="text-xs text-red-600 hover:underline">Desconectar</button></form>
                         </div>

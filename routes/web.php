@@ -144,6 +144,7 @@ Route::middleware(['auth'])->group(function () {
         // YouTube Live: conectar canales (OAuth de Google), visibilidad en la app y desconexión
         Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->name('youtube.connect');
         Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->name('youtube.visible');
+        Route::post('/admin/youtube/{canal}/usuarios', [\App\Http\Controllers\Admin\YoutubeController::class, 'usuarios'])->name('youtube.usuarios');
         Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->name('youtube.desconectar');
         Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');
         Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');

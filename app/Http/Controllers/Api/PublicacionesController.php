@@ -32,7 +32,8 @@ class PublicacionesController extends Controller
     {
         // Con ?usuario= (id del usuario de la app): sus páginas conectadas desde la app + las de la organización
         $usuario = trim((string) $request->query('usuario', '')) ?: null;
-        $paginas = $cuentas->paginasDe($usuario)
+        $nombre = trim((string) $request->query('usuario_nombre', '')) ?: null;
+        $paginas = $cuentas->paginasDe($usuario, $nombre)
             ->map(fn(MetaPage $p) => [
                 'id' => $p->id,
                 'page_id' => (string) $p->page_id,

@@ -58,7 +58,7 @@ class CuentasAppService
      * (conectadas desde la app) más las de la organización visibles en el editor.
      * Sin usuario → solo las de la organización (comportamiento anterior).
      */
-    public function paginasDe(?string $usuarioApp): Collection
+    public function paginasDe(?string $usuarioApp, ?string $usuarioNombre = null): Collection
     {
         $conUsuarioApp = Schema::hasColumn('meta_page_user', 'usuario_app');
         $visible = Schema::hasColumn('meta_pages', 'visible_en_editor');
@@ -83,16 +83,19 @@ class CuentasAppService
             ? MetaPageUser::where('usuario_app', $usuarioApp)->where('is_active', 1)->whereNotNull('page_access_token')->pluck('meta_page_id')->flip()
             : collect();
 
-        return $q->orderBy('name')->get()->each(function (MetaPage $p) use ($propias) {
-            $p->setAttribute('propia', $propias->has($p->id));
-        })->values();
+        $enApp = $usuarioApp !== null && $usuarioApp !== '';
+        return $q->orderBy('name')->get()
+            ->each(fn(MetaPage $p) => $p->setAttribute('propia', $propias->has($p->id)))
+            // Las de la organización pueden estar limitadas a ciertos usuarios de la app (Admin → App del editor)
+            ->filter(fn(MetaPage $p) => $p->getAttribute('propia') || !$enApp || $p->visibleParaUsuarioApp($usuarioNombre))
+            ->values();
     }
 
     /** Ids (page_id de Facebook) accesibles para el usuario. */
-    public function puedeUsarPaginas(?string $usuarioApp, array $pageIds): bool
+    public function puedeUsarPaginas(?string $usuarioApp, array $pageIds, ?string $usuarioNombre = null): bool
     {
         if ($usuarioApp === null || $usuarioApp === '') return true;
-        $permitidas = $this->paginasDe($usuarioApp)->pluck('page_id')->map(fn($x) => (string) $x)->flip();
+        $permitidas = $this->paginasDe($usuarioApp, $usuarioNombre)->pluck('page_id')->map(fn($x) => (string) $x)->flip();
         foreach ($pageIds as $id) {
             if (!$permitidas->has((string) $id)) return false;
         }
@@ -100,10 +103,11 @@ class CuentasAppService
     }
 
     /** Canales de YouTube disponibles: los propios más los de la organización visibles. */
-    public function canalesDe(?string $usuarioApp): Collection
+    public function canalesDe(?string $usuarioApp, ?string $usuarioNombre = null): Collection
     {
         if (!Schema::hasTable('youtube_canales')) return collect();
         $conUsuarioApp = Schema::hasColumn('youtube_canales', 'usuario_app');
+        $enApp = $usuarioApp !== null && $usuarioApp !== '';
         return YoutubeCanal::query()->where(function ($w) use ($usuarioApp, $conUsuarioApp) {
             $w->where(function ($o) use ($conUsuarioApp) {
                 $o->where('visible_en_editor', true);
@@ -112,13 +116,15 @@ class CuentasAppService
             if ($usuarioApp !== null && $usuarioApp !== '' && $conUsuarioApp) {
                 $w->orWhere('usuario_app', $usuarioApp);
             }
-        })->orderBy('titulo')->get();
+        })->orderBy('titulo')->get()
+            ->filter(fn(YoutubeCanal $c) => !$enApp || (string) $c->usuario_app === $usuarioApp || $c->visibleParaUsuarioApp($usuarioNombre))
+            ->values();
     }
 
-    public function puedeUsarCanales(?string $usuarioApp, array $canalIds): bool
+    public function puedeUsarCanales(?string $usuarioApp, array $canalIds, ?string $usuarioNombre = null): bool
     {
         if ($usuarioApp === null || $usuarioApp === '' || !$canalIds) return true;
-        $permitidos = $this->canalesDe($usuarioApp)->pluck('id')->flip();
+        $permitidos = $this->canalesDe($usuarioApp, $usuarioNombre)->pluck('id')->flip();
         foreach ($canalIds as $id) {
             if (!$permitidos->has((int) $id)) return false;
         }
@@ -126,12 +132,12 @@ class CuentasAppService
     }
 
     /** Resumen de las cuentas del usuario para la pantalla "Mis cuentas" de la app. */
-    public function resumen(string $usuarioApp): array
+    public function resumen(string $usuarioApp, ?string $usuarioNombre = null): array
     {
         $social = Schema::hasColumn('social_accounts', 'usuario_app')
             ? SocialAccount::where('provider', 'facebook')->where('usuario_app', $usuarioApp)->latest('updated_at')->first()
             : null;
-        $paginas = $this->paginasDe($usuarioApp)->map(fn(MetaPage $p) => [
+        $paginas = $this->paginasDe($usuarioApp, $usuarioNombre)->map(fn(MetaPage $p) => [
             'id' => $p->id,
             'page_id' => (string) $p->page_id,
             'nombre' => (string) $p->name,
@@ -139,7 +145,7 @@ class CuentasAppService
             'instagram' => !empty($p->instagram_business_account_id),
             'propia' => (bool) $p->getAttribute('propia'),
         ])->values();
-        $canales = $this->canalesDe($usuarioApp)->map(fn(YoutubeCanal $c) => $c->paraApi($usuarioApp))->values();
+        $canales = $this->canalesDe($usuarioApp, $usuarioNombre)->map(fn(YoutubeCanal $c) => $c->paraApi($usuarioApp))->values();
 
         return [
             'facebook' => [

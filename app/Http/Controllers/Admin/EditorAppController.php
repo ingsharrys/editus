@@ -49,16 +49,21 @@ class EditorAppController extends Controller
             'visible.*' => ['integer'],
             'medio' => ['nullable', 'array'],
             'medio.*' => ['nullable', 'string', 'max:100'],
+            'usuarios' => ['nullable', 'array'],
+            'usuarios.*' => ['nullable', 'string', 'max:500'],
         ]);
 
         $visibles = array_map('intval', $datos['visible'] ?? []);
         $medios = $datos['medio'] ?? [];
+        $usuarios = $datos['usuarios'] ?? [];
+        $conUsuarios = Schema::hasColumn('meta_pages', 'app_usuarios');
 
         foreach (MetaPage::all() as $p) {
             $slug = strtolower(trim((string) ($medios[$p->id] ?? '')));
             $slug = preg_replace('/[^a-z0-9_-]/', '', $slug) ?: null;
             $p->visible_en_editor = in_array($p->id, $visibles, true);
             $p->medio_slug = $slug;
+            if ($conUsuarios) $p->app_usuarios = MetaPage::usuariosApp($usuarios[$p->id] ?? null);
             $p->save();
         }
 

@@ -15,12 +15,29 @@ class MetaPage extends Model
         'tasks',
         'visible_en_editor',
         'medio_slug',
+        'app_usuarios',
     ];
 
     protected $casts = [
         'tasks' => 'array',
         'visible_en_editor' => 'boolean',
+        'app_usuarios' => 'array',
     ];
+
+    /** Normaliza la lista de usuarios de la app escrita por el administrador ("willy, karol"). */
+    public static function usuariosApp(?string $texto): ?array
+    {
+        $lista = array_values(array_unique(array_filter(array_map(fn($x) => strtolower(trim($x)), preg_split('/[\s,;]+/', (string) $texto) ?: []))));
+        return $lista ?: null;
+    }
+
+    /** ¿Este usuario de la app (nombre de usuario) puede ver la página de la organización? Lista vacía = todos. */
+    public function visibleParaUsuarioApp(?string $nombre): bool
+    {
+        $lista = is_array($this->app_usuarios) ? $this->app_usuarios : [];
+        if (!$lista) return true;
+        return $nombre !== null && in_array(strtolower(trim($nombre)), $lista, true);
+    }
 
     // MetaPage.php
     public function users()
