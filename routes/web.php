@@ -138,6 +138,7 @@ Route::middleware(['auth'])->group(function () {
         // Módulo: App del editor (páginas visibles en la app móvil + plantillas de imagen)
         Route::get('/admin/app-editor', [EditorAppController::class, 'index'])->name('editor-app.index');
         Route::post('/admin/app-editor/paginas', [EditorAppController::class, 'paginas'])->name('editor-app.paginas');
+        Route::get('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillas'])->name('editor-app.plantillas.index');
         Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
         Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
         Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');

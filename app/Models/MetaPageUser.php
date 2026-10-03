@@ -22,4 +22,9 @@ class MetaPageUser extends Pivot
     {
         return $this->belongsTo(MetaPage::class, 'meta_page_id');
     }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
 }

@@ -229,7 +229,13 @@ class CuentasAppTest extends TestCase
     public function test_las_paginas_de_la_organizacion_se_limitan_a_ciertos_usuarios(): void
     {
         $this->assertSame(['willy', 'karol'], MetaPage::usuariosApp(' Willy, KAROL;  '));
-        $this->assertNull(MetaPage::usuariosApp('  '));
+        $this->assertSame([], MetaPage::usuariosApp('  '));
+        $this->assertSame(['*'], MetaPage::usuariosApp(['', 'willy', '*']));
+        // Lista vacía: ningún periodista ve la página de la organización
+        MetaPage::where('page_id', '111')->update(['app_usuarios' => json_encode([])]);
+        $this->api()->get('/api/paginas?usuario=7&usuario_nombre=willy')->assertOk()->assertJsonCount(0, 'paginas');
+        MetaPage::where('page_id', '111')->update(['app_usuarios' => json_encode(['*'])]);
+        $this->api()->get('/api/paginas?usuario=7&usuario_nombre=willy')->assertOk()->assertJsonCount(1, 'paginas');
         MetaPage::where('page_id', '111')->update(['app_usuarios' => json_encode(['willy'])]);
         YoutubeCanal::where('channel_id', 'UCORG')->update(['app_usuarios' => json_encode(['willy'])]);
 
