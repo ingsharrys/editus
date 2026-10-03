@@ -90,6 +90,8 @@
 
     const q = new URLSearchParams(location.search);
     const url = q.get('url'); const token = q.get('token');
+    // Monitor de programa (la app): misma escena, pero sin audio (evita el eco con el micrófono del teléfono)
+    const MONITOR = q.get('monitor') === '1';
     const PRINCIPAL = 'camara-principal';
     const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 4 };
 
@@ -155,7 +157,7 @@
     }
 
     let grabando = false;
-    function empezar() { if (!grabando) { grabando = true; console.log('START_RECORDING'); } }
+    function empezar() { if (!grabando) { grabando = true; if (!MONITOR) console.log('START_RECORDING'); } }
 
     async function main() {
       const { Room, RoomEvent, Track } = LivekitClient;
@@ -200,7 +202,7 @@
           audiosDiv.appendChild(el); audios.set(id, { el, track });
           el.play && el.play().catch(() => {});
         }
-        for (const a of audios.values()) a.el.muted = silenciarCamaras;
+        for (const a of audios.values()) a.el.muted = silenciarCamaras || MONITOR;
       }
 
       // Recurso de producción a pantalla completa: imagen (con duración opcional) o video (una vez, con audio)
@@ -215,7 +217,7 @@
         const desfase = r.inicio ? Math.max(0, (Date.now() - r.inicio) / 1000) : 0;
         if (r.tipo === 'video') {
           if (r.duracion && desfase > r.duracion + 2) { cont.classList.add('oculto'); return; }
-          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto';
+          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR;
           v.onloadedmetadata = () => { if (desfase > 1 && desfase < v.duration) v.currentTime = desfase; };
           v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); cont.classList.add('oculto'); cont.innerHTML = ''; silenciarCamaras = false; sonar(ultimoAlAire); };
           v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); cont.classList.add('oculto'); silenciarCamaras = false; sonar(ultimoAlAire); };

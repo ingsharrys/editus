@@ -84,6 +84,7 @@ class EnVivoController extends Controller
             'success' => true,
             'transmision' => $t->fresh()->paraApi(),
             'livekit' => ['url' => $this->livekit->wsUrl(), 'token' => $this->tokenCamara($t, 'camara-principal', 'Cámara principal')],
+            'monitor' => $this->monitor($t),
         ]);
     }
 
@@ -123,6 +124,7 @@ class EnVivoController extends Controller
 
             // 2) Intro (video o imagen) al aire desde el primer segundo
             $escena = $t->escena ?? self::escenaInicial();
+            unset($escena['recurso']); // lo que se probó en la sala no sale al aire
             if (!empty($datos['intro_recurso_id'])) {
                 $intro = RecursoEnVivo::where('activo', true)->find((int) $datos['intro_recurso_id']);
                 if ($intro) $escena['recurso'] = $intro->paraEscena();
@@ -396,6 +398,7 @@ class EnVivoController extends Controller
             'livekit' => in_array($transmision->estado, ['sala', 'en_vivo'], true)
                 ? ['url' => $this->livekit->wsUrl(), 'token' => $this->tokenCamara($transmision, 'camara-principal', 'Cámara principal')]
                 : null,
+            'monitor' => in_array($transmision->estado, ['sala', 'en_vivo'], true) ? $this->monitor($transmision) : null,
         ]);
     }
 
@@ -411,6 +414,15 @@ class EnVivoController extends Controller
     private function tokenCamara(TransmisionEnVivo $t, string $identity, string $nombre): string
     {
         return $this->livekit->tokenParticipante($t->room, $identity, $nombre, true);
+    }
+
+    /** Monitor de programa: la misma escena que ve Facebook, abierta en la app (solo mira, oculto para los demás). */
+    private function monitor(TransmisionEnVivo $t): array
+    {
+        $identity = 'monitor-' . Str::lower(Str::random(6));
+        $token = $this->livekit->tokenParticipante($t->room, $identity, 'Monitor', false, 6 * 3600, ['hidden' => true]);
+        $url = $this->escenaUrl() . (str_contains($this->escenaUrl(), '?') ? '&' : '?') . http_build_query(['url' => $this->livekit->wsUrl(), 'token' => $token, 'layout' => 'escena', 'monitor' => 1]);
+        return ['url' => $url];
     }
 
     private function escenaUrl(): string

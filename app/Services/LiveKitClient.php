@@ -108,7 +108,7 @@ class LiveKitClient
                 if ($tipo === 'AUDIO' || $src === 'MICROPHONE') $audio = $audio || !($t['muted'] ?? false);
             }
             $identity = (string) ($p['identity'] ?? '');
-            if ($identity === '' || str_starts_with($identity, 'EG_')) continue; // el egress no cuenta
+            if ($identity === '' || str_starts_with($identity, 'EG_') || str_starts_with($identity, 'monitor-')) continue; // ni el egress ni los monitores cuentan
             $out[] = ['identity' => $identity, 'nombre' => (string) ($p['name'] ?: $identity), 'video' => $video, 'audio' => $audio, 'estado' => (string) ($p['state'] ?? '')];
         }
         return $out;

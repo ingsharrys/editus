@@ -238,6 +238,15 @@ class EnVivoApiTest extends TestCase
         $r = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_ids' => ['111', '222'], 'titulo' => 'Noticiero', 'plantilla' => ['marco_url' => $marco->url()]]);
         $r->assertOk()->assertJsonPath('transmision.estado', 'sala')->assertJsonPath('transmision.destinos.0.estado', 'pendiente')->assertJsonPath('transmision.plantilla.marco_url', $marco->url())->assertJsonPath('transmision.escena.rotulo_auto', false);
         $this->assertNotEmpty($r->json('livekit.token'));
+        // Monitor de programa: la escena con un token oculto que solo mira y en modo monitor (sin audio)
+        $monitor = (string) $r->json('monitor.url');
+        $this->assertStringContainsString('/en-vivo/escena?', $monitor);
+        $this->assertStringContainsString('monitor=1', $monitor);
+        parse_str((string) parse_url($monitor, PHP_URL_QUERY), $qs);
+        $jm = JWT::decode($qs['token'], new Key('secreto-muy-largo-de-prueba-1234567890', 'HS256'));
+        $this->assertStringStartsWith('monitor-', $jm->sub);
+        $this->assertFalse($jm->video->canPublish);
+        $this->assertTrue($jm->video->hidden);
         Http::assertNotSent(fn($req) => str_contains($req->url(), '/live_videos'));
         Http::assertNotSent(fn($req) => str_contains($req->url(), 'StartRoomCompositeEgress'));
         $id = $r->json('transmision.id');
@@ -257,6 +266,9 @@ class EnVivoApiTest extends TestCase
           ->assertJsonPath('escena.nombres.invitado-abc.personas.0.nombre', 'Luis')->assertJsonPath('escena.rotulo_de', 'camara-principal');
         Http::assertSent(fn($req) => str_ends_with($req->url(), '/UpdateRoomMetadata') && str_contains($req['metadata'], 'Ana Ruiz') && str_contains($req['metadata'], '"rotulo_de":"camara-principal"'));
         $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['rotulo_auto' => true, 'quitar_rotulo' => true])->assertOk()->assertJsonPath('escena.rotulo_auto', true)->assertJsonPath('escena.rotulo_de', null);
+
+        // Probar la intro en la sala (se ve en el monitor) no la deja "pegada" al salir al aire sin intro
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $intro->id])->assertOk()->assertJsonPath('escena.recurso.nombre', 'Intro Opa');
 
         // 2) Al aire con intro: lives en las dos páginas, intro en la metadata y egress con dos salidas
         $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar", ['intro_recurso_id' => $intro->id]);
@@ -308,6 +320,18 @@ class EnVivoApiTest extends TestCase
         $this->assertStringContainsString('publish_video', $a->json('error'));
         $this->assertSame('sala', TransmisionEnVivo::find($id)->estado);
         Http::assertNotSent(fn($req) => str_contains($req->url(), 'StartRoomCompositeEgress'));
+    }
+
+    public function test_lo_probado_en_la_sala_no_sale_al_aire(): void
+    {
+        $this->fakeTodo();
+        $aviso = \App\Models\RecursoEnVivo::create(['tipo' => 'imagen', 'uso' => 'publicidad', 'nombre' => 'Aviso', 'archivo' => 'en-vivo/recursos/a.png', 'orden' => 0, 'activo' => true]);
+        $id = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson('/api/en-vivo/preparar', ['page_id' => '111', 'titulo' => 'Prueba'])->json('transmision.id');
+        $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/escena", ['recurso_id' => $aviso->id])->assertOk();
+        $a = $this->withHeader('X-Editus-Token', self::TOKEN)->postJson("/api/en-vivo/{$id}/iniciar");
+        $a->assertOk()->assertJsonPath('transmision.estado', 'en_vivo')->assertJsonMissingPath('transmision.escena.recurso');
+        $e = $this->withHeader('X-Editus-Token', self::TOKEN)->getJson("/api/en-vivo/{$id}/estado");
+        $this->assertStringContainsString('monitor=1', $e->json('monitor.url'));
     }
 
     public function test_si_una_pagina_falla_sigue_con_las_demas(): void
