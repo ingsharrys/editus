@@ -94,9 +94,10 @@ class CuentasAppTest extends TestCase
         $this->get('/auth/app/facebook?' . http_build_query($this->firma('7', time() - 5)))->assertOk()->assertSee('venció');
 
         $this->socialite('facebook', new \Laravel\Socialite\Two\User());
-        $r = $this->get('/auth/app/facebook?' . http_build_query($this->firma('7')));
+        $r = $this->get('/auth/app/facebook?' . http_build_query($this->firma('7') + ['volver' => 'en-vivo']));
         $r->assertRedirect('https://facebook.test/oauth');
         $this->assertSame('7', session('vinculo_app.u'));
+        $this->assertSame('en-vivo', session('vinculo_app.volver'));
     }
 
     public function test_conecta_facebook_desde_la_app_y_solo_ese_usuario_ve_sus_paginas(): void
@@ -111,8 +112,8 @@ class CuentasAppTest extends TestCase
             ]], 200),
         ]);
 
-        $r = $this->withSession(['vinculo_app' => ['u' => '7', 'red' => 'facebook']])->get('/auth/facebook/callback?code=abc');
-        $r->assertOk()->assertSee('Se conectaron 2 páginas')->assertSee('editor://cuentas?red=facebook&amp;ok=1&amp;paginas=2', false);
+        $r = $this->withSession(['vinculo_app' => ['u' => '7', 'red' => 'facebook', 'volver' => 'en-vivo']])->get('/auth/facebook/callback?code=abc');
+        $r->assertOk()->assertSee('Se conectaron 2 páginas')->assertSee('editor://en-vivo?red=facebook&amp;ok=1&amp;paginas=2', false);
         $this->assertNull(session('vinculo_app'));
 
         $social = SocialAccount::where('usuario_app', '7')->first();
