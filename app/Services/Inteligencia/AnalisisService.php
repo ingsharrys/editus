@@ -24,14 +24,22 @@ class AnalisisService
 
     public function tablero(Campana $campana, Carbon $desde, Carbon $hasta): array
     {
-        $paginas = $campana->paginas()->get();
+        return $this->tableroPaginas($campana->paginas()->get(), $campana->temas()->get(), $desde, $hasta);
+    }
+
+    /**
+     * Mismo tablero para cualquier conjunto de páginas (vista general de la organización,
+     * un medio, una sola página…). $temas: los temas con los que se agrupa (los de todas
+     * las campañas en la vista general).
+     */
+    public function tableroPaginas(Collection $paginas, Collection $temas, Carbon $desde, Carbon $hasta): array
+    {
         $ids = $paginas->pluck('id')->all();
         $pubs = PublicacionRed::with('tema', 'analisis')->whereIn('meta_page_id', $ids)
             ->whereBetween('publicado_en', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
             ->orderBy('publicado_en')->get();
         // La fecha se compara como texto en SQLite y como DATE en MySQL: el tope con hora cubre ambos casos
         $diario = AudienciaDiaria::whereIn('meta_page_id', $ids)->whereBetween('fecha', [$desde->toDateString() . ' 00:00:00', $hasta->toDateString() . ' 23:59:59'])->orderBy('fecha')->get();
-        $temas = $campana->temas()->get();
 
         return [
             'rango' => ['desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'dias' => $desde->diffInDays($hasta) + 1],
@@ -48,6 +56,15 @@ class AnalisisService
             'mejores' => $pubs->sortByDesc(fn($p) => (int) $p->interacciones)->take(10)->values()->map(fn($p) => $this->pubResumen($p))->all(),
             'sin_tema' => $pubs->whereNull('tema_id')->count(),
         ];
+    }
+
+    /** Solo el resumen (publicaciones, alcance, interacciones, tasa, seguidores) de un conjunto de páginas: para comparar campañas contra el total. */
+    public function resumenPaginas(Collection $paginas, Carbon $desde, Carbon $hasta): array
+    {
+        $ids = $paginas->pluck('id')->all();
+        $pubs = PublicacionRed::whereIn('meta_page_id', $ids)->whereBetween('publicado_en', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])->get();
+        $diario = AudienciaDiaria::whereIn('meta_page_id', $ids)->whereBetween('fecha', [$desde->toDateString() . ' 00:00:00', $hasta->toDateString() . ' 23:59:59'])->orderBy('fecha')->get();
+        return $this->resumen($pubs, $diario, $ids);
     }
 
     // ------------------------------------------------------------- bloques
@@ -105,7 +122,7 @@ class AnalisisService
             $seg = $d->where('red', 'facebook')->whereNotNull('seguidores')->last()?->seguidores;
             $segIg = $d->where('red', 'instagram')->whereNotNull('seguidores')->last()?->seguidores;
             $out[] = $this->statsGrupo($g, $p->name) + [
-                'page_id' => $p->page_id, 'foto' => $p->picture_url,
+                'id' => $p->id, 'page_id' => $p->page_id, 'foto' => $p->picture_url,
                 'seguidores_facebook' => $seg !== null ? (int) $seg : null,
                 'seguidores_instagram' => $segIg !== null ? (int) $segIg : null,
                 'nuevos_seguidores' => (int) $d->sum('nuevos_seguidores'),

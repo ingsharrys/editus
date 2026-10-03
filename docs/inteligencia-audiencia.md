@@ -9,9 +9,12 @@ no se guardan datos de personas ni textos de comentarios.
 
 1. **Campaña**: un grupo de páginas de Facebook/Instagram, un territorio, un
    contexto (lo lee la IA) y una lista de temas (seguridad, empleo, candidato…).
-2. **Recolección** (`inteligencia:recolectar`, todos los días 02:10): por cada
-   página guarda el histórico diario (alcance, interacciones, seguidores,
-   demografía, horarios de conexión) y las publicaciones con sus métricas.
+2. **Recolección** (`inteligencia:recolectar`, todos los días 02:10): recorre
+   **todas las páginas integradas con token activo** (estén o no en una campaña;
+   las de campañas activas primero, con una pausa entre páginas para respetar
+   los límites de Meta) y guarda el histórico diario (alcance, interacciones,
+   seguidores, demografía, horarios de conexión) y las publicaciones con sus
+   métricas. Así la organización acumula historial completo desde el primer día.
 3. **IA** (`inteligencia:analizar`, 03:10): clasifica cada publicación en un
    tema y lee los comentarios de las publicaciones con 5 o más comentarios,
    guardando solo la lectura agregada (a favor / en contra / neutro,
@@ -21,6 +24,14 @@ no se guardan datos de personas ni textos de comentarios.
    Publicaciones (corrección manual del tema) e Informes.
 5. **Informe** (`inteligencia:informe --dias=7`, lunes 06:05): la IA redacta el
    informe semanal en markdown a partir del tablero.
+6. **Vista general** (Admin → Inteligencia → "Vista general de todas las
+   páginas", `/admin/inteligencia/general`): el mismo tablero pero sobre toda la
+   organización, con filtros por medio, por página y por fechas (Resumen,
+   Páginas y campañas, Audiencia, Horarios, Publicaciones). La pestaña "Páginas
+   y campañas" ordena todas las páginas por cualquier columna y compara cada
+   campaña activa contra el total (participación en el alcance y diferencia de
+   tasa de interacción). "Recolectar ahora" procesa hasta 25 páginas por clic;
+   el resto lo hace la tarea nocturna.
 
 ## Configuración
 
@@ -42,7 +53,10 @@ Instagram entrega demografía a partir de 100 seguidores.
 ## Comandos útiles
 
 ```
-php artisan inteligencia:recolectar --dias=30 --campana=1   # primera carga histórica
+php artisan inteligencia:recolectar --dias=30 --pausa=2     # primera carga histórica de TODAS las páginas
+php artisan inteligencia:recolectar --dias=30 --campana=1   # solo las páginas de una campaña
+php artisan inteligencia:recolectar --solo-campanas         # solo páginas en campañas activas
+php artisan inteligencia:recolectar --limite=20             # por lotes (p. ej. en hosting con poco tiempo de ejecución)
 php artisan inteligencia:analizar --campana=1
 php artisan inteligencia:informe 1 --dias=7
 ```

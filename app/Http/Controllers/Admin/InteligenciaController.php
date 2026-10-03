@@ -34,6 +34,86 @@ class InteligenciaController extends Controller
         return view('admin.inteligencia.index', ['campanas' => $campanas, 'paginas' => $paginas, 'iaLista' => $ia->configurado(), 'totalPublicaciones' => $datos]);
     }
 
+    /**
+     * Vista general: el mismo tablero de las campañas pero sobre todas las páginas
+     * integradas (o las filtradas por medio / página), más la comparativa de cada
+     * campaña activa contra el total de la organización.
+     */
+    public function general(Request $request, AnalisisService $analisis, ClaudeService $ia): View
+    {
+        [$desde, $hasta] = $this->rangoFechas($request);
+        $universo = $this->paginasConDatos();
+        $medios = (array) config('services.editus.medios', []);
+
+        $medio = trim((string) $request->query('medio', ''));
+        $idsFiltro = array_values(array_filter(array_map('intval', (array) $request->query('paginas', []))));
+        $paginas = $universo
+            ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
+            ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
+            ->values();
+
+        $temas = Tema::with('campana')->orderBy('nombre')->get();
+        $tablero = $analisis->tableroPaginas($paginas, $temas, $desde, $hasta);
+
+        // Comparativa: cada campaña activa frente al total de la organización
+        $total = $tablero['resumen'];
+        $comparativa = Campana::where('activa', true)->with('paginas')->orderBy('nombre')->get()->map(function (Campana $c) use ($analisis, $desde, $hasta, $total) {
+            $r = $analisis->resumenPaginas($c->paginas, $desde, $hasta);
+            return [
+                'id' => $c->id, 'nombre' => $c->nombre, 'paginas' => $c->paginas->count(), 'resumen' => $r,
+                'participacion' => $total['alcance'] > 0 ? round(100 * $r['alcance'] / $total['alcance'], 1) : null,
+                'diferencia_tasa' => ($r['tasa'] !== null && $total['tasa'] !== null) ? round($r['tasa'] - $total['tasa'], 2) : null,
+            ];
+        })->values()->all();
+
+        $publicaciones = PublicacionRed::with('tema', 'page')->whereIn('meta_page_id', $paginas->pluck('id'))
+            ->whereBetween('publicado_en', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
+            ->orderByDesc('publicado_en')->paginate(25, ['*'], 'pubs')->withQueryString();
+        $ultimaRecoleccion = \App\Models\AudienciaDiaria::whereIn('meta_page_id', $paginas->pluck('id'))->max('updated_at');
+        $sinDatos = $paginas->filter(fn($p) => !$p->getAttribute('con_datos'))->count();
+
+        return view('admin.inteligencia.general', [
+            'tablero' => $tablero, 'desde' => $desde, 'hasta' => $hasta, 'publicaciones' => $publicaciones, 'comparativa' => $comparativa,
+            'universo' => $universo, 'paginas' => $paginas, 'medios' => $medios, 'medio' => $medio, 'idsFiltro' => $idsFiltro,
+            'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion, 'sinDatos' => $sinDatos,
+            'tab' => in_array($request->query('tab'), ['resumen', 'paginas', 'audiencia', 'horarios', 'publicaciones'], true) ? $request->query('tab') : 'resumen',
+        ]);
+    }
+
+    /** Recolecta desde la web las páginas filtradas en la vista general (máximo 25 por clic; el resto lo hace la tarea nocturna). */
+    public function recolectarGeneral(Request $request, RecolectorAudienciaService $recolector): RedirectResponse
+    {
+        @set_time_limit(280);
+        $dias = max(1, min(30, (int) $request->input('dias', 7)));
+        $medio = trim((string) $request->input('medio', ''));
+        $idsFiltro = array_values(array_filter(array_map('intval', (array) $request->input('paginas', []))));
+        $paginas = $this->paginasConDatos()
+            ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
+            ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
+            ->filter(fn($p) => $p->vinculos->isNotEmpty())
+            ->values();
+        $total = $paginas->count();
+        $paginas = $paginas->take(25);
+        $lineas = [];
+        foreach ($paginas as $p) {
+            $r = $recolector->recolectar($p, $dias);
+            $lineas[] = "{$p->name}: {$r['publicaciones']} publ." . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : '');
+        }
+        $aviso = $total > 25 ? " Se procesaron 25 de {$total} páginas; las demás las recoge la tarea nocturna." : '';
+        return redirect()->route('inteligencia.general', $request->only(['medio', 'paginas', 'desde', 'hasta', 'tab']))->with('success', 'Recolección terminada.' . $aviso . ' ' . implode(' — ', $lineas));
+    }
+
+    /** Páginas que pueden tener datos: con token activo (se recolectan) o que ya tengan histórico. */
+    private function paginasConDatos(): \Illuminate\Support\Collection
+    {
+        $conDatos = PublicacionRed::query()->distinct()->pluck('meta_page_id')
+            ->merge(\App\Models\AudienciaDiaria::query()->distinct()->pluck('meta_page_id'))->unique()->flip();
+        return MetaPage::with(['vinculos' => fn($q) => $q->where('is_active', 1)->whereNotNull('page_access_token')])->orderBy('name')->get()
+            ->filter(fn(MetaPage $p) => $p->vinculos->isNotEmpty() || $conDatos->has($p->id))
+            ->each(fn(MetaPage $p) => $p->setAttribute('con_datos', $conDatos->has($p->id)))
+            ->values();
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $d = $this->validarCampana($request);
@@ -190,6 +270,11 @@ class InteligenciaController extends Controller
     }
 
     private function rango(Request $request, Campana $campana): array
+    {
+        return $this->rangoFechas($request);
+    }
+
+    private function rangoFechas(Request $request): array
     {
         $hasta = $request->filled('hasta') ? Carbon::parse($request->query('hasta')) : Carbon::today();
         $desde = $request->filled('desde') ? Carbon::parse($request->query('desde')) : $hasta->copy()->subDays(29);

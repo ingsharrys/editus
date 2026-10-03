@@ -22,6 +22,17 @@
         </div>
     @endunless
 
+    <a href="{{ route('inteligencia.general') }}" class="block rounded-2xl bg-[#00024f] text-white p-5 shadow-md hover:opacity-95 transition mb-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div>
+                <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-200">Toda la organización</div>
+                <h2 class="text-xl font-bold mt-0.5">Vista general de todas las páginas</h2>
+                <p class="text-sm text-indigo-100 mt-1">Alcance, interacción, formatos, horarios y público de todas las páginas integradas, con filtros por medio y por página, y la comparativa de cada campaña frente al total.</p>
+            </div>
+            <span class="shrink-0 inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold">Abrir tablero →</span>
+        </div>
+    </a>
+
     <div class="grid lg:grid-cols-3 gap-6">
         <div class="lg:col-span-2 space-y-4">
             <h2 class="text-xl font-bold text-gray-800">Campañas</h2>
