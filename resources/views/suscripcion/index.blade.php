@@ -92,7 +92,8 @@
             {{-- Licencia del plugin --}}
             <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
                 <h3 class="text-base font-bold text-gray-900">Licencia del plugin SharryStreem</h3>
-                <p class="text-xs text-gray-500 mt-1 mb-3">Pega la llave en WordPress → Ajustes → SharryStreem. Funciona mientras tu plan esté activo.</p>
+                <p class="text-xs text-gray-500 mt-1 mb-3">Instala el plugin en tu WordPress (Plugins → Añadir nuevo → Subir plugin) y pega la llave en Ajustes → SharryStreem. Funciona mientras tu plan esté activo.</p>
+                <a href="{{ asset('descargas/sharrystreem-1.0.0.zip') }}" class="inline-flex items-center gap-2 h-9 rounded-lg bg-indigo-50 text-indigo-800 px-3 text-xs font-semibold hover:bg-indigo-100 mb-3" download>⬇ Descargar plugin SharryStreem 1.0.0</a>
                 @if ($licenciaNueva)
                     <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-3 mb-3">
                         <div class="text-xs font-semibold text-emerald-800 mb-1">Tu llave (cópiala ahora; no se vuelve a mostrar completa):</div>

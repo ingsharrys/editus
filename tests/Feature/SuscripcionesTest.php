@@ -211,6 +211,20 @@ class SuscripcionesTest extends TestCase
         $this->llamar('GET', 'estado', $llave, $sitio)->assertStatus(401);
     }
 
+    public function test_la_firma_del_plugin_de_wordpress_es_la_que_valida_editus(): void
+    {
+        if (!defined('ABSPATH')) define('ABSPATH', __DIR__);
+        require_once base_path('plugins/wordpress/sharrystreem/includes/class-sharrystreem-api.php');
+        $planes = app(PlanService::class);
+        $llave = $planes->generarLicencia($planes->aplicarPago($this->pagar()));
+        $this->assertSame('ss_' . PlanService::prefijoDe($llave), \SharryStreem_Api::identificador($llave));
+
+        $ts = (string) time(); $nonce = 'abcdefABCDEF0123456789xyz'; $sitio = 'https://midiario.co'; $ruta = \SharryStreem_Api::RUTA . 'activar';
+        $headers = ['X-SharryStreem-Key' => \SharryStreem_Api::identificador($llave), 'X-SharryStreem-Timestamp' => $ts, 'X-SharryStreem-Nonce' => $nonce, 'X-SharryStreem-Site' => $sitio,
+            'X-SharryStreem-Signature' => \SharryStreem_Api::firmar($llave, $ts, $nonce, 'POST', $ruta, $sitio, ''), 'Accept' => 'application/json', 'Content-Type' => 'application/json'];
+        $this->call('POST', $ruta, [], [], [], $this->servidor($headers), '')->assertOk()->assertJsonPath('plan_nombre', 'Básico');
+    }
+
     public function test_admin_activa_manual_y_marca_exento(): void
     {
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
