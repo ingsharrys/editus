@@ -23,6 +23,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Fechas relativas en español («hace 17 minutos») en todo el panel
+        \Carbon\Carbon::setLocale('es');
         //
     }
 }

@@ -50,6 +50,9 @@ class ConsultorService
             . "Periodo: {$desde->format('d/m/Y')} a {$hasta->format('d/m/Y')}. Páginas: " . $paginas->pluck('name')->take(15)->implode(', ') . ($paginas->count() > 15 ? ' y ' . ($paginas->count() - 15) . ' más' : '') . ".\n"
             . ($campana?->descripcion ? "Contexto de la campaña: {$campana->descripcion}\n" : '')
             . "\nDATOS AGREGADOS:\n" . json_encode($datos, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+        if ($campana && ($radar = RadarWebService::contextoParaConsultor($campana))) {
+            $usuario .= "\n\n" . $radar . "\n(Úsala como contexto del territorio; las cifras de rendimiento salen solo de los DATOS AGREGADOS.)";
+        }
 
         $respuesta = $this->ia->json($sistema, $usuario, self::esquema(), 8000);
         $respuesta = $this->normalizar($respuesta);

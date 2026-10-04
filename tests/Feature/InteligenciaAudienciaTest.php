@@ -65,10 +65,10 @@ class InteligenciaAudienciaTest extends TestCase
             // Facebook: diario
             'graph.facebook.com/v23.0/111/insights*' => function ($req) use ($dia) {
                 $m = $req['metric'] ?? '';
-                if (str_contains($m, 'page_fans_gender_age')) return Http::response(['data' => [
-                    ['name' => 'page_fans_gender_age', 'period' => 'lifetime', 'values' => [['value' => ['F.25-34' => 120, 'M.25-34' => 80, 'F.35-44' => 60]]]],
-                    ['name' => 'page_fans_city', 'period' => 'lifetime', 'values' => [['value' => ['Neiva, Huila' => 200, 'Pitalito, Huila' => 50]]]],
-                    ['name' => 'page_fans_country', 'period' => 'lifetime', 'values' => [['value' => ['CO' => 240, 'US' => 10]]]],
+                // Meta retiró page_fans_* : la demografía de Facebook llega como page_follows_city / page_follows_country (sin edad ni género)
+                if (str_contains($m, 'page_follows_city')) return Http::response(['data' => [
+                    ['name' => 'page_follows_city', 'period' => 'lifetime', 'values' => [['value' => ['Neiva, Huila' => 200, 'Pitalito, Huila' => 50]]]],
+                    ['name' => 'page_follows_country', 'period' => 'lifetime', 'values' => [['value' => ['CO' => 240, 'US' => 10]]]],
                 ]]);
                 if (str_contains($m, 'page_fans_online')) return Http::response(['data' => [['name' => 'page_fans_online', 'period' => 'day', 'values' => [['value' => ['19' => 300, '20' => 420, '8' => 100], 'end_time' => Carbon::today()->format('Y-m-d\T07:00:00+0000')]]]]]);
                 // Grupo diario: una métrica "ya no existe" → el recolector reintenta una por una
@@ -128,7 +128,9 @@ class InteligenciaAudienciaTest extends TestCase
         $fb = AudienciaDiaria::where('red', 'facebook')->orderBy('fecha')->get();
         $this->assertSame([1000, 1500, 2000], $fb->pluck('alcance')->map(fn($v) => (int) $v)->all());
         $this->assertSame(5030, (int) $fb->last()->seguidores);
-        $this->assertSame(120, $fb->last()->demografia['edad_genero']['F.25-34']);
+        $this->assertSame(200, $fb->last()->demografia['ciudad']['Neiva, Huila']);
+        $this->assertSame(240, $fb->last()->demografia['pais']['CO']);
+        $this->assertSame([], $fb->last()->demografia['edad_genero']);
         $this->assertSame(420, $fb->last()->horarios[(int) Carbon::today()->subDay()->format('w')][20] ?? $fb->last()->horarios[(int) Carbon::today()->format('w')][20] ?? 420);
         $this->assertNull($fb->first()->demografia);
 
@@ -345,6 +347,86 @@ class InteligenciaAudienciaTest extends TestCase
         $this->actingAs($this->admin)->get('/admin/inteligencia/general?tab=comentarios')->assertOk()->assertSee('Emociones del público');
         $this->actingAs($this->admin)->get("/admin/inteligencia/{$campana->id}?tab=consultor")->assertOk()->assertSee('Consultor de IA')->assertSee('frente a la seguridad');
         $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Consultas a la IA')->assertSee('Alcaldía 2027');
+    }
+
+    public function test_clasificar_y_leer_comentarios_por_pasos_explica_lo_que_no_pudo(): void
+    {
+        $this->fakeGraph();
+        $campana = $this->campana();
+        app(RecolectorAudienciaService::class)->recolectar($this->page, 3);
+        [$seguridad] = $campana->temas()->pluck('id')->all();
+
+        $ia = \Mockery::mock(ClaudeService::class);
+        $ia->shouldReceive('configurado')->andReturn(true);
+        $ia->shouldReceive('modelo')->andReturn('modelo');
+        // Solo devuelve una de las tres: las otras quedan revisadas sin tema (no se piden en bucle)
+        $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq, $max = 0, $effort = '') => $esq['required'] === ['asignaciones'] && $effort === 'low')
+            ->andReturn(['asignaciones' => [['n' => 0, 'tema_id' => $seguridad, 'confianza' => 90]]]);
+        $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => str_contains($usr, 'COMENTARIOS (8)'))
+            ->andReturn(['a_favor' => 5, 'en_contra' => 2, 'neutro' => 1, 'emociones' => ['enojo' => 4], 'preocupaciones' => ['Robos'], 'palabras' => ['robo'], 'resumen' => 'Piden más policía.']);
+        $this->app->instance(ClaudeService::class, $ia);
+
+        $url = route('inteligencia.analizar.paso', $campana);
+        $d = $this->actingAs($this->admin)->postJson($url, ['inicio' => true])->assertOk()->json();
+        $this->assertSame('clasificar', $d['fase']);
+        $this->assertSame(3, $d['clasificadas']);
+        $this->assertSame(0, $d['pendientes']);
+        $this->assertSame(2, PublicacionRed::where('tema_fuente', 'ia')->whereNull('tema_id')->count());
+
+        $d = $this->actingAs($this->admin)->postJson($url)->assertOk()->json();
+        $this->assertSame('comentarios', $d['fase']);
+        $this->assertSame(1, $d['lecturas']);
+        $this->assertStringContainsString('8 comentarios leídos', $d['lineas'][0]['texto']);
+
+        $d = $this->actingAs($this->admin)->postJson($url)->assertOk()->json();
+        $this->assertTrue($d['terminado']);
+        $this->assertSame(1, ComentarioAnalisis::count());
+
+        // La campaña muestra los botones por pasos (sin formularios que el hosting corte)
+        $this->actingAs($this->admin)->get(route('inteligencia.show', $campana))->assertOk()
+            ->assertSee('id="btn-analizar"', false)->assertSee('data-recolectar="7"', false)->assertSee('🌐 Radar web');
+    }
+
+    public function test_radar_web_investiga_por_pasos_lista_fuentes_y_alimenta_al_consultor(): void
+    {
+        (require database_path('migrations/2026_10_11_000001_create_radar_web_table.php'))->up();
+        $campana = $this->campana();
+
+        $ia = \Mockery::mock(ClaudeService::class);
+        $ia->shouldReceive('configurado')->andReturn(true);
+        $ia->shouldReceive('modelo')->andReturn('modelo');
+        $json = json_encode(['resumen' => 'Se habla de robos en el centro.', 'hallazgos' => [
+            ['url' => 'https://diariodelhuila.com/robos-neiva', 'titulo' => 'Aumentan los robos en Neiva', 'medio' => 'Diario del Huila', 'fecha' => '2026-09-20', 'tono' => 'desfavorable', 'relevancia' => 'riesgo', 'resumen' => 'Comerciantes denuncian robos.', 'actores' => ['Policía Metropolitana']],
+            ['url' => 'https://lanacion.com.co/empleo', 'titulo' => 'Feria de empleo', 'medio' => 'La Nación', 'fecha' => null, 'tono' => 'favorable', 'relevancia' => 'oportunidad', 'resumen' => 'Mil vacantes.', 'actores' => []],
+            ['url' => 'no-es-url', 'titulo' => 'Inventado'],
+        ]], JSON_UNESCAPED_UNICODE);
+        $ia->shouldReceive('investigar')->times(3)->withArgs(fn($sis, $usr, $ubic) => str_contains($usr, 'Neiva') && $ubic['country'] === 'CO')
+            ->andReturn(['texto' => "Busqué en la web.\n```json\n{$json}\n```", 'fuentes' => [['url' => 'https://diariodelhuila.com/robos-neiva', 'titulo' => 'Aumentan los robos', 'fecha' => '2026-09-20'], ['url' => 'https://otro.co/x', 'titulo' => 'Otra fuente', 'fecha' => null]], 'busquedas' => 2, 'pausado' => false]);
+        $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => in_array('actores', $esq['required'], true) && str_contains($usr, 'Aumentan los robos en Neiva'))
+            ->andReturn(['resumen' => 'La seguridad domina la conversación en Neiva.', 'temas' => [['tema' => 'Seguridad', 'intensidad' => 'alta', 'tono' => 'desfavorable', 'que_se_dice' => 'Robos en el centro']],
+                'actores' => [['nombre' => 'Policía Metropolitana', 'tipo' => 'institución', 'postura' => 'responde a denuncias']], 'oportunidades' => ['Proponer plan de seguridad'], 'alertas' => ['Críticas por robos'],
+                'recomendaciones' => [['accion' => 'Publicar propuesta de seguridad', 'por_que' => 'Es el tema más comentado', 'prioridad' => 'alta']]]);
+        $this->app->instance(ClaudeService::class, $ia);
+
+        $ini = $this->actingAs($this->admin)->postJson(route('inteligencia.radar.iniciar', $campana), ['enfoque' => 'seguridad'])->assertOk()->json();
+        $this->assertSame(4, $ini['total']); // 2 temas + conversación general + síntesis
+        $paso = fn() => $this->actingAs($this->admin)->postJson(url("/admin/inteligencia/{$campana->id}/radar/{$ini['id']}/paso"))->assertOk()->json();
+        for ($i = 0; $i < 3; $i++) $this->assertFalse($paso()['terminado']);
+        $fin = $paso();
+        $this->assertTrue($fin['terminado']);
+        $this->assertSame('listo', $fin['estado']);
+
+        $radar = \App\Models\RadarWeb::first();
+        $this->assertCount(2, $radar->hallazgos); // la URL inválida se descarta y no se duplica entre frentes
+        $porUrl = collect($radar->hallazgos)->keyBy('url');
+        $this->assertTrue($porUrl['https://diariodelhuila.com/robos-neiva']['verificada']);
+        $this->assertFalse($porUrl['https://lanacion.com.co/empleo']['verificada']);
+        $this->assertSame(6, $radar->busquedas);
+
+        $this->actingAs($this->admin)->get(route('inteligencia.show', [$campana, 'tab' => 'radar']))->assertOk()
+            ->assertSee('Aumentan los robos en Neiva')->assertSee('La seguridad domina la conversación en Neiva.')->assertSee('Fuentes analizadas (2)')
+            ->assertSee('Otras páginas que la búsqueda consultó (1)')->assertSee('Publicar propuesta de seguridad');
+        $this->assertStringContainsString('INVESTIGACIÓN WEB', \App\Services\Inteligencia\RadarWebService::contextoParaConsultor($campana));
     }
 
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void

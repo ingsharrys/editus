@@ -184,6 +184,9 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/inteligencia/{campana}/publicaciones/{publicacion}/tema', [\App\Http\Controllers\Admin\InteligenciaController::class, 'publicacionTema'])->name('inteligencia.publicacion.tema');
         Route::post('/admin/inteligencia/{campana}/recolectar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectar'])->name('inteligencia.recolectar');
         Route::post('/admin/inteligencia/{campana}/analizar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizar'])->name('inteligencia.analizar');
+        Route::post('/admin/inteligencia/{campana}/analizar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizarPaso'])->name('inteligencia.analizar.paso');
+        Route::post('/admin/inteligencia/{campana}/radar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarIniciar'])->name('inteligencia.radar.iniciar');
+        Route::post('/admin/inteligencia/{campana}/radar/{radar}/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarPaso'])->name('inteligencia.radar.paso');
         Route::post('/admin/inteligencia/{campana}/informes', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informeGenerar'])->name('inteligencia.informes.generar');
         Route::get('/admin/inteligencia/{campana}/informes/{informe}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informe'])->name('inteligencia.informe');
         Route::get('/admin/inteligencia/{campana}/proyeccion', [\App\Http\Controllers\Admin\InteligenciaController::class, 'proyeccion'])->name('inteligencia.proyeccion');

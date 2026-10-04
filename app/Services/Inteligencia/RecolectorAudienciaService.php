@@ -73,12 +73,24 @@ class RecolectorAudienciaService
         }
 
         // Demografía y horarios (lifetime / último día)
-        $demo = $this->insightsTolerante($page->page_id, ['page_fans_gender_age', 'page_fans_city', 'page_fans_country'], ['period' => 'lifetime'], $token);
+        // Meta retiró page_fans_gender_age (mar. 2024, sin reemplazo: Facebook ya no entrega edad ni género)
+        // y page_fans_city / page_fans_country (nov. 2025): ahora son page_follows_city / page_follows_country.
+        $metricasDemo = ['page_follows_city', 'page_follows_country'];
+        $demo = $this->insightsTolerante($page->page_id, $metricasDemo, ['period' => 'lifetime'], $token);
+        if (empty($demo['page_follows_city']) && empty($demo['page_follows_country'])) {
+            foreach ($metricasDemo as $m) unset($this->avisos[$m]);
+            $demo = $this->insightsTolerante($page->page_id, $metricasDemo, ['period' => 'day', 'since' => $hasta->copy()->subDays(3)->timestamp, 'until' => $hasta->copy()->addDay()->timestamp], $token);
+        }
+        if (empty($demo['page_follows_city']) && empty($demo['page_follows_country'])) {
+            $antiguas = $this->insightsTolerante($page->page_id, ['page_fans_city', 'page_fans_country'], ['period' => 'lifetime'], $token);
+            if ($antiguas) { foreach ($metricasDemo as $m) unset($this->avisos[$m]); } else { unset($this->avisos['page_fans_city'], $this->avisos['page_fans_country']); }
+            $demo = ['page_follows_city' => $antiguas['page_fans_city'] ?? [], 'page_follows_country' => $antiguas['page_fans_country'] ?? []];
+        }
         $online = $this->insightsTolerante($page->page_id, ['page_fans_online'], ['period' => 'day', 'since' => $hasta->copy()->subDays(7)->timestamp, 'until' => $hasta->copy()->addDay()->timestamp], $token);
         $demografia = [
-            'edad_genero' => self::ultimo($demo['page_fans_gender_age'] ?? []),
-            'ciudad' => self::ultimo($demo['page_fans_city'] ?? []),
-            'pais' => self::ultimo($demo['page_fans_country'] ?? []),
+            'edad_genero' => [],
+            'ciudad' => self::ultimo($demo['page_follows_city'] ?? []),
+            'pais' => self::ultimo($demo['page_follows_country'] ?? []),
         ];
         $horarios = $this->horariosDesdeOnline($online['page_fans_online'] ?? []);
 

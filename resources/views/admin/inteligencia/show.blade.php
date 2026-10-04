@@ -4,7 +4,7 @@
     $r = $tablero['resumen'];
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $dias = \App\Services\Inteligencia\AnalisisService::DIAS;
-    $tabs = ['resumen' => 'Resumen', 'temas' => 'Temas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios', 'pronostico' => 'Pronóstico', 'consultor' => '✦ Consultor IA', 'publicaciones' => 'Publicaciones', 'informes' => 'Informes', 'config' => 'Configuración'];
+    $tabs = ['resumen' => 'Resumen', 'temas' => 'Temas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios', 'pronostico' => 'Pronóstico', 'consultor' => '✦ Consultor IA', 'radar' => '🌐 Radar web', 'publicaciones' => 'Publicaciones', 'informes' => 'Informes', 'config' => 'Configuración'];
     $urlTab = fn($t) => route('inteligencia.show', [$campana, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'tab' => $t]);
 @endphp
 
@@ -39,11 +39,26 @@
 
     {{-- Acciones --}}
     <div class="flex flex-wrap gap-2 mb-5 text-sm">
-        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="7"><button class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 7 días</button></form>
-        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="30"><button class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 30 días</button></form>
-        <form method="POST" action="{{ route('inteligencia.analizar', $campana) }}">@csrf<button class="h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 shadow-sm hover:bg-indigo-100" @disabled(!$iaLista)>✦ Clasificar y leer comentarios</button></form>
+        <button type="button" data-recolectar="7" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 7 días</button>
+        <button type="button" data-recolectar="30" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 30 días</button>
+        <button type="button" id="btn-analizar" class="h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 shadow-sm hover:bg-indigo-100 disabled:opacity-50" @disabled(!$iaLista)>✦ Clasificar y leer comentarios</button>
         <form method="POST" action="{{ route('inteligencia.informes.generar', $campana) }}">@csrf<input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><button class="h-9 rounded-lg bg-[#00024f] text-white px-3 shadow-sm hover:opacity-90" @disabled(!$iaLista)>✦ Redactar informe del periodo</button></form>
         @unless ($iaLista)<span class="self-center text-xs text-amber-700">IA no configurada (ANTHROPIC_API_KEY)</span>@endunless
+    </div>
+
+    {{-- Avance de procesos largos (recolectar, clasificar, radar): se hacen por pasos cortos --}}
+    <div id="proc-panel" class="hidden rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-4 mb-5">
+        <div class="flex items-center justify-between gap-3 mb-2">
+            <div class="text-sm font-semibold text-gray-800" id="proc-titulo">Trabajando…</div>
+            <div class="text-xs text-gray-500 whitespace-nowrap" id="proc-contador"></div>
+        </div>
+        <div class="h-2 w-full rounded-full bg-gray-100 overflow-hidden"><div id="proc-barra" class="h-2 rounded-full bg-[#00024f] transition-all" style="width: 0%"></div></div>
+        <div id="proc-aviso" class="hidden mt-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs"></div>
+        <div id="proc-log" class="mt-3 max-h-56 overflow-auto divide-y divide-gray-100 text-xs"></div>
+        <div class="flex justify-end gap-2 mt-3">
+            <button type="button" id="proc-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">Detener</button>
+            <button type="button" id="proc-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Ver los resultados</button>
+        </div>
     </div>
 
     {{-- Pestañas --}}
@@ -159,7 +174,9 @@
     @if ($tab === 'audiencia')
         @php $d = $tablero['demografia']; @endphp
         @if (!$d['fuentes'])
-            <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm mb-4">Todavía no hay demografía. Se recoge al recolectar datos; Facebook puede no entregarla para páginas con pocos seguidores, Instagram la entrega a partir de 100 seguidores.</div>
+            <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm mb-4">Todavía no hay demografía. Pulsa «Recolectar 7 días» para traerla. Facebook entrega ciudades y países de los seguidores, pero desde 2024 Meta ya no entrega edad ni género de páginas; Instagram sí los entrega (cuentas con 100 o más seguidores).</div>
+        @elseif (!array_filter($d['genero']))
+            <div class="rounded-lg border border-sky-200 bg-sky-50 text-sky-900 p-3 text-sm mb-4">Edad y género: Meta dejó de entregarlos para páginas de Facebook. Se muestran cuando las páginas tienen Instagram conectado con 100 o más seguidores.</div>
         @endif
         <div class="grid lg:grid-cols-3 gap-6">
             <div class="rounded-2xl border border-gray-200 bg-white p-5"><h3 class="font-bold text-gray-800 mb-2">Edad y género</h3><canvas id="gEdad" height="220"></canvas>
@@ -281,6 +298,11 @@
         @include('admin.inteligencia._consultor', ['contextoConsulta' => ['campana_id' => $campana->id, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString()], 'tituloAlcance' => $campana->nombre])
     @endif
 
+    {{-- ========================================================== RADAR WEB --}}
+    @if ($tab === 'radar')
+        @include('admin.inteligencia._radar')
+    @endif
+
     {{-- ====================================================== PUBLICACIONES --}}
     @if ($tab === 'publicaciones')
         <div class="rounded-2xl border border-gray-200 bg-white p-5">
@@ -376,6 +398,84 @@
   if (g('gTendencia')) { const tr = T.tendencias; const labels = Array.from({ length: tr.semanas }, (_, i) => 'S-' + (tr.semanas - i));
     new Chart(g('gTendencia'), { type: 'line', data: { labels, datasets: tr.temas.map(t => ({ label: t.tema, data: t.serie, borderColor: t.color || '#94a3b8', spanGaps: true, tension: .3 })) },
       options: { scales: { y: { beginAtZero: true, title: { display: true, text: 'Tasa de interacción %' } } } } }); }
+  // ------------------------------------------------ procesos por pasos
+  const csrf = document.querySelector('meta[name="csrf-token"]').content;
+  const post = async (url, body) => { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body || {}) }); return r.json(); };
+  const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let detener = false, ocupado = false, destino = null;
+  const panel = {
+    abrir(titulo) { detener = false; ocupado = true; destino = null; g('proc-panel').classList.remove('hidden'); g('proc-titulo').textContent = titulo; g('proc-contador').textContent = ''; g('proc-barra').style.width = '0%'; g('proc-log').innerHTML = ''; g('proc-aviso').classList.add('hidden'); g('proc-recargar').classList.add('hidden'); g('proc-detener').classList.remove('hidden'); g('proc-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
+    titulo(t) { g('proc-titulo').textContent = t; },
+    avance(hecho, total, texto) { g('proc-contador').textContent = texto || (hecho + ' / ' + total); g('proc-barra').style.width = (total ? Math.min(100, Math.round(100 * hecho / total)) : 100) + '%'; },
+    linea(ok, texto) { const f = document.createElement('div'); f.className = 'py-1.5 flex gap-2'; f.innerHTML = '<span class="' + (ok ? 'text-emerald-600' : 'text-rose-600') + '">' + (ok ? '✓' : '✕') + '</span><span class="text-gray-600">' + esc(texto) + '</span>'; g('proc-log').prepend(f); },
+    aviso(t) { if (!t) return; g('proc-aviso').textContent = t; g('proc-aviso').classList.remove('hidden'); },
+    cerrar(url) { ocupado = false; destino = url || null; g('proc-detener').classList.add('hidden'); g('proc-recargar').classList.remove('hidden'); },
+  };
+  g('proc-detener').addEventListener('click', () => { detener = true; panel.titulo('Deteniendo al terminar el paso actual…'); });
+  g('proc-recargar').addEventListener('click', () => { destino ? (location.href = destino) : location.reload(); });
+  const conexion = { success: false, error: 'Se perdió la conexión con el servidor. Vuelve a pulsar el botón: continúa donde iba.' };
+
+  document.querySelectorAll('[data-recolectar]').forEach(b => b.addEventListener('click', async () => {
+    if (ocupado) return;
+    const dias = b.dataset.recolectar; panel.abrir('Preparando la recolección…');
+    let ini; try { ini = await post(@json(route('inteligencia.general.recolectar.iniciar')), { dias, campana: @json($campana->id) }); } catch (e) { ini = null; }
+    if (!ini || !ini.success) { panel.titulo('No se pudo iniciar la recolección.'); return panel.cerrar(); }
+    panel.titulo('Recolectando ' + ini.total + ' página(s), ' + ini.dias + ' días hacia atrás…'); panel.avance(0, ini.total);
+    let hecho = 0, errores = 0;
+    while (!detener) {
+      let d; try { d = await post(@json(route('inteligencia.general.recolectar.paso'))); } catch (e) { d = conexion; }
+      if (!d.success) { panel.titulo(d.error || 'Error en la recolección.'); break; }
+      if (d.linea) { panel.linea(d.linea.ok, d.linea.pagina + ' — ' + d.linea.detalle); (d.linea.avisos || []).forEach(a => panel.aviso('⚠ ' + a)); }
+      hecho = d.hecho; errores = d.errores; panel.avance(hecho, d.total);
+      if (d.terminado) { panel.titulo('Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con avisos' : '') + '.'); break; }
+    }
+    if (detener) panel.titulo('Detenido en ' + hecho + ' página(s). Lo recolectado ya quedó guardado.');
+    panel.cerrar();
+  }));
+
+  const ba = g('btn-analizar');
+  if (ba) ba.addEventListener('click', async () => {
+    if (ocupado) return;
+    panel.abrir('Clasificando publicaciones por tema con la IA…');
+    let inicio = true, total = null;
+    while (!detener) {
+      let d; try { d = await post(@json(route('inteligencia.analizar.paso', $campana)), { inicio }); } catch (e) { d = conexion; }
+      inicio = false;
+      if (!d.success) { panel.titulo(d.error || 'Error.'); break; }
+      if (d.fase === 'clasificar') {
+        if (total === null) total = d.clasificadas + d.pendientes;
+        panel.titulo('Clasificando publicaciones por tema con la IA…'); panel.avance(d.clasificadas, total, d.clasificadas + ' / ' + total + ' publicaciones');
+        if (d.linea) panel.linea(d.linea.ok, d.linea.texto);
+      } else if (d.fase === 'comentarios') {
+        panel.titulo('Leyendo comentarios y emociones…'); panel.avance(1, 1, d.lecturas + ' lecturas · ' + d.fallidas + ' sin leer');
+        (d.lineas || []).forEach(l => panel.linea(l.ok, l.texto));
+      }
+      if (d.terminado) { panel.avance(1, 1, ''); panel.titulo('Listo: ' + (d.clasificadas || 0) + ' publicaciones clasificadas y ' + (d.lecturas || 0) + ' lecturas de comentarios' + (d.fallidas ? ' (' + d.fallidas + ' publicaciones sin leer: mira el motivo abajo)' : '') + '.'); panel.aviso(d.aviso); break; }
+    }
+    if (detener) panel.titulo('Detenido. Lo clasificado hasta aquí ya quedó guardado; vuelve a pulsar para continuar.');
+    panel.cerrar();
+  });
+
+  const br = g('radar-boton');
+  if (br) br.addEventListener('click', async () => {
+    if (ocupado) return;
+    panel.abrir('Preparando la investigación en la web…');
+    let ini; try { ini = await post(@json(route('inteligencia.radar.iniciar', $campana)), { enfoque: (g('radar-enfoque') || {}).value || '' }); } catch (e) { ini = { success: false }; }
+    if (!ini.success) { panel.titulo(ini.error || 'No se pudo iniciar la investigación.'); return panel.cerrar(); }
+    panel.titulo('Investigando en la web: ' + ini.frentes.join(', ') + '…'); panel.avance(0, ini.total);
+    const base = @json(url('/admin/inteligencia/' . $campana->id . '/radar')) + '/' + ini.id + '/paso';
+    let url = null;
+    while (!detener) {
+      let d; try { d = await post(base); } catch (e) { d = conexion; }
+      if (!d.success) { panel.titulo(d.error || 'Error.'); break; }
+      if (d.linea) panel.linea(d.linea.ok, d.linea.frente + ' — ' + d.linea.detalle);
+      panel.avance(d.hecho, d.total); url = d.url;
+      if (d.terminado) { panel.titulo(d.estado === 'listo' ? 'Listo: investigación terminada.' : (d.error || 'La investigación terminó con errores.')); break; }
+    }
+    if (detener) panel.titulo('Detenido. Lo investigado quedó guardado; puedes iniciar otra investigación cuando quieras.');
+    panel.cerrar(url);
+  });
+
   const pb = g('pBoton');
   if (pb) pb.addEventListener('click', async () => {
     const out = g('pResultado'); out.textContent = 'Calculando…';

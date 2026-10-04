@@ -7,6 +7,7 @@ use App\Models\Campana;
 use App\Models\InformeCampana;
 use App\Models\MetaPage;
 use App\Models\PublicacionRed;
+use App\Models\RadarWeb;
 use App\Models\Tema;
 use App\Services\Inteligencia\AnalisisService;
 use App\Services\Inteligencia\ClasificadorService;
@@ -15,6 +16,7 @@ use App\Services\Inteligencia\ComentariosService;
 use App\Services\Inteligencia\ConsultorService;
 use App\Models\ConsultaIa;
 use App\Services\Inteligencia\InformeService;
+use App\Services\Inteligencia\RadarWebService;
 use App\Services\Inteligencia\RecolectorAudienciaService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
@@ -154,6 +156,10 @@ class InteligenciaController extends Controller
         $dias = max(1, min(30, (int) $request->input('dias', 7)));
         $medio = trim((string) $request->input('medio', ''));
         $idsFiltro = array_values(array_filter(array_map('intval', (array) $request->input('paginas', []))));
+        if ($request->filled('campana')) {
+            $campana = Campana::findOrFail((int) $request->input('campana'));
+            $idsFiltro = $campana->paginas()->pluck('meta_pages.id')->map(fn($v) => (int) $v)->all() ?: [0];
+        }
         $paginas = $this->paginasConDatos()
             ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
             ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
@@ -231,6 +237,8 @@ class InteligenciaController extends Controller
             'informes' => $informes, 'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion,
             'paginasTodas' => MetaPage::orderBy('name')->get(), 'tab' => $request->query('tab', 'resumen'),
             'consultas' => $this->consultasRecientes($campana->id), 'ejemplosConsulta' => ConsultorService::ejemplos(),
+            'radares' => \Illuminate\Support\Facades\Schema::hasTable('radar_web') ? RadarWeb::where('campana_id', $campana->id)->latest()->limit(10)->get() : collect(),
+            'radarId' => (int) $request->query('radar'),
         ]);
     }
 
@@ -298,6 +306,80 @@ class InteligenciaController extends Controller
             return back()->with('error', 'La IA falló: ' . $e->getMessage());
         }
         return back()->with('success', "{$n} publicaciones clasificadas y {$m} lecturas de comentarios.");
+    }
+
+    /**
+     * Clasificación y lectura de comentarios POR PASOS: cada petición trabaja unos 45 segundos y
+     * devuelve el avance, así el hosting no corta el proceso aunque haya miles de publicaciones.
+     */
+    public function analizarPaso(Request $request, Campana $campana, ClasificadorService $clasificador, ComentariosService $comentarios, ClaudeService $ia): \Illuminate\Http\JsonResponse
+    {
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        @set_time_limit(170);
+        $clave = 'inteligencia.analisis.' . auth()->id() . '.' . $campana->id;
+        $estado = $request->boolean('inicio') ? null : \Illuminate\Support\Facades\Cache::get($clave);
+        $estado ??= ['intentados' => [], 'clasificadas' => 0, 'lecturas' => 0, 'fallidas' => 0];
+        $guardar = fn() => \Illuminate\Support\Facades\Cache::put($clave, $estado, now()->addHours(3));
+
+        // 1) Clasificar por tema
+        $sinTemas = $campana->temas()->count() === 0;
+        $pendientes = $sinTemas ? 0 : $clasificador->pendientes($campana);
+        if ($pendientes > 0) {
+            try {
+                $n = $clasificador->clasificarPorTiempo($campana, 45);
+            } catch (\Throwable $e) {
+                return response()->json(['success' => false, 'error' => 'La IA falló al clasificar: ' . \Illuminate\Support\Str::limit($e->getMessage(), 300)]);
+            }
+            $estado['clasificadas'] += $n;
+            $guardar();
+            return response()->json(['success' => true, 'terminado' => false, 'fase' => 'clasificar', 'clasificadas' => $estado['clasificadas'], 'pendientes' => $clasificador->pendientes($campana), 'linea' => ['ok' => true, 'texto' => "{$n} publicaciones clasificadas"]]);
+        }
+
+        // 2) Leer comentarios (3 publicaciones por paso)
+        $lote = $comentarios->candidatas($campana, $estado['intentados'], 3);
+        if ($lote->isEmpty()) {
+            \Illuminate\Support\Facades\Cache::forget($clave);
+            $conComentarios = $comentarios->conComentarios($campana);
+            $aviso = $sinTemas ? 'La campaña no tiene temas: agrégalos en la pestaña Temas para clasificar. ' : '';
+            if ($conComentarios === 0) $aviso .= 'No hay publicaciones con ' . ComentariosService::MINIMO . ' o más comentarios en los últimos 60 días: no hay comentarios para leer.';
+            return response()->json(['success' => true, 'terminado' => true, 'clasificadas' => $estado['clasificadas'], 'lecturas' => $estado['lecturas'], 'fallidas' => $estado['fallidas'], 'aviso' => trim($aviso) ?: null]);
+        }
+        $lineas = [];
+        foreach ($lote as $p) {
+            $estado['intentados'][] = $p->id;
+            try {
+                $r = $comentarios->analizarDetalle($p, $campana);
+            } catch (\Throwable $e) {
+                $r = ['ok' => false, 'motivo' => 'La IA falló: ' . \Illuminate\Support\Str::limit($e->getMessage(), 200)];
+            }
+            $r['ok'] ? $estado['lecturas']++ : $estado['fallidas']++;
+            $lineas[] = ['ok' => $r['ok'], 'texto' => ($p->page?->name ?? 'Página') . ' · ' . \Illuminate\Support\Str::limit(trim((string) $p->texto), 60) . ' — ' . $r['motivo']];
+        }
+        $guardar();
+        return response()->json(['success' => true, 'terminado' => false, 'fase' => 'comentarios', 'clasificadas' => $estado['clasificadas'], 'lecturas' => $estado['lecturas'], 'fallidas' => $estado['fallidas'], 'lineas' => $lineas]);
+    }
+
+    // ------------------------------------------------------------ radar web
+
+    public function radarIniciar(Request $request, Campana $campana, RadarWebService $radar, ClaudeService $ia): \Illuminate\Http\JsonResponse
+    {
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        $data = $request->validate(['enfoque' => ['nullable', 'string', 'max:300']]);
+        $r = $radar->iniciar($campana, auth()->id(), (string) ($data['enfoque'] ?? ''));
+        return response()->json(['success' => true, 'id' => $r->id, 'total' => $r->totalPasos(), 'frentes' => array_column($r->plan, 'nombre')]);
+    }
+
+    public function radarPaso(Campana $campana, RadarWeb $radar, RadarWebService $servicio): \Illuminate\Http\JsonResponse
+    {
+        abort_unless($radar->campana_id === $campana->id, 404);
+        @set_time_limit(180);
+        $linea = $servicio->paso($radar);
+        $radar->refresh();
+        return response()->json([
+            'success' => true, 'terminado' => $radar->estado !== 'en_curso', 'estado' => $radar->estado, 'error' => $radar->error,
+            'hecho' => min($radar->avance + ($radar->estado !== 'en_curso' ? 1 : 0), $radar->totalPasos()), 'total' => $radar->totalPasos(), 'linea' => $linea,
+            'url' => route('inteligencia.show', [$campana, 'tab' => 'radar', 'radar' => $radar->id]),
+        ]);
     }
 
     public function informeGenerar(Request $request, Campana $campana, InformeService $informes, ClaudeService $ia): RedirectResponse

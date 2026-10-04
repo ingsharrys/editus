@@ -34,7 +34,38 @@ class ClasificadorService
         return $n;
     }
 
-    public function clasificarLote(Collection $publicaciones, Collection $temas, Campana $campana): int
+    /** Publicaciones de la campaña que la IA todavía no ha clasificado. */
+    public function pendientes(Campana $campana): int
+    {
+        return $this->consultaPendientes($campana)->count();
+    }
+
+    /**
+     * Clasifica lotes de pendientes (las más recientes primero) hasta agotar el tiempo dado.
+     * Pensado para avanzar por pasos desde el panel sin que el hosting corte la petición.
+     */
+    public function clasificarPorTiempo(Campana $campana, int $segundos = 45, int $lote = 50): int
+    {
+        $temas = $campana->temas()->get();
+        if ($temas->isEmpty()) return 0;
+        $inicio = microtime(true);
+        $n = 0;
+        do {
+            $pubs = $this->consultaPendientes($campana)->orderByDesc('publicado_en')->limit($lote)->get();
+            if ($pubs->isEmpty()) break;
+            $n += $this->clasificarLote($pubs, $temas, $campana, 'low');
+        } while (microtime(true) - $inicio < $segundos);
+        return $n;
+    }
+
+    private function consultaPendientes(Campana $campana)
+    {
+        return PublicacionRed::whereIn('meta_page_id', $campana->paginas()->pluck('meta_pages.id'))
+            ->whereNull('tema_id')->whereNull('tema_fuente')
+            ->whereNotNull('texto')->where('texto', '!=', '');
+    }
+
+    public function clasificarLote(Collection $publicaciones, Collection $temas, Campana $campana, string $effort = 'medium'): int
     {
         $listaTemas = $temas->map(fn(Tema $t) => [
             'id' => $t->id, 'nombre' => $t->nombre, 'descripcion' => $t->descripcion,
@@ -60,7 +91,7 @@ class ClasificadorService
                 ],
             ]]],
         ];
-        $respuesta = $this->ia->json($sistema, $usuario, $esquema);
+        $respuesta = $this->ia->json($sistema, $usuario, $esquema, 8000, $effort);
         $validos = $temas->pluck('id')->all();
         $porN = $publicaciones->values();
         $n = 0;
@@ -69,6 +100,13 @@ class ClasificadorService
             if (!$pub) continue;
             $temaId = isset($a['tema_id']) && in_array((int) $a['tema_id'], $validos, true) ? (int) $a['tema_id'] : null;
             $pub->fill(['tema_id' => $temaId, 'tema_fuente' => 'ia', 'tema_confianza' => max(0, min(100, (int) ($a['confianza'] ?? 0)))])->save();
+            $n++;
+        }
+        // Las que la IA no devolvió quedan revisadas sin tema, para no volver a pedirlas en bucle
+        $respondidas = collect((array) ($respuesta['asignaciones'] ?? []))->pluck('n')->map(fn($v) => (int) $v)->flip();
+        foreach ($porN as $i => $pub) {
+            if ($respondidas->has($i) || $pub->tema_fuente) continue;
+            $pub->fill(['tema_id' => null, 'tema_fuente' => 'ia', 'tema_confianza' => 0])->save();
             $n++;
         }
         return $n;

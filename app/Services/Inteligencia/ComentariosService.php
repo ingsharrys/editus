@@ -43,12 +43,41 @@ class ComentariosService
         return $n;
     }
 
+    /** Publicaciones de la campaña que necesitan lectura de comentarios (sin las ya intentadas). */
+    public function candidatas(Campana $campana, array $excluir = [], int $limite = 3): \Illuminate\Support\Collection
+    {
+        return PublicacionRed::with('analisis', 'page')->whereIn('meta_page_id', $campana->paginas()->pluck('meta_pages.id'))
+            ->where('comentarios', '>=', self::MINIMO)
+            ->where('publicado_en', '>=', now()->subDays(60))
+            ->when($excluir, fn($q) => $q->whereNotIn('id', $excluir))
+            ->orderByDesc('comentarios')->limit($limite * 5)->get()
+            ->filter(fn($p) => !$p->analisis || ($p->analisis->analizado_en->lt(now()->subDays(3)) && $p->comentarios >= $p->analisis->total * 1.5))
+            ->take($limite)->values();
+    }
+
+    /** Publicaciones con comentarios suficientes en los últimos 60 días (para explicar por qué no hay lecturas). */
+    public function conComentarios(Campana $campana): int
+    {
+        return PublicacionRed::whereIn('meta_page_id', $campana->paginas()->pluck('meta_pages.id'))
+            ->where('comentarios', '>=', self::MINIMO)->where('publicado_en', '>=', now()->subDays(60))->count();
+    }
+
     public function analizar(PublicacionRed $pub, Campana $campana): bool
     {
+        return $this->analizarDetalle($pub, $campana)['ok'];
+    }
+
+    /** Igual que analizar() pero explica el motivo cuando no se pudo (sin token, Meta no entregó los comentarios…). */
+    public function analizarDetalle(PublicacionRed $pub, Campana $campana): array
+    {
         $token = $this->tokens->forPage($pub->page->page_id);
-        if (!$token) return false;
-        $textos = $this->textos($pub, $token);
-        if (count($textos) < self::MINIMO) return false;
+        if (!$token) return ['ok' => false, 'motivo' => 'La página no tiene un token activo de Facebook'];
+        try {
+            $textos = $this->textos($pub, $token);
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'motivo' => 'Meta no entregó los comentarios: ' . preg_replace('/^Meta [^:]+: /', '', $e->getMessage())];
+        }
+        if (count($textos) < self::MINIMO) return ['ok' => false, 'motivo' => 'Meta entregó solo ' . count($textos) . ' comentario(s) con texto (se necesitan ' . self::MINIMO . ')'];
 
         $sistema = "Eres analista de opinión pública de la campaña \"{$campana->nombre}\". Lees comentarios de redes sociales y produces una lectura AGREGADA: "
             . "cuántos están a favor, en contra o neutros respecto a la publicación o al tema, cuántos comentarios expresan cada emoción "
@@ -79,7 +108,7 @@ class ComentariosService
             'resumen' => Str::limit((string) ($r['resumen'] ?? ''), 1500, ''),
             'analizado_en' => now(),
         ]);
-        return true;
+        return ['ok' => true, 'motivo' => count($textos) . ' comentarios leídos'];
     }
 
     /** Textos de los comentarios (hasta 150), sin autor. */
