@@ -51,16 +51,19 @@ class ComentariosService
         if (count($textos) < self::MINIMO) return false;
 
         $sistema = "Eres analista de opinión pública de la campaña \"{$campana->nombre}\". Lees comentarios de redes sociales y produces una lectura AGREGADA: "
-            . "cuántos están a favor, en contra o neutros respecto a la publicación o al tema, las preocupaciones que más se repiten (frases cortas, en español), "
+            . "cuántos están a favor, en contra o neutros respecto a la publicación o al tema, cuántos comentarios expresan cada emoción "
+            . "(alegria, confianza, esperanza, enojo, miedo, tristeza, desconfianza, indiferencia: una emoción dominante por comentario), las preocupaciones que más se repiten (frases cortas, en español), "
             . "las palabras o expresiones más frecuentes y un resumen de 2 o 3 frases con lo que la gente pide o critica. "
             . "No menciones nombres de personas ni cites comentarios textuales. Responde solo con el JSON pedido.";
         $usuario = "PUBLICACIÓN:\n" . Str::limit(trim((string) $pub->texto), 800, '…') . "\n\nCOMENTARIOS (" . count($textos) . "):\n"
             . implode("\n", array_map(fn($t, $i) => ($i + 1) . '. ' . $t, $textos, array_keys($textos)));
         $esquema = [
             'type' => 'object', 'additionalProperties' => false,
-            'required' => ['a_favor', 'en_contra', 'neutro', 'preocupaciones', 'palabras', 'resumen'],
+            'required' => ['a_favor', 'en_contra', 'neutro', 'emociones', 'preocupaciones', 'palabras', 'resumen'],
             'properties' => [
                 'a_favor' => ['type' => 'integer'], 'en_contra' => ['type' => 'integer'], 'neutro' => ['type' => 'integer'],
+                'emociones' => ['type' => 'object', 'additionalProperties' => false, 'required' => array_keys(ConsultorService::EMOCIONES),
+                    'properties' => array_map(fn() => ['type' => 'integer', 'minimum' => 0], ConsultorService::EMOCIONES)],
                 'preocupaciones' => ['type' => 'array', 'items' => ['type' => 'string'], 'maxItems' => 8],
                 'palabras' => ['type' => 'array', 'items' => ['type' => 'string'], 'maxItems' => 15],
                 'resumen' => ['type' => 'string'],
@@ -70,6 +73,7 @@ class ComentariosService
         ComentarioAnalisis::updateOrCreate(['publicacion_id' => $pub->id], [
             'total' => count($textos),
             'a_favor' => (int) ($r['a_favor'] ?? 0), 'en_contra' => (int) ($r['en_contra'] ?? 0), 'neutro' => (int) ($r['neutro'] ?? 0),
+            'emociones' => \Illuminate\Support\Facades\Schema::hasColumn('comentarios_analisis', 'emociones') ? array_map(fn($k) => max(0, (int) data_get($r, "emociones.{$k}", 0)), array_combine(array_keys(ConsultorService::EMOCIONES), array_keys(ConsultorService::EMOCIONES))) : null,
             'preocupaciones' => array_values(array_filter(array_map('strval', (array) ($r['preocupaciones'] ?? [])))),
             'palabras' => array_values(array_filter(array_map(fn($p) => mb_strtolower(trim((string) $p)), (array) ($r['palabras'] ?? [])))),
             'resumen' => Str::limit((string) ($r['resumen'] ?? ''), 1500, ''),

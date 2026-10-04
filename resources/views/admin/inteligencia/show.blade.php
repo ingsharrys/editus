@@ -4,47 +4,52 @@
     $r = $tablero['resumen'];
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $dias = \App\Services\Inteligencia\AnalisisService::DIAS;
-    $tabs = ['resumen' => 'Resumen', 'temas' => 'Temas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios', 'pronostico' => 'Pronóstico', 'publicaciones' => 'Publicaciones', 'informes' => 'Informes', 'config' => 'Configuración'];
+    $tabs = ['resumen' => 'Resumen', 'temas' => 'Temas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios', 'pronostico' => 'Pronóstico', 'consultor' => '✦ Consultor IA', 'publicaciones' => 'Publicaciones', 'informes' => 'Informes', 'config' => 'Configuración'];
     $urlTab = fn($t) => route('inteligencia.show', [$campana, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'tab' => $t]);
 @endphp
 
 @section('content')
-<div class="max-w-7xl mx-auto px-4 py-8">
-    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 mb-5 mt-10">
-        <div class="text-[#00024f]">
-            <a href="{{ route('inteligencia.index') }}" class="text-sm underline">← Campañas</a>
-            <h1 class="text-3xl font-bold mt-1">{{ $campana->nombre }}</h1>
-            <p class="text-sm text-gray-600">{{ $campana->territorio ?: 'Sin territorio' }} · {{ $campana->paginas->count() }} página(s) · {{ $campana->temas->count() }} tema(s)
-                @if ($ultimaRecoleccion) · datos actualizados {{ \Carbon\Carbon::parse($ultimaRecoleccion)->diffForHumans() }} @else · <span class="text-amber-700">sin datos todavía</span> @endif</p>
+<div class="max-w-7xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
+    <div class="mt-8 lg:mt-10 mb-5">
+        <a href="{{ route('inteligencia.index') }}" class="text-sm text-indigo-700 hover:underline">← Inteligencia de audiencia</a>
+        <div class="flex flex-wrap items-end justify-between gap-4 mt-1">
+            <div class="min-w-0">
+                <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600">Campaña {{ $campana->activa ? '' : '· pausada' }}</div>
+                <h1 class="text-2xl sm:text-3xl font-bold text-[#00024f] tracking-tight">{{ $campana->nombre }}</h1>
+                <p class="text-sm text-gray-500 mt-1">{{ $campana->territorio ?: 'Sin territorio' }} · {{ $campana->paginas->count() }} página(s) · {{ $campana->temas->count() }} tema(s) · {{ $desde->format('d/m/Y') }} a {{ $hasta->format('d/m/Y') }}
+                    @if ($ultimaRecoleccion) · datos actualizados {{ \Carbon\Carbon::parse($ultimaRecoleccion)->diffForHumans() }} @else · <span class="text-amber-700">sin datos todavía</span> @endif</p>
+            </div>
+            <form method="GET" action="{{ route('inteligencia.show', $campana) }}" class="flex flex-wrap items-end gap-2 text-sm">
+                <input type="hidden" name="tab" value="{{ $tab }}">
+                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Desde</label><input type="date" name="desde" value="{{ $desde->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Hasta</label><input type="date" name="hasta" value="{{ $hasta->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 font-semibold shadow-sm">Ver</button>
+                <div class="flex gap-1">
+                    @foreach ([7 => '7 días', 30 => '30 días', 90 => '90 días'] as $n => $et)
+                        <a href="{{ route('inteligencia.show', [$campana, 'desde' => now()->subDays($n - 1)->toDateString(), 'hasta' => now()->toDateString(), 'tab' => $tab]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-50">{{ $et }}</a>
+                    @endforeach
+                </div>
+            </form>
         </div>
-        <form method="GET" action="{{ route('inteligencia.show', $campana) }}" class="flex items-end gap-2 text-sm">
-            <input type="hidden" name="tab" value="{{ $tab }}">
-            <div><label class="block text-gray-500 text-xs">Desde</label><input type="date" name="desde" value="{{ $desde->toDateString() }}" class="rounded-lg border-gray-300 text-sm"></div>
-            <div><label class="block text-gray-500 text-xs">Hasta</label><input type="date" name="hasta" value="{{ $hasta->toDateString() }}" class="rounded-lg border-gray-300 text-sm"></div>
-            <button class="rounded-lg bg-[#00024f] text-white px-3 py-2">Ver</button>
-            @foreach ([7 => '7 días', 30 => '30 días', 90 => '90 días'] as $n => $et)
-                <a href="{{ route('inteligencia.show', [$campana, 'desde' => now()->subDays($n - 1)->toDateString(), 'hasta' => now()->toDateString(), 'tab' => $tab]) }}" class="rounded-lg border border-gray-300 bg-white px-2 py-2 text-xs">{{ $et }}</a>
-            @endforeach
-        </form>
     </div>
 
-    @if (session('success'))<div class="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-3 mb-4 text-sm">{{ session('success') }}</div>@endif
-    @if (session('error'))<div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-4 text-sm">{{ session('error') }}</div>@endif
-    @if ($errors->any())<div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-4 text-sm"><ul class="list-disc ml-5">@foreach ($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul></div>@endif
+    @if (session('success'))<div class="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 px-4 py-3 mb-4 text-sm">{{ session('success') }}</div>@endif
+    @if (session('error'))<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-4 text-sm">{{ session('error') }}</div>@endif
+    @if ($errors->any())<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-4 text-sm"><ul class="list-disc ml-5">@foreach ($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul></div>@endif
 
     {{-- Acciones --}}
     <div class="flex flex-wrap gap-2 mb-5 text-sm">
-        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="7"><button class="rounded-lg border border-gray-300 bg-white px-3 py-2 hover:bg-gray-50">⟳ Recolectar datos (7 días)</button></form>
-        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="30"><button class="rounded-lg border border-gray-300 bg-white px-3 py-2 hover:bg-gray-50">⟳ Recolectar 30 días</button></form>
-        <form method="POST" action="{{ route('inteligencia.analizar', $campana) }}">@csrf<button class="rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-800 px-3 py-2 hover:bg-indigo-100" @disabled(!$iaLista)>✦ Clasificar y leer comentarios (IA)</button></form>
-        <form method="POST" action="{{ route('inteligencia.informes.generar', $campana) }}">@csrf<input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><button class="rounded-lg bg-[#00024f] text-white px-3 py-2 hover:opacity-90" @disabled(!$iaLista)>✦ Redactar informe del periodo</button></form>
+        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="7"><button class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 7 días</button></form>
+        <form method="POST" action="{{ route('inteligencia.recolectar', $campana) }}">@csrf<input type="hidden" name="dias" value="30"><button class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 30 días</button></form>
+        <form method="POST" action="{{ route('inteligencia.analizar', $campana) }}">@csrf<button class="h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 shadow-sm hover:bg-indigo-100" @disabled(!$iaLista)>✦ Clasificar y leer comentarios</button></form>
+        <form method="POST" action="{{ route('inteligencia.informes.generar', $campana) }}">@csrf<input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><button class="h-9 rounded-lg bg-[#00024f] text-white px-3 shadow-sm hover:opacity-90" @disabled(!$iaLista)>✦ Redactar informe del periodo</button></form>
         @unless ($iaLista)<span class="self-center text-xs text-amber-700">IA no configurada (ANTHROPIC_API_KEY)</span>@endunless
     </div>
 
     {{-- Pestañas --}}
-    <div class="flex flex-wrap gap-1 border-b border-gray-200 mb-5">
+    <div class="inline-flex max-w-full overflow-x-auto rounded-xl bg-gray-200/70 p-1 gap-1 mb-5">
         @foreach ($tabs as $k => $et)
-            <a href="{{ $urlTab($k) }}" class="px-3 py-2 text-sm rounded-t-lg {{ $tab === $k ? 'bg-white border border-b-white border-gray-200 font-semibold text-[#00024f]' : 'text-gray-500 hover:text-gray-800' }}">{{ $et }}</a>
+            <a href="{{ $urlTab($k) }}" class="rounded-lg px-3.5 py-2 text-sm font-semibold whitespace-nowrap transition {{ $tab === $k ? 'bg-white text-[#00024f] shadow-sm' : 'text-gray-600 hover:text-gray-900' }}">{{ $et }}</a>
         @endforeach
     </div>
 
@@ -218,6 +223,11 @@
                 <p class="text-xs text-gray-500 mb-2">{{ $fmt($c['comentarios']) }} comentarios leídos en {{ $c['publicaciones'] }} publicaciones.</p>
                 <div class="flex h-4 rounded overflow-hidden text-[10px] text-white"><div class="bg-emerald-500 text-center" style="width: {{ $c['pct_favor'] }}%">{{ $c['pct_favor'] }}%</div><div class="bg-gray-400 text-center" style="width: {{ $c['pct_neutro'] }}%">{{ $c['pct_neutro'] }}%</div><div class="bg-red-500 text-center" style="width: {{ $c['pct_contra'] }}%">{{ $c['pct_contra'] }}%</div></div>
                 <p class="text-xs text-gray-500 mt-1">A favor · neutro · en contra</p>
+                <h3 class="font-bold text-gray-800 mt-5 mb-2">Emociones del público</h3>
+                @php $maxEmo = max(1, max(array_map(fn($e) => $e['n'], $c['emociones'] ?? [['n' => 0]]))); @endphp
+                @forelse (array_filter($c['emociones'] ?? [], fn($e) => $e['n'] > 0) as $e)
+                    <div class="py-1"><div class="flex justify-between text-sm"><span>{{ $e['nombre'] }}</span><span class="text-gray-500">{{ $e['pct'] }}%</span></div><div class="h-1.5 rounded bg-gray-100"><div class="h-1.5 rounded bg-[#00024f]" style="width: {{ round(100 * $e['n'] / $maxEmo) }}%"></div></div></div>
+                @empty <p class="text-sm text-gray-500">Sin lectura de emociones todavía.</p> @endforelse
                 <h3 class="font-bold text-gray-800 mt-5 mb-2">Por tema</h3>
                 @foreach ($c['por_tema'] as $t)@php $b = max(1, $t['a_favor'] + $t['en_contra'] + $t['neutro']); @endphp
                     <div class="text-sm py-1"><div class="flex justify-between"><span>{{ $t['tema'] }}</span><span class="text-gray-400 text-xs">{{ $t['comentarios'] }}</span></div><div class="flex h-2 rounded overflow-hidden"><div class="bg-emerald-500" style="width: {{ round(100 * $t['a_favor'] / $b) }}%"></div><div class="bg-gray-300" style="width: {{ round(100 * $t['neutro'] / $b) }}%"></div><div class="bg-red-500" style="width: {{ round(100 * $t['en_contra'] / $b) }}%"></div></div></div>
@@ -264,6 +274,11 @@
                 @forelse ($tablero['horarios']['mejores_publicar'] as $m)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $m['etiqueta'] }}</span><span class="text-gray-500">{{ $fmt($m['prom']) }} interac.</span></div>@empty <p class="text-sm text-gray-500">Aún sin datos suficientes.</p>@endforelse
             </div>
         </div>
+    @endif
+
+    {{-- ========================================================= CONSULTOR IA --}}
+    @if ($tab === 'consultor')
+        @include('admin.inteligencia._consultor', ['contextoConsulta' => ['campana_id' => $campana->id, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString()], 'tituloAlcance' => $campana->nombre])
     @endif
 
     {{-- ====================================================== PUBLICACIONES --}}

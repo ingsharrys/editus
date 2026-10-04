@@ -9,8 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class ComentarioAnalisis extends Model
 {
     protected $table = 'comentarios_analisis';
-    protected $fillable = ['publicacion_id', 'total', 'a_favor', 'en_contra', 'neutro', 'preocupaciones', 'palabras', 'resumen', 'analizado_en'];
-    protected $casts = ['preocupaciones' => 'array', 'palabras' => 'array', 'analizado_en' => 'datetime'];
+    protected $fillable = ['publicacion_id', 'total', 'a_favor', 'en_contra', 'neutro', 'emociones', 'preocupaciones', 'palabras', 'resumen', 'analizado_en'];
+    protected $casts = ['emociones' => 'array', 'preocupaciones' => 'array', 'palabras' => 'array', 'analizado_en' => 'datetime'];
 
     public function publicacion(): BelongsTo
     {

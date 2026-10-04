@@ -40,6 +40,7 @@ class InteligenciaAudienciaTest extends TestCase
         Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
         (new \ReflectionClass(require database_path('migrations/2025_10_03_100000_create_inteligencia_audiencia.php')))->newInstanceWithoutConstructor();
         (require database_path('migrations/2025_10_03_100000_create_inteligencia_audiencia.php'))->up();
+        (require database_path('migrations/2025_10_09_100000_consultor_ia_y_emociones.php'))->up();
 
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
         $this->admin = User::factory()->create(['role_id' => $rol->id]);
@@ -153,7 +154,7 @@ class InteligenciaAudienciaTest extends TestCase
         $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => str_contains($usr, 'Seguridad') && str_contains($usr, 'Feria de empleo') && $esq['required'] === ['asignaciones'])
             ->andReturn(['asignaciones' => [['n' => 0, 'tema_id' => $seguridad, 'confianza' => 92], ['n' => 1, 'tema_id' => $empleo, 'confianza' => 88], ['n' => 2, 'tema_id' => $seguridad, 'confianza' => 70]]]);
         $ia->shouldReceive('json')->once()->withArgs(fn($sis, $usr, $esq) => str_contains($usr, 'COMENTARIOS (8)') && !str_contains($sis, 'nombre') || str_contains($sis, 'No menciones nombres'))
-            ->andReturn(['a_favor' => 5, 'en_contra' => 2, 'neutro' => 1, 'preocupaciones' => ['Inseguridad en el centro'], 'palabras' => ['Policía', 'robo'], 'resumen' => 'La gente pide más presencia policial.']);
+            ->andReturn(['a_favor' => 5, 'en_contra' => 2, 'neutro' => 1, 'emociones' => ['enojo' => 4, 'miedo' => 2, 'esperanza' => 2], 'preocupaciones' => ['Inseguridad en el centro'], 'palabras' => ['Policía', 'robo'], 'resumen' => 'La gente pide más presencia policial.']);
         $this->app->instance(ClaudeService::class, $ia);
 
         $this->assertSame(3, app(ClasificadorService::class)->clasificarCampana($campana));
@@ -165,6 +166,8 @@ class InteligenciaAudienciaTest extends TestCase
         $this->assertSame(92, $p1->tema_confianza);
         $a = ComentarioAnalisis::first();
         $this->assertSame(8, $a->total);
+        $this->assertSame(4, $a->emociones['enojo']);
+        $this->assertSame(0, $a->emociones['alegria']);
         $this->assertSame(['policía', 'robo'], $a->palabras);
         // Los textos de los comentarios no se guardan
         $this->assertStringNotContainsString('Comentario número', json_encode($a->toArray()));
@@ -295,6 +298,48 @@ class InteligenciaAudienciaTest extends TestCase
         $paso->assertJsonPath('terminado', true)->assertJsonPath('hecho', 1)->assertJsonPath('linea.pagina', 'Neiva 24');
         $this->assertNotEmpty($paso->json('linea.avisos'), 'Meta rechazó las métricas de esa página: el aviso debe llegar al administrador');
         $this->actingAs($this->admin)->postJson('/admin/inteligencia/general/recolectar/paso')->assertStatus(422);
+    }
+
+    public function test_consultor_ia_responde_con_diagnostico_recomendaciones_y_publicaciones(): void
+    {
+        $this->fakeGraph();
+        $campana = $this->campana();
+        app(RecolectorAudienciaService::class)->recolectar($this->page, 3);
+        $otra = MetaPage::create(['page_id' => '222', 'name' => 'Neiva 24']);
+        $otra->users()->attach($this->admin->id, ['page_access_token' => 'tok-2', 'is_active' => true]);
+        PublicacionRed::create(['meta_page_id' => $otra->id, 'red' => 'facebook', 'post_id' => '222_1', 'tipo' => 'foto', 'texto' => 'Nota de Neiva 24', 'permalink' => 'https://fb.com/n24', 'publicado_en' => Carbon::now()->subDay(), 'alcance' => 5000, 'interacciones' => 100, 'comentarios' => 3]);
+
+        $respuestaIa = [
+            'respuesta' => 'El público está molesto con la inseguridad pero receptivo a propuestas concretas.',
+            'diagnostico_emocional' => ['resumen' => 'Predomina el enojo con una franja de esperanza.', 'tono' => 'dividido', 'emociones' => [['emocion' => 'Enojo', 'peso' => 55, 'evidencia' => 'Preocupación por robos en el centro'], ['emocion' => 'Esperanza', 'peso' => 25, 'evidencia' => 'Feria de empleo bien recibida']]],
+            'hallazgos' => ['La seguridad concentra la mayor interacción', 'Los videos superan a las fotos'],
+            'recomendaciones' => [['accion' => 'Publicar un video corto con la respuesta de la policía', 'por_que' => 'La seguridad es el tema con más tasa', 'prioridad' => 'alta', 'plazo' => 'esta semana']],
+            'publicaciones_sugeridas' => [['titulo' => 'Operativo en el centro', 'texto' => 'Así avanza el plan de seguridad en el centro de Neiva…', 'formato' => 'video', 'red' => 'facebook', 'mejor_momento' => 'martes 19:00', 'tema' => 'Seguridad', 'resultado_esperado' => 'alcance alto por el interés del tema']],
+            'riesgos' => ['No responder a los comentarios enojados'],
+            'datos_faltantes' => [],
+        ];
+        $ia = \Mockery::mock(ClaudeService::class);
+        $ia->shouldReceive('configurado')->andReturn(true);
+        $ia->shouldReceive('modelo')->andReturn('modelo-prueba');
+        $ia->shouldReceive('json')->twice()->withArgs(function ($sis, $usr, $esq) {
+            return str_contains($sis, 'consultor senior') && str_contains($usr, 'PREGUNTA: ¿Qué emociones') && str_contains($usr, 'DATOS AGREGADOS') && in_array('publicaciones_sugeridas', $esq['required'], true);
+        })->andReturn($respuestaIa);
+        $this->app->instance(ClaudeService::class, $ia);
+
+        // Sobre toda la organización (2 páginas)
+        $r = $this->actingAs($this->admin)->postJson('/admin/inteligencia/consultar', ['pregunta' => '¿Qué emociones predominan y qué publico esta semana?'])->assertOk();
+        $r->assertJsonPath('consulta.respuesta.diagnostico_emocional.tono', 'dividido')->assertJsonPath('consulta.respuesta.publicaciones_sugeridas.0.titulo', 'Operativo en el centro')->assertJsonPath('consulta.ambito.tipo', 'general')->assertJsonPath('consulta.ambito.paginas_n', 2);
+        // Sobre la campaña (1 página) con su contexto
+        $r = $this->actingAs($this->admin)->postJson('/admin/inteligencia/consultar', ['pregunta' => '¿Qué emociones predominan frente a la seguridad?', 'campana_id' => $campana->id])->assertOk();
+        $r->assertJsonPath('consulta.ambito.tipo', 'campana')->assertJsonPath('consulta.ambito.paginas_n', 1)->assertJsonPath('consulta.campana', 'Alcaldía 2027');
+        $this->assertSame(2, \App\Models\ConsultaIa::count());
+
+        // Validación y pestañas
+        $this->actingAs($this->admin)->postJson('/admin/inteligencia/consultar', ['pregunta' => 'hola'])->assertStatus(422);
+        $this->actingAs($this->admin)->get('/admin/inteligencia/general?tab=consultor')->assertOk()->assertSee('Consultor de IA')->assertSee('¿Qué emociones predominan y qué publico esta semana?');
+        $this->actingAs($this->admin)->get('/admin/inteligencia/general?tab=comentarios')->assertOk()->assertSee('Emociones del público');
+        $this->actingAs($this->admin)->get("/admin/inteligencia/{$campana->id}?tab=consultor")->assertOk()->assertSee('Consultor de IA')->assertSee('frente a la seguridad');
+        $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Consultas a la IA')->assertSee('Alcaldía 2027');
     }
 
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void

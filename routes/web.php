@@ -155,6 +155,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/admin/inteligencia/general', [\App\Http\Controllers\Admin\InteligenciaController::class, 'general'])->name('inteligencia.general');
         Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->name('inteligencia.general.recolectar.iniciar');
         Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->name('inteligencia.general.recolectar.paso');
+        Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->name('inteligencia.consultar');
         Route::post('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'store'])->name('inteligencia.store');
         Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
         Route::put('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'update'])->name('inteligencia.update');

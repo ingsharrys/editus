@@ -33,6 +33,19 @@ no se guardan datos de personas ni textos de comentarios.
    tasa de interacción). "Recolectar ahora" procesa hasta 25 páginas por clic;
    el resto lo hace la tarea nocturna.
 
+7. **Consultor de IA** (pestaña "✦ Consultor IA" en la vista general y en cada
+   campaña): preguntas libres, políticas o comerciales ("¿qué emociones predominan
+   frente a la seguridad?", "¿qué contenido conecta con el público de 25 a 44 años
+   para vender pauta?", "propón cinco publicaciones para la próxima semana"). La IA
+   recibe los datos agregados del alcance y el periodo elegidos y devuelve:
+   respuesta directa, diagnóstico emocional (tono y emociones con evidencia),
+   hallazgos, recomendaciones de acción con prioridad y plazo, publicaciones
+   sugeridas listas para publicar (título, texto, formato, red, mejor momento,
+   tema, resultado esperado), riesgos y datos faltantes. Las consultas quedan en
+   el historial (`consultas_ia`). La lectura de comentarios guarda además las
+   emociones (alegría, confianza, esperanza, enojo, miedo, tristeza, desconfianza,
+   indiferencia), que se ven en la pestaña "Comentarios y emociones".
+
 ## Configuración
 
 ```
