@@ -46,6 +46,26 @@ no se guardan datos de personas ni textos de comentarios.
    emociones (alegría, confianza, esperanza, enojo, miedo, tristeza, desconfianza,
    indiferencia), que se ven en la pestaña "Comentarios y emociones".
 
+### Métricas de Meta (2025-2026)
+
+Meta retiró las métricas de "impresiones" de la API de páginas: `page_impressions`
+y `post_impressions` (15 de noviembre de 2025) y `page_impressions_unique` y
+`post_impressions_unique` (15 de junio de 2026). Editus pide ahora sus
+reemplazos y, si una página todavía no los entrega, prueba los nombres antiguos:
+
+| Dato en editus | Métrica actual | Respaldo (antigua) |
+|---|---|---|
+| Alcance de página por día | `page_total_media_view_unique` | `page_impressions_unique` |
+| Impresiones (vistas) de página | `page_media_view` | `page_impressions` |
+| Alcance de la publicación | `post_total_media_view_unique` | `post_impressions_unique` |
+| Vistas de la publicación | `post_media_view` | `post_impressions` |
+| Reproducciones de video / reel | `video_insights` sin filtro (`blue_reels_play_count`, `total_video_views`) | `total_video_views` |
+
+Las "vistas de medios" cuentan cuando el contenido se muestra en pantalla, así
+que suelen dar cifras algo menores que las antiguas impresiones. Las
+publicaciones que quedaron sin alcance se vuelven a consultar en cada
+recolección hasta que Meta lo entregue.
+
 ## Configuración
 
 ```

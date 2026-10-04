@@ -61,12 +61,17 @@ class MetaMetricasService
         $m = ['alcance' => null, 'impresiones' => null, 'reproducciones' => null, 'reacciones' => 0, 'comentarios' => 0, 'compartidos' => 0, 'guardados' => null];
         $errores = [];
 
-        // Alcance e impresiones del post
-        $r = $this->get("{$postId}/insights", ['metric' => 'post_impressions,post_impressions_unique', 'period' => 'lifetime', 'access_token' => $token]);
+        // Alcance (personas únicas) e impresiones del post. Meta retiró post_impressions (nov. 2025) y
+        // post_impressions_unique (jun. 2026): ahora son post_media_view y post_total_media_view_unique.
+        // Se piden primero las nuevas y, si la página aún no las entrega, las antiguas.
+        $r = $this->get("{$postId}/insights", ['metric' => 'post_media_view,post_total_media_view_unique', 'period' => 'lifetime', 'access_token' => $token]);
+        if (!$r['ok']) {
+            $r = $this->get("{$postId}/insights", ['metric' => 'post_impressions,post_impressions_unique', 'period' => 'lifetime', 'access_token' => $token]);
+        }
         if ($r['ok']) {
             $v = $this->valoresInsights($r['json']);
-            $m['impresiones'] = $v['post_impressions'] ?? null;
-            $m['alcance'] = $v['post_impressions_unique'] ?? null;
+            $m['impresiones'] = $v['post_media_view'] ?? $v['post_impressions'] ?? null;
+            $m['alcance'] = $v['post_total_media_view_unique'] ?? $v['post_impressions_unique'] ?? null;
         } else {
             $errores[] = $r['error'];
         }
@@ -81,19 +86,26 @@ class MetaMetricasService
             $errores[] = $e['error'];
         }
 
-        // Reproducciones del video
+        // Reproducciones del video / reel. Sin "metric" Meta devuelve el conjunto vigente (blue_reels_play_count
+        // en reels, total_video_views en videos clásicos, post_impressions_unique…); si falla, se prueban los nombres antiguos.
         if ($tipo === 'video') {
             $vid = $mediaId !== '' ? $mediaId : (str_contains($postId, '_') ? (string) $this->objectId($postId, $token) : $postId);
             if ($vid !== '') {
-                $vi = $this->get("{$vid}/video_insights", ['metric' => 'total_video_views,total_video_impressions', 'access_token' => $token]);
+                $vi = $this->get("{$vid}/video_insights", ['access_token' => $token]);
+                if (!$vi['ok'] || empty(data_get($vi['json'], 'data'))) {
+                    $vi = $this->get("{$vid}/video_insights", ['metric' => 'total_video_views,total_video_impressions', 'access_token' => $token]);
+                }
                 if ($vi['ok']) {
                     $v = $this->valoresInsights($vi['json']);
-                    $m['reproducciones'] = $v['total_video_views'] ?? null;
-                    if ($m['alcance'] === null && isset($v['total_video_impressions'])) $m['impresiones'] = $v['total_video_impressions'];
+                    $m['reproducciones'] = $v['blue_reels_play_count'] ?? $v['total_video_views'] ?? $v['post_video_views'] ?? null;
+                    if ($m['alcance'] === null && isset($v['post_impressions_unique'])) $m['alcance'] = $v['post_impressions_unique'];
+                    if ($m['impresiones'] === null && isset($v['total_video_impressions'])) $m['impresiones'] = $v['total_video_impressions'];
                 } else {
                     $errores[] = $vi['error'];
                 }
             }
+            // Si el video no reporta reproducciones propias, las vistas del post (veces que se reprodujo o mostró) son el mejor dato
+            if ($m['reproducciones'] === null && $m['impresiones'] !== null) $m['reproducciones'] = $m['impresiones'];
         }
 
         $m['interacciones'] = (int) $m['reacciones'] + (int) $m['comentarios'] + (int) $m['compartidos'];
