@@ -53,7 +53,7 @@
         <div class="min-w-0">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h2 class="text-base font-bold text-gray-900">Campañas</h2>
-                <span class="text-xs text-gray-400">Un grupo de páginas con sus propios temas, lectura de comentarios e informes</span>
+                <a href="{{ route('campaigns.index') }}" class="text-xs text-indigo-700 hover:underline">Gestionar campañas →</a>
             </div>
             @forelse ($campanas as $c)
                 @php $r = $resumenes[$c->id] ?? null; @endphp
@@ -62,6 +62,7 @@
                         <div class="min-w-0">
                             <div class="flex items-center gap-2 flex-wrap">
                                 <h3 class="text-base font-bold text-gray-900">{{ $c->nombre }}</h3>
+                                @if ($c->esDeSistema())<span class="rounded-full bg-purple-50 text-purple-700 px-2 py-0.5 text-[11px] font-semibold">sistema</span>@endif
                                 @if ($c->activa)<span class="rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 text-[11px] font-semibold">activa</span>@else<span class="rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[11px] font-semibold">pausada</span>@endif
                             </div>
                             <p class="text-xs text-gray-500 mt-1">
@@ -91,30 +92,14 @@
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 class="text-base font-bold text-gray-900 mb-1">Nueva campaña</h2>
-            <p class="text-xs text-gray-500 mb-3">Agrupa páginas y define los temas. La IA clasifica cada publicación en un tema y lee los comentarios.</p>
-            <form method="POST" action="{{ route('inteligencia.store') }}" class="space-y-3 text-sm">
-                @csrf
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Nombre</label><input name="nombre" required maxlength="120" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm" value="{{ old('nombre') }}" placeholder="Ej: Campaña Alcaldía 2027"></div>
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Territorio</label><input name="territorio" maxlength="120" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm" value="{{ old('territorio') }}" placeholder="Ej: Neiva y norte del Huila"></div>
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Contexto (lo lee la IA)</label><textarea name="descripcion" rows="3" class="w-full rounded-lg border-gray-200 text-sm shadow-sm" placeholder="Candidato o marca, propuesta, público objetivo, tono…">{{ old('descripcion') }}</textarea></div>
-                <div class="grid grid-cols-2 gap-2">
-                    <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Desde</label><input type="date" name="desde" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm" value="{{ old('desde') }}"></div>
-                    <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Hasta</label><input type="date" name="hasta" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm" value="{{ old('hasta') }}"></div>
-                </div>
-                <div>
-                    <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Páginas</label>
-                    <div class="max-h-44 overflow-y-auto rounded-lg border border-gray-200 p-2 space-y-1">
-                        @forelse ($paginas as $p)
-                            <label class="flex items-center gap-2"><input type="checkbox" name="paginas[]" value="{{ $p->id }}" class="rounded border-gray-300 text-indigo-600"> <span class="truncate">{{ $p->name }}</span>@if ($p->instagram_business_account_id)<span class="text-[11px] text-pink-600">+IG</span>@endif</label>
-                        @empty
-                            <span class="text-gray-400">Conecta páginas en Mis Páginas.</span>
-                        @endforelse
-                    </div>
-                </div>
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Temas iniciales (uno por línea o separados por coma)</label><textarea name="temas" rows="4" class="w-full rounded-lg border-gray-200 text-sm shadow-sm" placeholder="Seguridad&#10;Empleo&#10;Salud&#10;Vías&#10;Candidato">{{ old('temas') }}</textarea></div>
-                <button class="w-full h-10 rounded-lg bg-[#00024f] text-white font-semibold text-sm hover:opacity-90 shadow-sm">Crear campaña</button>
-            </form>
+            <h2 class="text-base font-bold text-gray-900 mb-1">Las campañas se crean en Campañas</h2>
+            <p class="text-xs text-gray-500 mb-4">Allí defines el nombre, el tipo, los medios donde se publica y el contexto que lee la IA. Aparecen aquí automáticamente para analizarlas.</p>
+            <a href="{{ route('campaigns.create') }}" class="w-full h-10 inline-flex items-center justify-center rounded-lg bg-[#00024f] text-white font-semibold text-sm hover:opacity-90 shadow-sm">+ Nueva campaña</a>
+            <a href="{{ route('campaigns.index') }}" class="w-full h-10 mt-2 inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 font-medium text-sm hover:bg-gray-50">Ver todas las campañas</a>
+            <div class="mt-5 rounded-xl bg-gray-50 p-3 text-xs text-gray-600 space-y-1.5">
+                <div><strong class="text-gray-800">Cada madrugada:</strong> se recolectan los datos de todas las páginas y la IA clasifica y lee los comentarios de las campañas activas.</div>
+                <div><strong class="text-gray-800">Esnoticia:</strong> cubre todos los medios, así que su análisis con IA se hace solo cuando lo pidas desde la campaña.</div>
+            </div>
         </div>
     </div>
 </div>

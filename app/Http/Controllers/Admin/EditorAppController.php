@@ -81,6 +81,9 @@ class EditorAppController extends Controller
             $p->save();
         }
 
+        // El medio de cada página define las páginas de las campañas
+        app(\App\Services\CampanasService::class)->sincronizarTodas();
+
         return redirect()->route('editor-app.index', ['tab' => 'paginas'])->with('success', 'Páginas de la app actualizadas.');
     }
 

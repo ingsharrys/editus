@@ -50,6 +50,32 @@ class PublicacionesController extends Controller
         return response()->json(['success' => true, 'paginas' => $paginas]);
     }
 
+    /**
+     * GET /api/campanas: campañas que se pueden elegir al publicar desde la app (activas, no de sistema),
+     * con sus medios y las páginas que incluyen (para marcar los medios al elegirla).
+     */
+    public function campanas(\App\Services\CampanasService $servicio): JsonResponse
+    {
+        if (!Schema::hasTable('campaigns')) return response()->json(['success' => true, 'campanas' => []]);
+        $lista = \App\Models\Campaign::selectable()->with('perfil.paginas')->get()->map(fn($c) => [
+            'id' => $c->id,
+            'nombre' => $c->name,
+            'tipo' => $c->tipo,
+            'descripcion' => $c->description,
+            'medios' => array_values((array) $c->medios),
+            'medios_nombres' => $c->nombresMedios(),
+            'page_ids' => $servicio->paginasDe($c)->pluck('page_id')->map(fn($v) => (string) $v)->values()->all(),
+        ])->values();
+        return response()->json(['success' => true, 'campanas' => $lista]);
+    }
+
+    /** La campaña indicada si existe, está activa y no es de sistema. */
+    private function campanaValida($id): ?int
+    {
+        if (!$id || !Schema::hasTable('campaigns')) return null;
+        return \App\Models\Campaign::selectable()->whereKey((int) $id)->value('id');
+    }
+
     /** Plantillas de imagen activas (Configuración → App del editor). */
     public function plantillas(): JsonResponse
     {
@@ -80,8 +106,10 @@ class PublicacionesController extends Controller
             'paginas.*.enlace' => ['nullable', 'url'],
             'referencia' => ['nullable', 'string', 'max:100'],
             'usuario' => ['nullable', 'string', 'max:60'],
+            'campaign_id' => ['nullable', 'integer'],
         ]);
         \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
+        $publisher->campaignId = $this->campanaValida($datos['campaign_id'] ?? null);
 
         $batch = (string) Str::uuid();
         $resultados = [];
@@ -198,8 +226,10 @@ class PublicacionesController extends Controller
             'paginas.*.enlace' => ['nullable', 'url'],
             'referencia' => ['nullable', 'string', 'max:100'],
             'usuario' => ['nullable', 'string', 'max:60'],
+            'campaign_id' => ['nullable', 'integer'],
         ]);
         \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
+        $publisher->campaignId = $this->campanaValida($datos['campaign_id'] ?? null);
         @set_time_limit(600);
 
         // Video subido temporalmente desde la app (SubidasController): se usa

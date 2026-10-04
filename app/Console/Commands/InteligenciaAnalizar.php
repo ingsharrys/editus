@@ -19,7 +19,8 @@ class InteligenciaAnalizar extends Command
             $this->warn('Falta ANTHROPIC_API_KEY: no se puede clasificar ni leer comentarios.');
             return self::FAILURE;
         }
-        $campanas = $this->option('campana') ? Campana::whereKey((int) $this->option('campana'))->get() : Campana::where('activa', true)->get();
+        // La campaña de sistema (Esnoticia) cubre todos los medios: se analiza solo cuando el operador lo pide
+        $campanas = $this->option('campana') ? Campana::whereKey((int) $this->option('campana'))->get() : Campana::with('campaign')->where('activa', true)->get()->reject(fn($c) => $c->esDeSistema());
         foreach ($campanas as $c) {
             try {
                 $n = $clasificador->clasificarCampana($c, (int) $this->option('limite'));

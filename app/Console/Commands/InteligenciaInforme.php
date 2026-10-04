@@ -14,7 +14,8 @@ class InteligenciaInforme extends Command
 
     public function handle(InformeService $informes): int
     {
-        $campanas = $this->argument('campana') ? Campana::whereKey((int) $this->argument('campana'))->get() : Campana::where('activa', true)->get();
+        // La campaña de sistema (Esnoticia) cubre todos los medios: se analiza solo cuando el operador lo pide
+        $campanas = $this->argument('campana') ? Campana::whereKey((int) $this->argument('campana'))->get() : Campana::with('campaign')->where('activa', true)->get()->reject(fn($c) => $c->esDeSistema());
         $hasta = Carbon::yesterday();
         $desde = $hasta->copy()->subDays(max(1, (int) $this->option('dias')) - 1);
         foreach ($campanas as $c) {

@@ -30,7 +30,9 @@ class InteligenciaController extends Controller
 {
     public function index(ClaudeService $ia): View
     {
-        $campanas = Campana::with('paginas')->withCount('temas', 'informes')->orderByDesc('activa')->orderBy('nombre')->get();
+        app(\App\Services\CampanasService::class)->asegurarPerfiles();
+        $campanas = Campana::with('paginas', 'campaign')->withCount('temas', 'informes')->orderByDesc('activa')->orderBy('nombre')->get()
+            ->sortBy(fn($c) => $c->esDeSistema() ? 0 : 1)->values();
         $paginas = MetaPage::orderBy('name')->get();
         $conDatos = \App\Models\AudienciaDiaria::query()->distinct()->count('meta_page_id');
         $indicadores = [
@@ -211,36 +213,14 @@ class InteligenciaController extends Controller
             ->values();
     }
 
-    public function store(Request $request): RedirectResponse
-    {
-        $d = $this->validarCampana($request);
-        $campana = Campana::create($d['campana']);
-        $campana->paginas()->sync($d['paginas']);
-        foreach ($d['temas'] as $i => $nombre) {
-            Tema::create(['campana_id' => $campana->id, 'nombre' => $nombre, 'orden' => $i, 'color' => self::COLORES[$i % count(self::COLORES)]]);
-        }
-        return redirect()->route('inteligencia.show', $campana)->with('success', 'Campaña creada. Recolecta datos para empezar.');
-    }
 
-    public function update(Request $request, Campana $campana): RedirectResponse
-    {
-        $d = $this->validarCampana($request);
-        $campana->update($d['campana']);
-        $campana->paginas()->sync($d['paginas']);
-        return redirect()->route('inteligencia.show', $campana)->with('success', 'Campaña actualizada.');
-    }
 
-    public function destroy(Campana $campana): RedirectResponse
-    {
-        $campana->delete();
-        return redirect()->route('inteligencia.index')->with('success', 'Campaña eliminada.');
-    }
 
     public function show(Request $request, Campana $campana, AnalisisService $analisis, ClaudeService $ia): View
     {
         [$desde, $hasta] = $this->rango($request, $campana);
         $tablero = $analisis->tablero($campana, $desde, $hasta);
-        $campana->load('paginas', 'temas');
+        $campana->load('paginas', 'temas', 'campaign');
         $publicaciones = PublicacionRed::with('tema', 'page')->whereIn('meta_page_id', $campana->paginas->pluck('id'))
             ->whereBetween('publicado_en', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
             ->orderByDesc('publicado_en')->paginate(25, ['*'], 'pubs')->withQueryString();

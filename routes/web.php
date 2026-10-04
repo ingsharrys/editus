@@ -128,6 +128,8 @@ Route::middleware(['auth'])->group(function () {
 
     // Campañas (gestión, solo admin — validado en el controlador)
     Route::get('/campanas', [\App\Http\Controllers\CampaignController::class, 'index'])->name('campaigns.index');
+        Route::get('/campanas/nueva', [\App\Http\Controllers\CampaignController::class, 'create'])->name('campaigns.create');
+        Route::get('/campanas/{campaign}/editar', [\App\Http\Controllers\CampaignController::class, 'edit'])->name('campaigns.edit');
     Route::post('/campanas', [\App\Http\Controllers\CampaignController::class, 'store'])->name('campaigns.store');
     Route::post('/campanas/{campaign}', [\App\Http\Controllers\CampaignController::class, 'update'])->name('campaigns.update');
     Route::post('/campanas/{campaign}/toggle', [\App\Http\Controllers\CampaignController::class, 'toggle'])->name('campaigns.toggle');
@@ -175,10 +177,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->name('inteligencia.general.recolectar.iniciar');
         Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->name('inteligencia.general.recolectar.paso');
         Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->name('inteligencia.consultar');
-        Route::post('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'store'])->name('inteligencia.store');
         Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
-        Route::put('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'update'])->name('inteligencia.update');
-        Route::delete('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'destroy'])->name('inteligencia.destroy');
         Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->name('inteligencia.temas.store');
         Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->name('inteligencia.temas.update');
         Route::delete('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaDestroy'])->name('inteligencia.temas.destroy');

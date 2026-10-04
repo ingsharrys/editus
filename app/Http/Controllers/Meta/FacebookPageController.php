@@ -110,10 +110,12 @@ class FacebookPageController extends Controller
             ->pluck('meta_page_id')
             ->all();
 
-        // Campañas seleccionables al publicar (activas y no de sistema)
-        $campaigns = \App\Models\Campaign::selectable()->get(['id', 'name']);
+        // Campañas seleccionables al publicar (activas y no de sistema) y las páginas de sus medios,
+        // que se marcan solas al elegir la campaña (el usuario puede desmarcar las que quiera excluir)
+        $campaigns = \App\Models\Campaign::selectable()->with('perfil.paginas')->get();
+        $campaignPages = app(\App\Services\CampanasService::class)->mapaPaginas($campaigns);
 
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns'));
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages'));
     }
     public function saveFavorites(Request $request)
     {
@@ -258,6 +260,7 @@ class FacebookPageController extends Controller
 
         $slug = $request->input('medio_slug') ?: null;
         $metaPage->update(['medio_slug' => $slug]);
+        app(\App\Services\CampanasService::class)->sincronizarTodas();
 
         $nombreMedio = $slug ? (config('services.editus.medios')[$slug] ?? $slug) : null;
 

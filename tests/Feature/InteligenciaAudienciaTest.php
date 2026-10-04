@@ -254,11 +254,8 @@ class InteligenciaAudienciaTest extends TestCase
         $this->assertSame('manual', $pub->fresh()->tema_fuente);
         // Pronóstico sin datos suficientes
         $this->actingAs($this->admin)->getJson("/admin/inteligencia/{$campana->id}/proyeccion?tema_id={$campana->temas->first()->id}&meta_page_id={$this->page->id}")->assertOk()->assertJsonPath('suficiente', false);
-        // Crear campaña con temas iniciales y páginas
-        $this->actingAs($this->admin)->post('/admin/inteligencia', ['nombre' => 'Gobernación', 'temas' => "Vías\nSalud", 'paginas' => [$this->page->id]])->assertRedirect();
-        $g = Campana::where('nombre', 'Gobernación')->first();
-        $this->assertSame(['Vías', 'Salud'], $g->temas->pluck('nombre')->all());
-        $this->assertSame(1, $g->paginas()->count());
+        // Las campañas ya no se crean en Inteligencia (se crean en el módulo Campañas)
+        $this->actingAs($this->admin)->post('/admin/inteligencia', ['nombre' => 'Gobernación'])->assertStatus(405);
         // Comandos
         Artisan::call('inteligencia:informe', ['campana' => $campana->id, '--dias' => 7]);
         $this->assertSame(2, $campana->informes()->count());

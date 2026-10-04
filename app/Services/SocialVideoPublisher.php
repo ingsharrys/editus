@@ -62,7 +62,7 @@ class SocialVideoPublisher extends SocialPhotoPublisher
             'link' => $enlace,
             'local_media' => json_encode(['video_url' => $videoUrl, 'thumb_url' => $portadaUrl]),
             'status' => 'pending',
-        ]);
+        ] + ($this->campaignId ? ['campaign_id' => $this->campaignId] : []));
 
         try {
             $datos = [

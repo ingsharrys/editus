@@ -316,21 +316,35 @@
 
     {{-- ====================================================== CONFIGURACIÓN --}}
     @if ($tab === 'config')
-        <div class="grid lg:grid-cols-2 gap-6">
-            <form method="POST" action="{{ route('inteligencia.update', $campana) }}" class="rounded-2xl border border-gray-200 bg-white p-5 space-y-3 text-sm">@csrf @method('PUT')
-                <h3 class="font-bold text-gray-800">Campaña</h3>
-                <div><label class="block text-gray-600 mb-1">Nombre</label><input name="nombre" required maxlength="120" value="{{ $campana->nombre }}" class="w-full rounded-lg border-gray-300"></div>
-                <div><label class="block text-gray-600 mb-1">Territorio</label><input name="territorio" maxlength="120" value="{{ $campana->territorio }}" class="w-full rounded-lg border-gray-300"></div>
-                <div><label class="block text-gray-600 mb-1">Contexto (lo lee la IA al clasificar y redactar)</label><textarea name="descripcion" rows="4" class="w-full rounded-lg border-gray-300">{{ $campana->descripcion }}</textarea></div>
-                <div class="grid grid-cols-2 gap-2"><div><label class="block text-gray-600 mb-1">Desde</label><input type="date" name="desde" value="{{ $campana->desde?->toDateString() }}" class="w-full rounded-lg border-gray-300"></div><div><label class="block text-gray-600 mb-1">Hasta</label><input type="date" name="hasta" value="{{ $campana->hasta?->toDateString() }}" class="w-full rounded-lg border-gray-300"></div></div>
-                <label class="flex items-center gap-2"><input type="hidden" name="activa" value="0"><input type="checkbox" name="activa" value="1" class="rounded" @checked($campana->activa)> Activa (recolección y análisis automáticos)</label>
-                <div><label class="block text-gray-600 mb-1">Páginas</label><div class="max-h-56 overflow-y-auto rounded-lg border border-gray-200 p-2 space-y-1">@foreach ($paginasTodas as $p)<label class="flex items-center gap-2"><input type="checkbox" name="paginas[]" value="{{ $p->id }}" class="rounded" @checked($campana->paginas->contains('id', $p->id))> {{ $p->name }}@if ($p->instagram_business_account_id)<span class="text-xs text-pink-600">+IG</span>@endif</label>@endforeach</div></div>
-                <button class="rounded-lg bg-[#00024f] text-white px-4 py-2">Guardar</button>
-            </form>
-            <div class="rounded-2xl border border-red-200 bg-white p-5 text-sm">
-                <h3 class="font-bold text-gray-800 mb-2">Eliminar campaña</h3>
-                <p class="text-gray-600 mb-3">Se borran la campaña, sus temas e informes. Las publicaciones y el histórico de las páginas se conservan (sirven para otras campañas).</p>
-                <form method="POST" action="{{ route('inteligencia.destroy', $campana) }}" onsubmit="return confirm('¿Eliminar la campaña {{ $campana->nombre }}?')">@csrf @method('DELETE')<button class="rounded-lg bg-red-600 text-white px-4 py-2">Eliminar</button></form>
+        @php $cp = $campana->campaign; $porOrigen = $campana->paginas->groupBy(fn($p) => $p->pivot->origen ?? 'manual'); @endphp
+        <div class="grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-5 items-start">
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm text-sm">
+                <h3 class="text-base font-bold text-gray-900 mb-3">Datos de la campaña</h3>
+                <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-3">
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Tipo</dt><dd class="text-gray-800">{{ $cp?->is_system ? 'Sistema' : (\App\Services\CampanasService::TIPOS[$cp?->tipo] ?? '—') }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Estado</dt><dd class="text-gray-800">{{ $campana->activa ? 'Activa' : 'Inactiva' }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Territorio</dt><dd class="text-gray-800">{{ $campana->territorio ?: '—' }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Fechas</dt><dd class="text-gray-800">{{ $campana->desde ? $campana->desde->format('d/m/Y') . ($campana->hasta ? ' a ' . $campana->hasta->format('d/m/Y') : '') : '—' }}</dd></div>
+                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Medios</dt><dd class="flex flex-wrap gap-1.5 mt-1">@forelse ($cp?->nombresMedios() ?? [] as $m)<span class="rounded-md bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">{{ $m }}</span>@empty<span class="text-gray-500">—</span>@endforelse</dd></div>
+                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contexto que lee la IA</dt><dd class="text-gray-700 whitespace-pre-line mt-1">{{ $campana->descripcion ?: '—' }}</dd></div>
+                </dl>
+                <div class="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-2">
+                    @if ($cp && !$cp->is_system)
+                        <a href="{{ route('campaigns.edit', $cp) }}" class="h-9 inline-flex items-center rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Editar en Campañas</a>
+                    @elseif ($cp?->is_system)
+                        <span class="text-xs text-gray-500">La campaña de sistema no se edita. Su análisis con IA se hace solo cuando lo pidas.</span>
+                    @endif
+                    <a href="{{ route('campaigns.index') }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700 hover:bg-gray-50">Ver campañas</a>
+                </div>
+            </div>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm text-sm">
+                <h3 class="text-base font-bold text-gray-900 mb-1">Páginas analizadas</h3>
+                <p class="text-xs text-gray-500 mb-3">{{ $campana->paginas->count() }} página(s): las de sus medios y las agregadas a mano en la campaña.</p>
+                <div class="max-h-96 overflow-y-auto divide-y divide-gray-100">
+                    @foreach ($campana->paginas->sortBy('name') as $p)
+                        <div class="flex items-center justify-between gap-2 py-1.5"><span class="truncate">{{ $p->name }}</span><span class="text-[11px] text-gray-400 shrink-0">{{ ($p->pivot->origen ?? 'manual') === 'medio' ? ($p->medio_slug ?: 'medio') : 'manual' }}</span></div>
+                    @endforeach
+                </div>
             </div>
         </div>
     @endif

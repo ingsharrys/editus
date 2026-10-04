@@ -336,16 +336,18 @@
                         Campaña <span class="text-red-500">*</span>
                     </h3>
                     <select name="campaign_id" id="campaignSelect" required
+                            data-paginas='@json($campaignPages ?? [])'
                             class="w-full sm:max-w-md rounded-xl border-gray-200 text-sm">
                         <option value="">— Selecciona la campaña de esta publicación —</option>
                         @foreach ($campaigns ?? [] as $c)
                             <option value="{{ $c->id }}" {{ (string) old('campaign_id') === (string) $c->id ? 'selected' : '' }}>
-                                {{ $c->name }}
+                                {{ $c->name }}{{ $c->medios ? ' · ' . implode(', ', $c->nombresMedios()) : '' }}
                             </option>
                         @endforeach
                     </select>
+                    <p id="campaignPagesHint" class="hidden mt-2 rounded-lg bg-indigo-50 text-indigo-800 px-3 py-2 text-xs"></p>
                     <p class="mt-1 text-[11px] text-gray-500">
-                        Toda publicación debe pertenecer a una campaña para poder medirla en los informes.
+                        Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.
                         @if (auth()->user()->isAdmin())
                             <a href="{{ route('campaigns.index') }}" class="text-blue-600 hover:underline">Gestionar campañas</a>
                         @endif
@@ -1242,6 +1244,35 @@
                 }
                 netFacebook && netFacebook.addEventListener('change', refreshNetworkHints);
                 netInstagram && netInstagram.addEventListener('change', refreshNetworkHints);
+
+                // Al elegir la campaña, marcar las páginas de sus medios (se pueden desmarcar después)
+                (function () {
+                    const sel = document.getElementById('campaignSelect');
+                    const hint = document.getElementById('campaignPagesHint');
+                    if (!sel) return;
+                    let mapa = {};
+                    try { mapa = JSON.parse(sel.dataset.paginas || '{}'); } catch (e) {}
+                    const aplicar = () => {
+                        const ids = (mapa[sel.value] || []).map(String);
+                        if (!sel.value) { hint && hint.classList.add('hidden'); return; }
+                        let marcadas = 0, sinToken = 0;
+                        checkboxes().forEach(cb => {
+                            const enCampana = ids.includes(String(cb.value));
+                            if (cb.disabled) { if (enCampana) sinToken++; return; }
+                            cb.checked = enCampana;
+                            if (enCampana) marcadas++;
+                            cb.dispatchEvent(new Event('change', { bubbles: true }));
+                        });
+                        if (hint) {
+                            hint.textContent = marcadas
+                                ? 'Se marcaron ' + marcadas + ' página(s) de los medios de la campaña. Desmarca las que quieras excluir.' + (sinToken ? ' ' + sinToken + ' página(s) de la campaña no tienen token activo.' : '')
+                                : 'La campaña no tiene páginas con token activo en esta lista. Marca a mano dónde publicar o revisa sus medios en Campañas.';
+                            hint.classList.remove('hidden');
+                        }
+                    };
+                    sel.addEventListener('change', aplicar);
+                    if (sel.value) setTimeout(aplicar, 0);
+                })();
 
                 form && form.addEventListener('submit', function(e) {
 

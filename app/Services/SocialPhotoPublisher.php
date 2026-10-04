@@ -19,6 +19,9 @@ use Illuminate\Support\Str;
  */
 class SocialPhotoPublisher
 {
+    /** Campaña a la que pertenecen las publicaciones de esta petición (la elige quien publica). */
+    public ?int $campaignId = null;
+
     public function __construct(protected MetaPageTokenResolver $tokens)
     {
     }
@@ -75,7 +78,7 @@ class SocialPhotoPublisher
             'link' => $enlace,
             'local_media' => json_encode(['photo_urls' => [$imagenUrl]]),
             'status' => 'pending',
-        ]);
+        ] + ($this->campaignId ? ['campaign_id' => $this->campaignId] : []));
 
         try {
             $r = $this->http()->asForm()->post(self::graph("{$page->page_id}/photos"), [

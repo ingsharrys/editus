@@ -11,6 +11,12 @@ class Campaign extends Model
         'name',
         'slug',
         'description',
+        'tipo',
+        'contexto',
+        'territorio',
+        'starts_on',
+        'ends_on',
+        'medios',
         'is_system',
         'is_active',
         'created_by',
@@ -19,11 +25,28 @@ class Campaign extends Model
     protected $casts = [
         'is_system' => 'boolean',
         'is_active' => 'boolean',
+        'medios' => 'array',
+        'starts_on' => 'date',
+        'ends_on' => 'date',
     ];
 
     public function posts()
     {
         return $this->hasMany(MetaPost::class);
+    }
+
+    /** Perfil de análisis (temas, lecturas de comentarios, informes de la IA) de la campaña. */
+    public function perfil()
+    {
+        return $this->hasOne(Campana::class, 'campaign_id');
+    }
+
+    /** Nombres de los medios donde se publica la campaña (la de sistema: todos). */
+    public function nombresMedios(): array
+    {
+        $todos = (array) config('services.editus.medios', []);
+        if ($this->is_system && empty($this->medios)) return array_values($todos);
+        return array_values(array_map(fn($s) => $todos[$s] ?? $s, (array) $this->medios));
     }
 
     public function creator()

@@ -33,6 +33,7 @@ class InteligenciaRecolectar extends Command
         $pausa = max(0, (int) $this->option('pausa'));
         $limite = max(0, (int) $this->option('limite'));
 
+        try { app(\App\Services\CampanasService::class)->sincronizarTodas(); } catch (\Throwable $e) { $this->warn('No se pudieron sincronizar las campañas: ' . $e->getMessage()); }
         $enCampanas = Campana::where('activa', true)->with('paginas')->get()->flatMap(fn($c) => $c->paginas->pluck('id'))->unique()->values();
 
         if ($this->option('pagina')) {
