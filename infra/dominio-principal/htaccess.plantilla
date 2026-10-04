@@ -1,0 +1,28 @@
+# editus.online → aplicación editus (landing en "/"). Generado por infra/dominio-principal/instalar.sh
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    </IfModule>
+
+    RewriteEngine On
+
+    # La carpeta de la aplicación (código, .env) nunca se sirve desde el dominio principal
+    RewriteRule ^app\.editus\.online(/.*)?$ - [F,L]
+    # Archivos ocultos (.env, .git…) prohibidos, salvo .well-known (certificados SSL)
+    RewriteRule (^|/)\.(?!well-known(/|$)) - [F,L]
+
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Redirect Trailing Slashes If Not A Folder...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # Send Requests To Front Controller...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
+

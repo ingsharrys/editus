@@ -1,0 +1,24 @@
+<?php
+
+/*
+ * editus.online (dominio principal) → la misma aplicación Laravel de app.editus.online.
+ * Lo genera infra/dominio-principal/instalar.sh. La landing comercial se sirve en "/" de este dominio.
+ */
+
+use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+
+define('LARAVEL_START', microtime(true));
+
+$base = '__APP__';
+
+if (file_exists($maintenance = $base . '/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+require $base . '/vendor/autoload.php';
+
+/** @var Application $app */
+$app = require_once $base . '/bootstrap/app.php';
+
+$app->handleRequest(Request::capture());

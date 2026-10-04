@@ -225,6 +225,38 @@ class SuscripcionesTest extends TestCase
         $this->call('POST', $ruta, [], [], [], $this->servidor($headers), '')->assertOk()->assertJsonPath('plan_nombre', 'Básico');
     }
 
+    public function test_landing_en_el_dominio_principal_y_suscripcion_en_un_paso(): void
+    {
+        // editus.online/ muestra la landing; el subdominio de la app sigue con su página de inicio
+        $this->get('http://editus.online/')->assertOk()->assertSee('Publica, transmite')->assertSee('$60.000')->assertSee('$90.000')->assertSee('$990.000')
+            ->assertSee(route('landing.suscribirse', ['plan' => 'full', 'periodo' => 'mensual']));
+        $this->get('http://www.editus.online/')->assertOk()->assertSee('Elige tu plan');
+        $this->get('http://app.editus.online/')->assertOk()->assertDontSee('Elige tu plan y empieza hoy');
+        $this->get('/planes')->assertOk()->assertSee('Plugin SharryStreem');
+
+        // Formulario con el plan elegido
+        $this->get('http://editus.online/suscribirse?plan=basico&periodo=anual')->assertOk()->assertSee('Crea tu cuenta')->assertSee('$660.000');
+
+        // Bot (campo trampa): no crea nada
+        $this->post('http://editus.online/suscribirse', ['sitio_web' => 'spam', 'plan' => 'basico', 'periodo' => 'mensual', 'name' => 'Bot', 'email' => 'bot@x.co', 'password' => 'Clave-segura-123', 'password_confirmation' => 'Clave-segura-123', 'acepto' => 1]);
+        $this->assertNull(User::where('email', 'bot@x.co')->first());
+
+        // Correo ya registrado → pide iniciar sesión
+        $this->post('http://editus.online/suscribirse', ['plan' => 'basico', 'periodo' => 'mensual', 'name' => 'X', 'email' => 'cliente@prueba.co', 'password' => 'Clave-segura-123', 'password_confirmation' => 'Clave-segura-123', 'acepto' => 1])
+            ->assertSessionHasErrors('email');
+
+        // Nuevo cliente: crea la cuenta, inicia sesión y va a Wompi con el monto del plan anual
+        $r = $this->post('http://editus.online/suscribirse', ['plan' => 'full', 'periodo' => 'anual', 'name' => 'Diario del Sur', 'email' => 'nuevo@diario.co', 'password' => 'Clave-segura-123', 'password_confirmation' => 'Clave-segura-123', 'acepto' => 1]);
+        $nuevo = User::where('email', 'nuevo@diario.co')->first();
+        $this->assertNotNull($nuevo);
+        $this->assertFalse((bool) $nuevo->exento_planes);
+        $this->assertAuthenticatedAs($nuevo);
+        $pago = PagoSuscripcion::where('user_id', $nuevo->id)->first();
+        $this->assertSame(99000000, (int) $pago->monto_centavos);
+        $this->assertStringStartsWith('https://checkout.wompi.co/p/?', $r->headers->get('Location'));
+        $this->assertStringContainsString(urlencode('http://editus.online/suscripcion/resultado'), $r->headers->get('Location'));
+    }
+
     public function test_admin_activa_manual_y_marca_exento(): void
     {
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);

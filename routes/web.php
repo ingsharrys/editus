@@ -10,6 +10,16 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Webhooks\WhatsappWebhookController;
 use Illuminate\Support\Facades\Route;
 
+// Landing comercial en el dominio principal (editus.online y www.editus.online)
+foreach (array_unique([config('planes.dominio_landing'), 'www.' . config('planes.dominio_landing')]) as $dominioLanding) {
+    Route::domain($dominioLanding)->group(function () {
+        Route::get('/', [\App\Http\Controllers\LandingController::class, 'index']);
+    });
+}
+Route::get('/planes', [\App\Http\Controllers\LandingController::class, 'index'])->name('landing');
+Route::get('/suscribirse', [\App\Http\Controllers\LandingController::class, 'formulario'])->name('landing.suscribirse');
+Route::post('/suscribirse', [\App\Http\Controllers\LandingController::class, 'suscribir'])->middleware('throttle:10,1')->name('landing.suscribir');
+
 Route::get('/', fn() => view('welcome'));
 
 Route::view('/privacy', 'privacy')->name('privacy');

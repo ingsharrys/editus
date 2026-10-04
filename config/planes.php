@@ -7,6 +7,10 @@
  */
 return [
     'moneda' => 'COP',
+    // Landing comercial (dominio principal) y contacto que se muestra en ella
+    'dominio_landing' => env('LANDING_DOMAIN', 'editus.online'),
+    'contacto_email' => env('CONTACTO_EMAIL', ''),
+    'contacto_whatsapp' => env('CONTACTO_WHATSAPP', ''), // solo números con indicativo, p. ej. 573001234567
     'dias_mes' => 30,
     'dias_anio' => 365,
     'planes' => [

@@ -12,6 +12,19 @@ class CobrosService
     {
     }
 
+    /** Crea el pago pendiente y devuelve la URL del Web Checkout de Wompi. */
+    public function iniciarPago(\App\Models\User $user, string $plan, string $periodo, string $redirectUrl): string
+    {
+        $wompi = app(WompiService::class);
+        $monto = $this->planes->precio($plan, $periodo) * 100;
+        $pago = PagoSuscripcion::create([
+            'user_id' => $user->id, 'plan' => $plan, 'periodo' => $periodo,
+            'referencia' => 'ED-' . $user->id . '-' . now()->format('ymdHis') . '-' . \Illuminate\Support\Str::upper(\Illuminate\Support\Str::random(6)),
+            'monto_centavos' => $monto, 'moneda' => (string) config('planes.moneda', 'COP'), 'estado' => 'PENDING',
+        ]);
+        return $wompi->urlCheckout($pago->referencia, $monto, $redirectUrl, $user->email, $pago->moneda);
+    }
+
     /** Actualiza el pago con la transacción de Wompi y, si quedó aprobada, activa/extiende el plan. */
     public function procesar(array $tx): ?PagoSuscripcion
     {

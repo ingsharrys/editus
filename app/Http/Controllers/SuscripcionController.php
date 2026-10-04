@@ -38,20 +38,14 @@ class SuscripcionController extends Controller
     }
 
     /** Crea el pago pendiente y lleva al Web Checkout de Wompi. */
-    public function pagar(Request $request, WompiService $wompi): RedirectResponse
+    public function pagar(Request $request, WompiService $wompi, CobrosService $cobros): RedirectResponse
     {
         $datos = $request->validate([
             'plan' => ['required', Rule::in(array_keys($this->planes->planes()))],
             'periodo' => ['required', Rule::in(PlanService::PERIODOS)],
         ]);
         if (!$wompi->configurado()) return back()->with('error', 'Los pagos en línea aún no están configurados. Escríbenos para activar tu plan.');
-        $monto = $this->planes->precio($datos['plan'], $datos['periodo']) * 100;
-        $pago = PagoSuscripcion::create([
-            'user_id' => Auth::id(), 'plan' => $datos['plan'], 'periodo' => $datos['periodo'],
-            'referencia' => 'ED-' . Auth::id() . '-' . now()->format('ymdHis') . '-' . Str::upper(Str::random(6)),
-            'monto_centavos' => $monto, 'moneda' => (string) config('planes.moneda', 'COP'), 'estado' => 'PENDING',
-        ]);
-        return redirect()->away($wompi->urlCheckout($pago->referencia, $monto, route('suscripcion.resultado'), Auth::user()->email, $pago->moneda));
+        return redirect()->away($cobros->iniciarPago(Auth::user(), $datos['plan'], $datos['periodo'], route('suscripcion.resultado')));
     }
 
     /** Retorno del checkout (?id=transacción): se verifica con la API de Wompi, nunca con lo que dice la URL. */
