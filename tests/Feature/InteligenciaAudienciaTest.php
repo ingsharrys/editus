@@ -429,6 +429,39 @@ class InteligenciaAudienciaTest extends TestCase
         $this->assertStringContainsString('INVESTIGACIÓN WEB', \App\Services\Inteligencia\RadarWebService::contextoParaConsultor($campana));
     }
 
+    public function test_recolector_prueba_otra_conexion_y_explica_las_que_hay_que_arreglar(): void
+    {
+        // La conexión más reciente de la página está vencida; la anterior funciona
+        $otro = User::factory()->create(['name' => 'Periodista Ana']);
+        $this->page->users()->attach($otro->id, ['page_access_token' => 'tok-vencido', 'is_active' => true, 'updated_at' => now()->addMinute()]);
+        Http::fake(['*' => function ($req) {
+            if (($req['access_token'] ?? '') === 'tok-vencido') return Http::response(['error' => ['message' => 'Error validating access token: The session has been invalidated because the user changed their password or Facebook has changed the session for security reasons.']], 400);
+            if (($req['access_token'] ?? '') === 'tok-sin-rol') return Http::response(['error' => ['message' => 'The user must be an administrator, editor, or moderator of the page in order to impersonate it.']], 400);
+            return null;
+        }]);
+        $this->fakeGraph();
+        $r = app(RecolectorAudienciaService::class)->recolectar($this->page, 3);
+        $this->assertNull($r['diagnostico']);
+        $this->assertSame([], $r['errores'], implode(' | ', $r['errores']));
+        $this->assertSame(3, $r['publicaciones']);
+        // Los avisos de métricas que Meta retiró no se muestran
+        foreach ($r['avisos'] as $a) $this->assertStringNotContainsString('valid insights metric', $a);
+
+        // Otra página cuya única conexión ya no administra la página: diagnóstico claro y lista para reconectar
+        $p2 = MetaPage::create(['page_id' => '222', 'name' => 'Prensa Huilense']);
+        $p2->users()->attach($otro->id, ['page_access_token' => 'tok-sin-rol', 'is_active' => true]);
+        $r2 = app(RecolectorAudienciaService::class)->recolectar($p2, 3);
+        $this->assertSame('sin_rol', $r2['diagnostico']['tipo']);
+        $this->assertSame(['Periodista Ana'], $r2['conectada_por']);
+
+        $this->actingAs($this->admin)->postJson(route('inteligencia.general.recolectar.iniciar'), ['dias' => 3, 'paginas' => [$p2->id]])->assertOk();
+        $d = $this->actingAs($this->admin)->postJson(route('inteligencia.general.recolectar.paso'))->assertOk()->json();
+        $this->assertTrue($d['terminado']);
+        $this->assertStringContainsString('Ya no administra la página (conectada por Periodista Ana)', $d['linea']['detalle']);
+        $this->assertSame('sin_rol', $d['reconectar'][0]['tipo']);
+        $this->assertSame('Prensa Huilense', $d['reconectar'][0]['paginas'][0]['pagina']);
+    }
+
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void
     {
         config(['services.anthropic.key' => '']);

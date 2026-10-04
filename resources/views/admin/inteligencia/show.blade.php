@@ -55,6 +55,7 @@
         <div class="h-2 w-full rounded-full bg-gray-100 overflow-hidden"><div id="proc-barra" class="h-2 rounded-full bg-[#00024f] transition-all" style="width: 0%"></div></div>
         <div id="proc-aviso" class="hidden mt-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs"></div>
         <div id="proc-log" class="mt-3 max-h-56 overflow-auto divide-y divide-gray-100 text-xs"></div>
+        <div id="proc-reconectar" class="hidden mt-4"></div>
         <div class="flex justify-end gap-2 mt-3">
             <button type="button" id="proc-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">Detener</button>
             <button type="button" id="proc-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Ver los resultados</button>
@@ -402,9 +403,11 @@
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
   const post = async (url, body) => { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body || {}) }); return r.json(); };
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const htmlReconectar = (grupos) => !grupos || !grupos.length ? '' : '<div class="text-sm font-bold text-gray-900 mb-2">Páginas cuya conexión con Facebook hay que arreglar</div>' + grupos.map(gr => '<div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 mb-2"><div class="text-sm font-semibold text-rose-800">' + escR(gr.titulo) + ' · ' + gr.paginas.length + ' página(s)</div><div class="text-xs text-gray-700 mt-1">' + escR(gr.texto) + '</div><div class="mt-2 flex flex-wrap gap-1">' + gr.paginas.map(p => '<span class="rounded-md bg-white border border-rose-100 px-2 py-0.5 text-[11px] text-gray-700">' + escR(p.pagina) + (p.quien ? ' <span class="text-gray-400">· ' + escR(p.quien) + '</span>' : '') + '</span>').join('') + '</div></div>').join('');
+  const escR = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let detener = false, ocupado = false, destino = null;
   const panel = {
-    abrir(titulo) { detener = false; ocupado = true; destino = null; g('proc-panel').classList.remove('hidden'); g('proc-titulo').textContent = titulo; g('proc-contador').textContent = ''; g('proc-barra').style.width = '0%'; g('proc-log').innerHTML = ''; g('proc-aviso').classList.add('hidden'); g('proc-recargar').classList.add('hidden'); g('proc-detener').classList.remove('hidden'); g('proc-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
+    abrir(titulo) { detener = false; ocupado = true; destino = null; g('proc-panel').classList.remove('hidden'); g('proc-titulo').textContent = titulo; g('proc-contador').textContent = ''; g('proc-barra').style.width = '0%'; g('proc-log').innerHTML = ''; g('proc-reconectar').classList.add('hidden'); g('proc-aviso').classList.add('hidden'); g('proc-recargar').classList.add('hidden'); g('proc-detener').classList.remove('hidden'); g('proc-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }); },
     titulo(t) { g('proc-titulo').textContent = t; },
     avance(hecho, total, texto) { g('proc-contador').textContent = texto || (hecho + ' / ' + total); g('proc-barra').style.width = (total ? Math.min(100, Math.round(100 * hecho / total)) : 100) + '%'; },
     linea(ok, texto) { const f = document.createElement('div'); f.className = 'py-1.5 flex gap-2'; f.innerHTML = '<span class="' + (ok ? 'text-emerald-600' : 'text-rose-600') + '">' + (ok ? '✓' : '✕') + '</span><span class="text-gray-600">' + esc(texto) + '</span>'; g('proc-log').prepend(f); },
@@ -427,7 +430,7 @@
       if (!d.success) { panel.titulo(d.error || 'Error en la recolección.'); break; }
       if (d.linea) { panel.linea(d.linea.ok, d.linea.pagina + ' — ' + d.linea.detalle); (d.linea.avisos || []).forEach(a => panel.aviso('⚠ ' + a)); }
       hecho = d.hecho; errores = d.errores; panel.avance(hecho, d.total);
-      if (d.terminado) { panel.titulo('Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con avisos' : '') + '.'); break; }
+      if (d.terminado) { panel.titulo('Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con avisos' : '') + '.'); const rc = htmlReconectar(d.reconectar); if (rc) { g('proc-reconectar').innerHTML = rc; g('proc-reconectar').classList.remove('hidden'); } break; }
     }
     if (detener) panel.titulo('Detenido en ' + hecho + ' página(s). Lo recolectado ya quedó guardado.');
     panel.cerrar();

@@ -186,11 +186,15 @@ class InteligenciaController extends Controller
         if ($p) {
             try {
                 $r = $recolector->recolectar($p, (int) $estado['dias']);
+                $d = $r['diagnostico'] ?? null;
                 $linea = [
                     'pagina' => $p->name, 'ok' => !$r['errores'],
-                    'detalle' => sprintf('%s publicaciones · %s con métricas · FB %s días · IG %s días', $r['publicaciones'], $r['metricas'], $r['facebook'] ?? '—', $r['instagram'] ?? '—') . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : ''),
+                    'detalle' => $d
+                        ? $d['titulo'] . ' (conectada por ' . ($d['quien'] ?? implode(', ', $r['conectada_por'] ?? [])) . ')'
+                        : sprintf('%s publicaciones · %s con métricas · FB %s días · IG %s días', $r['publicaciones'], $r['metricas'], $r['facebook'] ?? '—', $r['instagram'] ?? '—') . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : ''),
                     'avisos' => $r['avisos'] ?? [],
                 ];
+                if ($d) $estado['reconectar'][] = ['pagina' => $p->name, 'tipo' => $d['tipo'], 'titulo' => $d['titulo'], 'texto' => $d['texto'], 'quien' => implode(', ', $r['conectada_por'] ?? []) ?: ($d['quien'] ?? '')];
             } catch (\Throwable $e) {
                 $linea = ['pagina' => $p->name, 'ok' => false, 'detalle' => $e->getMessage(), 'avisos' => []];
             }
@@ -200,7 +204,17 @@ class InteligenciaController extends Controller
         $estado['lineas'][] = $linea;
         $terminado = $estado['hecho'] >= $estado['total'];
         if ($terminado) \Illuminate\Support\Facades\Cache::forget($clave); else \Illuminate\Support\Facades\Cache::put($clave, $estado, now()->addHours(2));
-        return response()->json(['success' => true, 'terminado' => $terminado, 'hecho' => $estado['hecho'], 'total' => $estado['total'], 'errores' => $estado['errores'], 'linea' => $linea]);
+        return response()->json(['success' => true, 'terminado' => $terminado, 'hecho' => $estado['hecho'], 'total' => $estado['total'], 'errores' => $estado['errores'], 'linea' => $linea]
+            + ($terminado ? ['reconectar' => self::agruparReconectar($estado['reconectar'] ?? [])] : []));
+    }
+
+    /** Páginas cuya conexión con Facebook hay que arreglar, agrupadas por causa. */
+    private static function agruparReconectar(array $filas): array
+    {
+        return collect($filas)->groupBy('tipo')->map(fn($g) => [
+            'tipo' => $g->first()['tipo'], 'titulo' => $g->first()['titulo'], 'texto' => $g->first()['texto'],
+            'paginas' => $g->map(fn($f) => ['pagina' => $f['pagina'], 'quien' => $f['quien']])->values()->all(),
+        ])->values()->all();
     }
 
     private function claveRecoleccion(): string

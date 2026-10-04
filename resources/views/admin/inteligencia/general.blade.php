@@ -44,6 +44,7 @@
         <div class="h-2 w-full rounded-full bg-gray-100 overflow-hidden"><div id="rec-barra" class="h-2 rounded-full bg-[#00024f] transition-all" style="width: 0%"></div></div>
         <div id="rec-avisos" class="hidden mt-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs"></div>
         <div id="rec-log" class="mt-3 max-h-56 overflow-auto divide-y divide-gray-100 text-xs"></div>
+        <div id="rec-reconectar" class="hidden mt-4"></div>
         <div class="mt-3 flex items-center gap-2">
             <button type="button" id="rec-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Ver los datos nuevos</button>
             <button type="button" id="rec-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">Detener</button>
@@ -359,6 +360,8 @@
   document.addEventListener('click', e => { document.querySelectorAll('details[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
 
   // Recolección página por página con avance visible (cada paso es una petición corta)
+  const htmlReconectar = (grupos) => !grupos || !grupos.length ? '' : '<div class="text-sm font-bold text-gray-900 mb-2">Páginas cuya conexión con Facebook hay que arreglar</div>' + grupos.map(gr => '<div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 mb-2"><div class="text-sm font-semibold text-rose-800">' + escR(gr.titulo) + ' · ' + gr.paginas.length + ' página(s)</div><div class="text-xs text-gray-700 mt-1">' + escR(gr.texto) + '</div><div class="mt-2 flex flex-wrap gap-1">' + gr.paginas.map(p => '<span class="rounded-md bg-white border border-rose-100 px-2 py-0.5 text-[11px] text-gray-700">' + escR(p.pagina) + (p.quien ? ' <span class="text-gray-400">· ' + escR(p.quien) + '</span>' : '') + '</span>').join('') + '</div></div>').join('');
+  const escR = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const boton = g('rec-boton');
   if (boton) {
     const csrf = document.querySelector('meta[name="csrf-token"]').content;
@@ -368,7 +371,7 @@
     const avisosVistos = new Set();
     boton.addEventListener('click', async () => {
       detener = false; boton.disabled = true; boton.textContent = 'Recolectando…';
-      const panel = g('rec-panel'); panel.classList.remove('hidden'); g('rec-log').innerHTML = ''; g('rec-avisos').classList.add('hidden'); g('rec-avisos').innerHTML = ''; g('rec-recargar').classList.add('hidden'); g('rec-detener').classList.remove('hidden');
+      const panel = g('rec-panel'); panel.classList.remove('hidden'); g('rec-log').innerHTML = ''; g('rec-reconectar').classList.add('hidden'); g('rec-avisos').classList.add('hidden'); g('rec-avisos').innerHTML = ''; g('rec-recargar').classList.add('hidden'); g('rec-detener').classList.remove('hidden');
       let ini;
       try { ini = await post(@json(route('inteligencia.general.recolectar.iniciar')), { dias: g('rec-dias').value, medio: filtros.medio, paginas: filtros.paginas }); } catch (e) { ini = null; }
       if (!ini || !ini.success) { g('rec-titulo').textContent = 'No se pudo iniciar la recolección.'; boton.disabled = false; boton.textContent = '⟳ Recolectar ahora'; return; }
@@ -385,7 +388,7 @@
           (l.avisos || []).forEach(a => { if (!avisosVistos.has(a)) { avisosVistos.add(a); const p = document.createElement('div'); p.textContent = '⚠ ' + a; g('rec-avisos').appendChild(p); g('rec-avisos').classList.remove('hidden'); } });
         }
         hecho = d.hecho; errores = d.errores; g('rec-contador').textContent = hecho + ' / ' + d.total; g('rec-barra').style.width = (d.total ? Math.round(100 * hecho / d.total) : 100) + '%';
-        if (d.terminado) { g('rec-titulo').textContent = 'Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con errores' : '') + '.'; break; }
+        if (d.terminado) { g('rec-titulo').textContent = 'Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con errores' : '') + '.'; const rc = htmlReconectar(d.reconectar); if (rc) { g('rec-reconectar').innerHTML = rc; g('rec-reconectar').classList.remove('hidden'); } break; }
       }
       if (detener) g('rec-titulo').textContent = 'Detenido en ' + hecho + ' página(s). Los datos recogidos hasta aquí ya quedaron guardados.';
       g('rec-detener').classList.add('hidden'); g('rec-recargar').classList.remove('hidden');

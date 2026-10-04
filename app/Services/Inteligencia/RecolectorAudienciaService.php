@@ -29,10 +29,10 @@ class RecolectorAudienciaService
     public function recolectar(MetaPage $page, int $dias = 7): array
     {
         $this->avisos = [];
-        $resumen = ['pagina' => $page->name, 'facebook' => null, 'instagram' => null, 'publicaciones' => 0, 'metricas' => 0, 'errores' => [], 'avisos' => []];
-        $token = $this->tokens->forPage($page->page_id);
+        $resumen = ['pagina' => $page->name, 'facebook' => null, 'instagram' => null, 'publicaciones' => 0, 'metricas' => 0, 'errores' => [], 'avisos' => [], 'diagnostico' => null, 'conectada_por' => []];
+        [$token, $resumen['diagnostico'], $resumen['conectada_por']] = $this->elegirToken($page);
         if (!$token) {
-            $resumen['errores'][] = 'Sin token activo';
+            $resumen['errores'][] = $resumen['diagnostico'] ? $resumen['diagnostico']['titulo'] : 'Sin token activo';
             return $resumen;
         }
         $desde = Carbon::today()->subDays(max(1, $dias));
@@ -46,11 +46,38 @@ class RecolectorAudienciaService
         if ($page->instagram_business_account_id) {
             try { $resumen['publicaciones'] += $this->publicacionesInstagram($page, $token, $desde); } catch (\Throwable $e) { $resumen['errores'][] = 'IG publicaciones: ' . $e->getMessage(); }
         }
-        try { $resumen['metricas'] = $this->actualizarMetricas($page); } catch (\Throwable $e) { $resumen['errores'][] = 'Métricas: ' . $e->getMessage(); }
+        try { $resumen['metricas'] = $this->actualizarMetricas($page, 120, $token); } catch (\Throwable $e) { $resumen['errores'][] = 'Métricas: ' . $e->getMessage(); }
 
-        $resumen['avisos'] = array_slice(array_values(array_unique($this->avisos)), 0, 5);
+        $resumen['avisos'] = array_slice(array_values(array_unique(array_filter($this->avisos, fn($a) => !DiagnosticoMeta::esMetricaRetirada($a)))), 0, 5);
         if ($resumen['errores'] || $resumen['avisos']) Log::warning('[inteligencia] recolección con errores o avisos', $resumen);
         return $resumen;
+    }
+
+    /**
+     * Prueba las conexiones de la página (más reciente primero) leyendo una publicación, y usa la
+     * primera que funcione. Si ninguna sirve, devuelve el diagnóstico de la última en español.
+     * @return array{0: ?string, 1: ?array, 2: string[]}
+     */
+    private function elegirToken(MetaPage $page): array
+    {
+        $candidatos = $this->tokens->candidatos($page->page_id);
+        $quienes = array_values(array_unique(array_column($candidatos, 'quien')));
+        if (!$candidatos) {
+            $t = $this->tokens->forPage($page->page_id); // p. ej. token de System User
+            return [$t, null, []];
+        }
+        $diagnostico = null;
+        foreach ($candidatos as $c) {
+            try {
+                $this->graph->get("{$page->page_id}/posts", ['fields' => 'id', 'limit' => 1], $c['token']);
+                return [$c['token'], null, $quienes];
+            } catch (\Throwable $e) {
+                $d = DiagnosticoMeta::clasificar($e->getMessage());
+                if (!$d) return [$c['token'], null, $quienes]; // error no de conexión: se intenta recolectar igual
+                $diagnostico = $d + ['quien' => $c['quien']];
+            }
+        }
+        return [null, $diagnostico, $quienes];
     }
 
     // ------------------------------------------------------------ Facebook
@@ -226,7 +253,7 @@ class RecolectorAudienciaService
     // ------------------------------------------------------------ Métricas
 
     /** Refresca métricas de las publicaciones recientes (últimos 30 días) con métricas de hace más de 12 h. */
-    public function actualizarMetricas(MetaPage $page, int $limite = 120): int
+    public function actualizarMetricas(MetaPage $page, int $limite = 120, ?string $token = null): int
     {
         $pubs = PublicacionRed::where('meta_page_id', $page->id)
             ->where('publicado_en', '>=', now()->subDays(30))
@@ -237,7 +264,7 @@ class RecolectorAudienciaService
         if ($pubs->isEmpty()) return 0;
 
         $items = $pubs->map(fn($p) => ['red' => $p->red, 'post_id' => $p->post_id, 'page_id' => $page->page_id, 'tipo' => in_array($p->tipo, ['video', 'reel', 'en_vivo'], true) ? 'video' : 'foto'])->values()->all();
-        $resultados = $this->metricas->metricas($items);
+        $resultados = $this->metricas->metricas($items, $token ? [$page->page_id => $token] : []);
         $porId = [];
         foreach ($resultados as $r) $porId[$r['red'] . ':' . $r['post_id']] = $r;
 

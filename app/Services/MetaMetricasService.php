@@ -19,10 +19,11 @@ class MetaMetricasService
     {
     }
 
-    public function metricas(array $items): array
+    /** @param array<string,string> $tokensFijos token a usar por page_id (p. ej. la conexión que ya se comprobó que funciona) */
+    public function metricas(array $items, array $tokensFijos = []): array
     {
         $salida = [];
-        $tokens = [];
+        $tokens = $tokensFijos;
         foreach ($items as $item) {
             $red = strtolower((string) ($item['red'] ?? 'facebook'));
             $postId = trim((string) ($item['post_id'] ?? ''));

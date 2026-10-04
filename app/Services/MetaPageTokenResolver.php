@@ -73,6 +73,24 @@ class MetaPageTokenResolver
         return null;
     }
 
+    /**
+     * Todas las conexiones activas de la página (la más reciente primero), con quién la conectó.
+     * Sirve para probar otra conexión cuando la primera está vencida o sin permisos.
+     * @return array<int, array{token: string, quien: string}>
+     */
+    public function candidatos(string $pageId): array
+    {
+        $conApp = Schema::hasColumn('meta_page_user', 'usuario_app');
+        return MetaPageUser::query()->with('user:id,name')
+            ->whereIn('meta_page_id', MetaPage::where('page_id', $pageId)->select('id'))
+            ->where('is_active', 1)->whereNotNull('page_access_token')
+            ->orderByDesc('updated_at')->get()
+            ->map(fn(MetaPageUser $v) => [
+                'token' => (string) $v->page_access_token,
+                'quien' => $v->user?->name ?: (($conApp && $v->usuario_app) ? 'usuario de la app #' . $v->usuario_app : 'usuario #' . $v->user_id),
+            ])->unique('token')->values()->all();
+    }
+
     private function tokenDeLaApp(string $pageId, ?string $usuarioApp): ?string
     {
         $q = MetaPageUser::query()
