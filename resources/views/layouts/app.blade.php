@@ -113,6 +113,20 @@
                                         </span>
                                     </a>
                                 </li>
+
+                                <!-- En vivo -->
+                                <li>
+                                    <a href="{{ route('en-vivo.web') }}"
+                                       class="flex items-center gap-4 rounded-xl px-4 py-3
+                                              hover:bg-[#00024f] transition-all">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                                        <span class="whitespace-nowrap
+                                                     opacity-0 group-hover:opacity-100
+                                                     hidden group-hover:block text-sm transition-all duration-300">
+                                            En vivo
+                                        </span>
+                                    </a>
+                                </li>
                     
                                 @if ($roleId === 1)
                     

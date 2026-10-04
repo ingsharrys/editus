@@ -9,7 +9,7 @@ class TransmisionEnVivo extends Model
     protected $table = 'transmisiones_en_vivo';
 
     protected $fillable = [
-        'meta_page_id', 'usuario_app', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
+        'meta_page_id', 'usuario_app', 'user_id', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
         'stream_url', 'destinos', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
     ];
 

@@ -90,6 +90,17 @@ Route::middleware(['auth', 'role:user'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth'])->group(function () {
+    // Estudio de transmisión en vivo en la web (mismo flujo que la app del editor)
+    Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->name('en-vivo.web');
+    Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
+    Route::post('/en-vivo/{transmision}/aire', [\App\Http\Controllers\Web\EnVivoWebController::class, 'aire'])->name('en-vivo.web.aire');
+    Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Web\EnVivoWebController::class, 'escena'])->name('en-vivo.web.escena');
+    Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Web\EnVivoWebController::class, 'plantilla'])->name('en-vivo.web.plantilla');
+    Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Web\EnVivoWebController::class, 'invitacion'])->name('en-vivo.web.invitacion');
+    Route::get('/en-vivo/{transmision}/participantes', [\App\Http\Controllers\Web\EnVivoWebController::class, 'participantes'])->name('en-vivo.web.participantes');
+    Route::post('/en-vivo/{transmision}/participantes/{identity}/expulsar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'expulsar'])->name('en-vivo.web.expulsar');
+    Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Web\EnVivoWebController::class, 'estado'])->name('en-vivo.web.estado');
+    Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'terminar'])->name('en-vivo.web.terminar');
     Route::get('/meta/pages', [FacebookPageController::class, 'index'])->name('meta.pages.index');
     Route::resource('facebook-pages', FacebookPageController::class)
         ->only(['index', 'show']);

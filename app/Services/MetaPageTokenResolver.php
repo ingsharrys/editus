@@ -17,6 +17,14 @@ class MetaPageTokenResolver
         self::$usuarioApp = ($usuarioApp !== null && $usuarioApp !== '') ? $usuarioApp : null;
     }
 
+    /** Usuario de la web de editus cuyo token se prefiere en esta petición (p. ej. quien transmite en vivo). */
+    private static ?int $usuarioWeb = null;
+
+    public static function preferirUsuarioWeb(?int $userId): void
+    {
+        self::$usuarioWeb = $userId ?: null;
+    }
+
     /**
      * Devuelve un Page Access Token para la página.
      * Prioriza el token del usuario de la app (si se indicó), luego el pivot del
@@ -27,6 +35,7 @@ class MetaPageTokenResolver
     public function forPage(string $pageId, ?int $preferredUserId = null, ?string $usuarioApp = null): ?string
     {
         $usuarioApp = $usuarioApp ?? self::$usuarioApp;
+        $preferredUserId = $preferredUserId ?? self::$usuarioWeb;
         $conApp = Schema::hasColumn('meta_page_user', 'usuario_app');
         if ($usuarioApp !== null && $conApp) {
             $propio = $this->tokenDeLaApp($pageId, $usuarioApp);

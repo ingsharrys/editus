@@ -431,6 +431,46 @@ class EnVivoApiTest extends TestCase
         $this->assertStringContainsString('LiveKit no está configurado', $r->json('error'));
     }
 
+    public function test_estudio_web_transmite_a_las_paginas_del_usuario_con_su_token(): void
+    {
+        (require database_path('migrations/2026_10_12_000001_add_user_id_to_transmisiones_en_vivo.php'))->up();
+        $this->fakeTodo();
+        $rolUser = Role::firstOrCreate(['slug' => 'user'], ['name' => 'Usuario']);
+        $periodista = User::factory()->create(['role_id' => $rolUser->id, 'name' => 'Periodista']);
+        $otro = User::factory()->create(['role_id' => $rolUser->id]);
+        MetaPage::where('page_id', '111')->first()->users()->attach($periodista->id, ['page_access_token' => 'tok-periodista', 'is_active' => true, 'updated_at' => now()->subDay()]);
+
+        // Solo ve y puede elegir sus páginas
+        $this->actingAs($periodista)->get('/en-vivo')->assertOk()->assertSee('Estudio en vivo')->assertSee('Opa Noticias')->assertDontSee('Neiva 24');
+        $this->actingAs($periodista)->postJson('/en-vivo/preparar', ['titulo' => 'Prueba', 'page_ids' => ['222']])->assertStatus(422);
+
+        $r = $this->actingAs($periodista)->postJson('/en-vivo/preparar', ['titulo' => 'Rueda de prensa', 'page_ids' => ['111'], 'plantilla' => ['etiqueta' => 'en vivo', 'logo_texto' => 'Opa']])
+            ->assertOk()->assertJsonPath('success', true)->json();
+        $this->assertNotEmpty($r['livekit']['token']);
+        $t = TransmisionEnVivo::find($r['transmision']['id']);
+        $this->assertSame($periodista->id, (int) $t->user_id);
+        $this->assertSame('sala', $t->estado);
+        $this->assertSame('EN VIVO', $t->plantilla['etiqueta']);
+
+        // Nadie más maneja su transmisión
+        $this->actingAs($otro)->getJson("/en-vivo/{$t->id}/estado")->assertStatus(403);
+
+        // Escena, plantilla, invitación y participantes
+        $this->actingAs($periodista)->postJson("/en-vivo/{$t->id}/escena", ['layout' => 'pip', 'visibles' => ['camara-principal', 'invitado-abc']])->assertOk()->assertJsonPath('escena.layout', 'pip');
+        $this->actingAs($periodista)->postJson("/en-vivo/{$t->id}/plantilla", ['plantilla' => ['rotulo_nombre' => 'Ana', 'rotulo_mostrar' => true]])->assertOk()->assertJsonPath('plantilla.rotulo_nombre', 'Ana');
+        $this->actingAs($periodista)->postJson("/en-vivo/{$t->id}/invitacion", ['modo' => 'camara'])->assertOk()->assertJsonPath('modo', 'camara');
+        $this->actingAs($periodista)->getJson("/en-vivo/{$t->id}/participantes")->assertOk()->assertJsonCount(2, 'participantes');
+
+        // Al aire: el Live de Facebook se crea con el token de quien transmite
+        $this->actingAs($periodista)->postJson("/en-vivo/{$t->id}/aire")->assertOk()->assertJsonPath('transmision.estado', 'en_vivo');
+        Http::assertSent(fn($req) => str_contains($req->url(), '111/live_videos') && ($req['access_token'] ?? '') === 'tok-periodista');
+        $this->actingAs($periodista)->getJson("/en-vivo/{$t->id}/estado")->assertOk()->assertJsonPath('facebook.espectadores', 42);
+
+        // Terminar: queda el enlace del video
+        $this->actingAs($periodista)->postJson("/en-vivo/{$t->id}/terminar")->assertOk()->assertJsonPath('transmision.estado', 'terminada');
+        $this->actingAs($periodista)->get('/en-vivo')->assertOk()->assertSee('Transmisiones anteriores')->assertSee('Rueda de prensa');
+    }
+
     public function test_la_escena_se_sirve_sin_sesion(): void
     {
         $this->get('/en-vivo/escena?url=wss://x&token=y')->assertOk()->assertSee('START_RECORDING')->assertSee('RoomMetadataChanged');
