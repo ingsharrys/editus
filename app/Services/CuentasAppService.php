@@ -194,7 +194,7 @@ class CuentasAppService
         }
         if (empty($pages)) {
             throw new \RuntimeException("No se encontraron páginas.
-- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.
+- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_read_engagement, pages_read_user_content, read_insights, business_management.
 - Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.
 - Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).");
         }
