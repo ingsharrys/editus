@@ -97,7 +97,8 @@ class InteligenciaAudienciaTest extends TestCase
                 return Http::response(['data' => [$dia('reach', [400, 500, 600]), $dia('follower_count', [1000, 1002, 1005])]]);
             },
             'graph.facebook.com/v23.0/999/media*' => Http::response(['data' => [
-                ['id' => 'ig1', 'caption' => 'Operativo de la policía en el sur', 'media_type' => 'VIDEO', 'media_product_type' => 'REELS', 'timestamp' => Carbon::now()->subDays(1)->toIso8601String(), 'permalink' => 'https://ig.com/1'],
+                // Hora fija: el orden de las publicaciones (y por tanto el índice que devuelve la IA simulada) no debe depender de la hora en que corre la prueba
+                ['id' => 'ig1', 'caption' => 'Operativo de la policía en el sur', 'media_type' => 'VIDEO', 'media_product_type' => 'REELS', 'timestamp' => Carbon::now()->subDays(1)->setTime(12, 0)->toIso8601String(), 'permalink' => 'https://ig.com/1'],
             ]]),
             'graph.facebook.com/v23.0/ig1/insights*' => Http::response(['data' => [['name' => 'reach', 'values' => [['value' => 900]]], ['name' => 'views', 'values' => [['value' => 2000]]], ['name' => 'likes', 'values' => [['value' => 50]]], ['name' => 'comments', 'values' => [['value' => 4]]], ['name' => 'shares', 'values' => [['value' => 6]]], ['name' => 'saved', 'values' => [['value' => 3]]]]]),
             'graph.facebook.com/v23.0/ig1?*' => Http::response(['like_count' => 50, 'comments_count' => 4]),
@@ -266,6 +267,7 @@ class InteligenciaAudienciaTest extends TestCase
             ->expectsOutputToContain('Recolectando 2 página(s)')
             ->expectsOutputToContain('★ Opa Noticias')
             ->expectsOutputToContain('Neiva 24')
+            ->expectsOutputToContain('aviso:')
             ->assertExitCode(0);
         $this->artisan('inteligencia:recolectar --dias=2 --pausa=0 --solo-campanas')->expectsOutputToContain('Recolectando 1 página(s)')->assertExitCode(0);
         $this->assertSame(3, PublicacionRed::where('meta_page_id', $this->page->id)->count());
@@ -287,8 +289,12 @@ class InteligenciaAudienciaTest extends TestCase
         $this->assertSame(4, $t['resumen']['publicaciones']);
         $this->assertCount(2, $t['por_pagina']);
 
-        // Recolectar desde la web (filtrado por medio)
-        $this->actingAs($this->admin)->post('/admin/inteligencia/general/recolectar', ['dias' => 2, 'medio' => 'neiva24'])->assertRedirect()->assertSessionHas('success');
+        // Recolectar desde la web, página por página (filtrado por medio): iniciar + pasos hasta terminar
+        $this->actingAs($this->admin)->postJson('/admin/inteligencia/general/recolectar/iniciar', ['dias' => 2, 'medio' => 'neiva24'])->assertOk()->assertJsonPath('total', 1);
+        $paso = $this->actingAs($this->admin)->postJson('/admin/inteligencia/general/recolectar/paso')->assertOk();
+        $paso->assertJsonPath('terminado', true)->assertJsonPath('hecho', 1)->assertJsonPath('linea.pagina', 'Neiva 24');
+        $this->assertNotEmpty($paso->json('linea.avisos'), 'Meta rechazó las métricas de esa página: el aviso debe llegar al administrador');
+        $this->actingAs($this->admin)->postJson('/admin/inteligencia/general/recolectar/paso')->assertStatus(422);
     }
 
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void

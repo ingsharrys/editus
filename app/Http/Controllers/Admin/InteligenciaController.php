@@ -80,10 +80,13 @@ class InteligenciaController extends Controller
         ]);
     }
 
-    /** Recolecta desde la web las páginas filtradas en la vista general (máximo 25 por clic; el resto lo hace la tarea nocturna). */
-    public function recolectarGeneral(Request $request, RecolectorAudienciaService $recolector): RedirectResponse
+    /**
+     * Recolección desde la web, página por página: el navegador llama a "paso" en
+     * bucle y muestra el avance. Así no se agota el tiempo de ejecución del hosting
+     * aunque sean cientos de páginas.
+     */
+    public function recolectarIniciar(Request $request): \Illuminate\Http\JsonResponse
     {
-        @set_time_limit(280);
         $dias = max(1, min(30, (int) $request->input('dias', 7)));
         $medio = trim((string) $request->input('medio', ''));
         $idsFiltro = array_values(array_filter(array_map('intval', (array) $request->input('paginas', []))));
@@ -92,15 +95,47 @@ class InteligenciaController extends Controller
             ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
             ->filter(fn($p) => $p->vinculos->isNotEmpty())
             ->values();
-        $total = $paginas->count();
-        $paginas = $paginas->take(25);
-        $lineas = [];
-        foreach ($paginas as $p) {
-            $r = $recolector->recolectar($p, $dias);
-            $lineas[] = "{$p->name}: {$r['publicaciones']} publ." . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : '');
+        $estado = ['ids' => $paginas->pluck('id')->all(), 'dias' => $dias, 'hecho' => 0, 'total' => $paginas->count(), 'errores' => 0, 'lineas' => []];
+        \Illuminate\Support\Facades\Cache::put($this->claveRecoleccion(), $estado, now()->addHours(2));
+        return response()->json(['success' => true, 'total' => $estado['total'], 'dias' => $dias]);
+    }
+
+    public function recolectarPaso(RecolectorAudienciaService $recolector): \Illuminate\Http\JsonResponse
+    {
+        @set_time_limit(170);
+        $clave = $this->claveRecoleccion();
+        $estado = \Illuminate\Support\Facades\Cache::get($clave);
+        if (!$estado) return response()->json(['success' => false, 'error' => 'No hay una recolección iniciada (o venció). Vuelve a pulsar "Recolectar ahora".'], 422);
+        if ($estado['hecho'] >= $estado['total']) {
+            \Illuminate\Support\Facades\Cache::forget($clave);
+            return response()->json(['success' => true, 'terminado' => true, 'hecho' => $estado['hecho'], 'total' => $estado['total'], 'errores' => $estado['errores']]);
         }
-        $aviso = $total > 25 ? " Se procesaron 25 de {$total} páginas; las demás las recoge la tarea nocturna." : '';
-        return redirect()->route('inteligencia.general', $request->only(['medio', 'paginas', 'desde', 'hasta', 'tab']))->with('success', 'Recolección terminada.' . $aviso . ' ' . implode(' — ', $lineas));
+        $id = $estado['ids'][$estado['hecho']];
+        $p = MetaPage::find($id);
+        $linea = ['pagina' => $p?->name ?? "#{$id}", 'ok' => false, 'detalle' => 'La página ya no existe', 'avisos' => []];
+        if ($p) {
+            try {
+                $r = $recolector->recolectar($p, (int) $estado['dias']);
+                $linea = [
+                    'pagina' => $p->name, 'ok' => !$r['errores'],
+                    'detalle' => sprintf('%s publicaciones · %s con métricas · FB %s días · IG %s días', $r['publicaciones'], $r['metricas'], $r['facebook'] ?? '—', $r['instagram'] ?? '—') . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : ''),
+                    'avisos' => $r['avisos'] ?? [],
+                ];
+            } catch (\Throwable $e) {
+                $linea = ['pagina' => $p->name, 'ok' => false, 'detalle' => $e->getMessage(), 'avisos' => []];
+            }
+        }
+        $estado['hecho']++;
+        if (!$linea['ok']) $estado['errores']++;
+        $estado['lineas'][] = $linea;
+        $terminado = $estado['hecho'] >= $estado['total'];
+        if ($terminado) \Illuminate\Support\Facades\Cache::forget($clave); else \Illuminate\Support\Facades\Cache::put($clave, $estado, now()->addHours(2));
+        return response()->json(['success' => true, 'terminado' => $terminado, 'hecho' => $estado['hecho'], 'total' => $estado['total'], 'errores' => $estado['errores'], 'linea' => $linea]);
+    }
+
+    private function claveRecoleccion(): string
+    {
+        return 'inteligencia.recoleccion.' . auth()->id();
     }
 
     /** Páginas que pueden tener datos: con token activo (se recolectan) o que ya tengan histórico. */
