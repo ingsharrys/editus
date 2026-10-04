@@ -12,6 +12,8 @@ use App\Services\Inteligencia\AnalisisService;
 use App\Services\Inteligencia\ClasificadorService;
 use App\Services\Inteligencia\ClaudeService;
 use App\Services\Inteligencia\ComentariosService;
+use App\Services\Inteligencia\ConsultorService;
+use App\Models\ConsultaIa;
 use App\Services\Inteligencia\InformeService;
 use App\Services\Inteligencia\RecolectorAudienciaService;
 use Carbon\Carbon;
@@ -28,10 +30,69 @@ class InteligenciaController extends Controller
 {
     public function index(ClaudeService $ia): View
     {
-        $campanas = Campana::with('paginas')->withCount('temas')->orderByDesc('activa')->orderBy('nombre')->get();
+        $campanas = Campana::with('paginas')->withCount('temas', 'informes')->orderByDesc('activa')->orderBy('nombre')->get();
         $paginas = MetaPage::orderBy('name')->get();
-        $datos = PublicacionRed::count();
-        return view('admin.inteligencia.index', ['campanas' => $campanas, 'paginas' => $paginas, 'iaLista' => $ia->configurado(), 'totalPublicaciones' => $datos]);
+        $conDatos = \App\Models\AudienciaDiaria::query()->distinct()->count('meta_page_id');
+        $indicadores = [
+            'paginas_con_datos' => $conDatos,
+            'publicaciones' => PublicacionRed::count(),
+            'publicaciones_30' => PublicacionRed::where('publicado_en', '>=', now()->subDays(30))->count(),
+            'campanas_activas' => $campanas->where('activa', true)->count(),
+            'ultima' => \App\Models\AudienciaDiaria::max('updated_at'),
+            'consultas' => \Illuminate\Support\Facades\Schema::hasTable('consultas_ia') ? ConsultaIa::count() : 0,
+        ];
+        // Resumen de los últimos 7 días por campaña (para las tarjetas)
+        $hasta = Carbon::today(); $desde = $hasta->copy()->subDays(6);
+        $analisis = app(AnalisisService::class);
+        $resumenes = $campanas->mapWithKeys(fn($c) => [$c->id => $analisis->resumenPaginas($c->paginas, $desde, $hasta)]);
+        return view('admin.inteligencia.index', ['campanas' => $campanas, 'paginas' => $paginas, 'iaLista' => $ia->configurado(), 'indicadores' => $indicadores, 'resumenes' => $resumenes]);
+    }
+
+    // ------------------------------------------------------------ consultor IA
+
+    /** POST (JSON): pregunta libre al consultor sobre toda la organización (con filtros) o sobre una campaña. */
+    public function consultar(Request $request, ConsultorService $consultor): \Illuminate\Http\JsonResponse
+    {
+        @set_time_limit(280);
+        $d = $request->validate([
+            'pregunta' => ['required', 'string', 'min:5', 'max:1500'],
+            'campana_id' => ['nullable', 'integer', 'exists:campanas,id'],
+            'medio' => ['nullable', 'string', 'max:100'],
+            'paginas' => ['nullable', 'array'], 'paginas.*' => ['integer'],
+            'desde' => ['nullable', 'date'], 'hasta' => ['nullable', 'date'],
+        ]);
+        [$desde, $hasta] = $this->rangoFechas($request);
+        $campana = !empty($d['campana_id']) ? Campana::with('paginas', 'temas')->find($d['campana_id']) : null;
+        if ($campana) {
+            $paginas = $campana->paginas;
+            $temas = $campana->temas;
+            $ambito = ['tipo' => 'campana', 'titulo' => $campana->nombre];
+        } else {
+            $medio = trim((string) ($d['medio'] ?? ''));
+            $idsFiltro = array_values(array_filter(array_map('intval', (array) ($d['paginas'] ?? []))));
+            $paginas = $this->paginasConDatos()
+                ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
+                ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
+                ->values();
+            $temas = Tema::all();
+            $medios = (array) config('services.editus.medios', []);
+            $titulo = $idsFiltro ? ($paginas->count() === 1 ? $paginas->first()?->name : $paginas->count() . ' páginas elegidas') : ($medio !== '' ? ($medios[$medio] ?? $medio) : 'Toda la organización');
+            $ambito = ['tipo' => 'general', 'titulo' => $titulo, 'medio' => $medio ?: null, 'paginas' => $idsFiltro];
+        }
+        try {
+            $consulta = $consultor->consultar(trim($d['pregunta']), $paginas, $temas, $desde, $hasta, $ambito, $campana, auth()->id());
+        } catch (\Throwable $e) {
+            \Log::warning('[inteligencia] consultor', ['err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => 'No se pudo consultar a la IA: ' . $e->getMessage()], 422);
+        }
+        return response()->json(['success' => true, 'consulta' => $consulta->load('user', 'campana')->paraVista()]);
+    }
+
+    private function consultasRecientes(?int $campanaId, int $limite = 15): array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('consultas_ia')) return [];
+        return ConsultaIa::with('user', 'campana')->when($campanaId, fn($q) => $q->where('campana_id', $campanaId), fn($q) => $q->whereNull('campana_id'))
+            ->orderByDesc('id')->limit($limite)->get()->map(fn($c) => $c->paraVista())->all();
     }
 
     /**
@@ -76,7 +137,8 @@ class InteligenciaController extends Controller
             'tablero' => $tablero, 'desde' => $desde, 'hasta' => $hasta, 'publicaciones' => $publicaciones, 'comparativa' => $comparativa,
             'universo' => $universo, 'paginas' => $paginas, 'medios' => $medios, 'medio' => $medio, 'idsFiltro' => $idsFiltro,
             'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion, 'sinDatos' => $sinDatos,
-            'tab' => in_array($request->query('tab'), ['resumen', 'paginas', 'audiencia', 'horarios', 'publicaciones'], true) ? $request->query('tab') : 'resumen',
+            'tab' => in_array($request->query('tab'), ['resumen', 'paginas', 'audiencia', 'horarios', 'comentarios', 'publicaciones', 'consultor'], true) ? $request->query('tab') : 'resumen',
+            'consultas' => $this->consultasRecientes(null), 'ejemplosConsulta' => ConsultorService::ejemplos(),
         ]);
     }
 
@@ -188,6 +250,7 @@ class InteligenciaController extends Controller
             'campana' => $campana, 'tablero' => $tablero, 'desde' => $desde, 'hasta' => $hasta, 'publicaciones' => $publicaciones,
             'informes' => $informes, 'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion,
             'paginasTodas' => MetaPage::orderBy('name')->get(), 'tab' => $request->query('tab', 'resumen'),
+            'consultas' => $this->consultasRecientes($campana->id), 'ejemplosConsulta' => ConsultorService::ejemplos(),
         ]);
     }
 

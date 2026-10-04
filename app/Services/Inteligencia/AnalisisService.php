@@ -239,9 +239,11 @@ class AnalisisService
         $con = $pubs->filter(fn($p) => $p->analisis);
         $tot = ['publicaciones' => $con->count(), 'comentarios' => 0, 'a_favor' => 0, 'en_contra' => 0, 'neutro' => 0];
         $preocupaciones = []; $palabras = []; $porTema = []; $resumenes = [];
+        $emociones = array_fill_keys(array_keys(ConsultorService::EMOCIONES), 0);
         foreach ($con as $p) {
             $a = $p->analisis;
             $tot['comentarios'] += $a->total; $tot['a_favor'] += $a->a_favor; $tot['en_contra'] += $a->en_contra; $tot['neutro'] += $a->neutro;
+            foreach ((array) ($a->emociones ?? []) as $k => $v) if (isset($emociones[$k])) $emociones[$k] += (int) $v;
             foreach ((array) $a->preocupaciones as $x) { $k = mb_strtolower(trim($x)); if ($k !== '') $preocupaciones[$k] = ($preocupaciones[$k] ?? 0) + 1; }
             foreach ((array) $a->palabras as $x) { $k = mb_strtolower(trim($x)); if ($k !== '') $palabras[$k] = ($palabras[$k] ?? 0) + 1; }
             $nombre = $p->tema?->nombre ?? 'Sin tema';
@@ -249,9 +251,11 @@ class AnalisisService
             $porTema[$nombre]['comentarios'] += $a->total; $porTema[$nombre]['a_favor'] += $a->a_favor; $porTema[$nombre]['en_contra'] += $a->en_contra; $porTema[$nombre]['neutro'] += $a->neutro;
             if ($a->resumen) $resumenes[] = ['publicacion' => $this->pubResumen($p), 'resumen' => $a->resumen];
         }
-        arsort($preocupaciones); arsort($palabras);
+        arsort($preocupaciones); arsort($palabras); arsort($emociones);
         $base = max(1, $tot['a_favor'] + $tot['en_contra'] + $tot['neutro']);
+        $baseEmo = max(1, array_sum($emociones));
         return $tot + [
+            'emociones' => array_map(fn($k, $v) => ['clave' => $k, 'nombre' => ConsultorService::EMOCIONES[$k], 'n' => $v, 'pct' => (int) round(100 * $v / $baseEmo)], array_keys($emociones), $emociones),
             'pct_favor' => (int) round(100 * $tot['a_favor'] / $base), 'pct_contra' => (int) round(100 * $tot['en_contra'] / $base), 'pct_neutro' => (int) round(100 * $tot['neutro'] / $base),
             'preocupaciones' => array_slice($preocupaciones, 0, 12, true),
             'palabras' => array_slice($palabras, 0, 25, true),

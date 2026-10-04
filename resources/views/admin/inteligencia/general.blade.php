@@ -4,7 +4,7 @@
     $r = $tablero['resumen'];
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $dias = \App\Services\Inteligencia\AnalisisService::DIAS;
-    $tabs = ['resumen' => 'Resumen', 'paginas' => 'Páginas y campañas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'publicaciones' => 'Publicaciones'];
+    $tabs = ['resumen' => 'Resumen', 'paginas' => 'Páginas y campañas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios y emociones', 'publicaciones' => 'Publicaciones', 'consultor' => '✦ Consultor IA'];
     $filtros = array_filter(['desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'medio' => $medio ?: null, 'paginas' => $idsFiltro ?: null]);
     $urlTab = fn($t) => route('inteligencia.general', $filtros + ['tab' => $t]);
     $tituloFiltro = $idsFiltro ? ($paginas->count() === 1 ? $paginas->first()->name : $paginas->count() . ' páginas elegidas') : ($medio !== '' ? ($medios[$medio] ?? $medio) : 'Toda la organización');
@@ -253,6 +253,54 @@
                 @forelse ($h['mejores_en_linea'] as $m)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $m['etiqueta'] }}</span><span class="text-gray-500">{{ $fmt($m['en_linea']) }}</span></div>@empty <p class="text-sm text-gray-500">Sin dato.</p>@endforelse
             </div>
         </div>
+    @endif
+
+    {{-- ================================================ COMENTARIOS Y EMOCIONES --}}
+    @if ($tab === 'comentarios')
+        @php $c = $tablero['comentarios']; $maxEmo = max(1, max(array_map(fn($e) => $e['n'], $c['emociones'] ?? [[ 'n' => 0 ]]))); @endphp
+        @if (!$c['publicaciones'])
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">Todavía no hay comentarios leídos por la IA en este periodo. La lectura se hace cada madrugada para las campañas activas (publicaciones con 5 o más comentarios); también puedes pedirla desde una campaña con "Clasificar y leer comentarios".</div>
+        @endif
+        <div class="grid lg:grid-cols-3 gap-5">
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
+                <h3 class="font-bold text-gray-800 mb-1">Tono general</h3>
+                <p class="text-xs text-gray-500 mb-3">{{ $fmt($c['comentarios']) }} comentarios leídos en {{ $c['publicaciones'] }} publicaciones.</p>
+                <div class="flex h-3 rounded-full overflow-hidden bg-gray-100">
+                    <div class="bg-emerald-500" style="width: {{ $c['pct_favor'] }}%"></div><div class="bg-rose-500" style="width: {{ $c['pct_contra'] }}%"></div><div class="bg-gray-300" style="width: {{ $c['pct_neutro'] }}%"></div>
+                </div>
+                <div class="flex justify-between text-xs mt-2"><span class="text-emerald-700 font-semibold">A favor {{ $c['pct_favor'] }}%</span><span class="text-rose-600 font-semibold">En contra {{ $c['pct_contra'] }}%</span><span class="text-gray-500">Neutro {{ $c['pct_neutro'] }}%</span></div>
+                <h3 class="font-bold text-gray-800 mt-5 mb-2">Emociones del público</h3>
+                @forelse (array_filter($c['emociones'] ?? [], fn($e) => $e['n'] > 0) as $e)
+                    <div class="py-1"><div class="flex justify-between text-sm"><span>{{ $e['nombre'] }}</span><span class="text-gray-500">{{ $e['pct'] }}%</span></div><div class="h-1.5 rounded bg-gray-100"><div class="h-1.5 rounded bg-[#00024f]" style="width: {{ round(100 * $e['n'] / $maxEmo) }}%"></div></div></div>
+                @empty <p class="text-sm text-gray-500">Sin lectura de emociones todavía (se agrega en cada nueva lectura de comentarios).</p> @endforelse
+            </div>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
+                <h3 class="font-bold text-gray-800 mb-2">Preocupaciones más repetidas</h3>
+                @forelse ($c['preocupaciones'] as $k => $v)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span class="truncate">{{ ucfirst($k) }}</span><span class="text-gray-400 shrink-0 ml-2">{{ $v }}</span></div>@empty <p class="text-sm text-gray-500">Sin datos.</p>@endforelse
+                <h3 class="font-bold text-gray-800 mt-5 mb-2">Palabras frecuentes</h3>
+                <div class="flex flex-wrap gap-1.5">@foreach ($c['palabras'] as $k => $v)<span class="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 text-xs">{{ $k }} <span class="text-gray-400">{{ $v }}</span></span>@endforeach</div>
+            </div>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
+                <h3 class="font-bold text-gray-800 mb-2">Por tema</h3>
+                @forelse ($c['por_tema'] as $t)
+                    @php $b = max(1, $t['a_favor'] + $t['en_contra'] + $t['neutro']); @endphp
+                    <div class="py-1.5 border-b border-gray-100"><div class="flex justify-between text-sm"><span class="truncate">{{ $t['tema'] }}</span><span class="text-gray-400 text-xs">{{ $t['comentarios'] }} coment.</span></div><div class="flex h-1.5 rounded-full overflow-hidden bg-gray-100 mt-1"><div class="bg-emerald-500" style="width: {{ round(100 * $t['a_favor'] / $b) }}%"></div><div class="bg-rose-500" style="width: {{ round(100 * $t['en_contra'] / $b) }}%"></div></div></div>
+                @empty <p class="text-sm text-gray-500">Sin datos.</p>@endforelse
+                <h3 class="font-bold text-gray-800 mt-5 mb-2">Lecturas recientes</h3>
+                @forelse ($c['resumenes'] as $x)
+                    <div class="py-2 border-b border-gray-100 text-sm"><a href="{{ $x['publicacion']['permalink'] }}" target="_blank" class="text-indigo-700 hover:underline">{{ $x['publicacion']['texto'] ?: '(sin texto)' }}</a><p class="text-xs text-gray-600 mt-1">{{ $x['resumen'] }}</p></div>
+                @empty <p class="text-sm text-gray-500">Sin lecturas todavía.</p>@endforelse
+            </div>
+        </div>
+        <div class="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4 text-sm text-gray-700 flex flex-wrap items-center justify-between gap-3">
+            <span>¿Quieres un diagnóstico y recomendaciones a partir de esto? Pregúntale al consultor.</span>
+            <a href="{{ $urlTab('consultor') }}" class="rounded-lg bg-[#00024f] text-white px-4 py-2 text-sm font-semibold">✦ Abrir el consultor IA</a>
+        </div>
+    @endif
+
+    {{-- ========================================================= CONSULTOR IA --}}
+    @if ($tab === 'consultor')
+        @include('admin.inteligencia._consultor', ['contextoConsulta' => ['medio' => $medio ?: null, 'paginas' => $idsFiltro, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString()], 'tituloAlcance' => $tituloFiltro])
     @endif
 
     {{-- ====================================================== PUBLICACIONES --}}
