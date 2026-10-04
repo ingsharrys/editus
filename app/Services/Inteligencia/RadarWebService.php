@@ -59,7 +59,7 @@ class RadarWebService
                 $radar->busquedas += $r['busquedas'];
             } catch (\Throwable $e) {
                 \Log::warning('[inteligencia] radar web', ['radar' => $radar->id, 'frente' => $frente['nombre'], 'err' => $e->getMessage()]);
-                $linea = ['frente' => $frente['nombre'], 'ok' => false, 'detalle' => 'No se pudo investigar: ' . Str::limit($e->getMessage(), 220)];
+                $linea = ['frente' => $frente['nombre'], 'ok' => false, 'detalle' => 'No se pudo investigar: ' . ClaudeService::mensajeError($e)];
             }
             $radar->avance++;
             $radar->lineas = array_merge($radar->lineas ?? [], [$linea]);
@@ -78,7 +78,7 @@ class RadarWebService
             $radar->estado = 'listo';
             $linea = ['frente' => 'Síntesis', 'ok' => true, 'detalle' => 'Diagnóstico redactado con ' . count($hallazgos) . ' hallazgo(s)'];
         } catch (\Throwable $e) {
-            $radar->fill(['estado' => 'error', 'error' => 'La IA no pudo redactar la síntesis: ' . Str::limit($e->getMessage(), 300)]);
+            $radar->fill(['estado' => 'error', 'error' => 'La IA no pudo redactar la síntesis: ' . ClaudeService::mensajeError($e)]);
             $linea = ['frente' => 'Síntesis', 'ok' => false, 'detalle' => $radar->error];
         }
         $radar->lineas = array_merge($radar->lineas ?? [], [$linea]);

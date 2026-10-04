@@ -87,7 +87,7 @@ class InteligenciaController extends Controller
             $consulta = $consultor->consultar(trim($d['pregunta']), $paginas, $temas, $desde, $hasta, $ambito, $campana, auth()->id());
         } catch (\Throwable $e) {
             \Log::warning('[inteligencia] consultor', ['err' => $e->getMessage()]);
-            return response()->json(['success' => false, 'error' => 'No se pudo consultar a la IA: ' . $e->getMessage()], 422);
+            return response()->json(['success' => false, 'error' => 'No se pudo consultar a la IA: ' . ClaudeService::mensajeError($e)], 422);
         }
         return response()->json(['success' => true, 'consulta' => $consulta->load('user', 'campana')->paraVista()]);
     }
@@ -317,7 +317,7 @@ class InteligenciaController extends Controller
             $n = $clasificador->clasificarCampana($campana, 100);
             $m = $comentarios->analizarCampana($campana, 15);
         } catch (\Throwable $e) {
-            return back()->with('error', 'La IA falló: ' . $e->getMessage());
+            return back()->with('error', 'La IA falló: ' . ClaudeService::mensajeError($e));
         }
         return back()->with('success', "{$n} publicaciones clasificadas y {$m} lecturas de comentarios.");
     }
@@ -342,7 +342,7 @@ class InteligenciaController extends Controller
             try {
                 $n = $clasificador->clasificarPorTiempo($campana, 45);
             } catch (\Throwable $e) {
-                return response()->json(['success' => false, 'error' => 'La IA falló al clasificar: ' . \Illuminate\Support\Str::limit($e->getMessage(), 300)]);
+                return response()->json(['success' => false, 'error' => 'La IA falló al clasificar: ' . ClaudeService::mensajeError($e)]);
             }
             $estado['clasificadas'] += $n;
             $guardar();
@@ -364,7 +364,7 @@ class InteligenciaController extends Controller
             try {
                 $r = $comentarios->analizarDetalle($p, $campana);
             } catch (\Throwable $e) {
-                $r = ['ok' => false, 'motivo' => 'La IA falló: ' . \Illuminate\Support\Str::limit($e->getMessage(), 200)];
+                $r = ['ok' => false, 'motivo' => 'La IA falló: ' . ClaudeService::mensajeError($e)];
             }
             $r['ok'] ? $estado['lecturas']++ : $estado['fallidas']++;
             $lineas[] = ['ok' => $r['ok'], 'texto' => ($p->page?->name ?? 'Página') . ' · ' . \Illuminate\Support\Str::limit(trim((string) $p->texto), 60) . ' — ' . $r['motivo']];
@@ -404,7 +404,7 @@ class InteligenciaController extends Controller
         try {
             $i = $informes->generar($campana, $desde, $hasta);
         } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo redactar el informe: ' . $e->getMessage());
+            return back()->with('error', 'No se pudo redactar el informe: ' . ClaudeService::mensajeError($e));
         }
         return redirect()->route('inteligencia.informe', [$campana, $i])->with('success', 'Informe listo.');
     }

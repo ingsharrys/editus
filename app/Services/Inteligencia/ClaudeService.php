@@ -143,6 +143,20 @@ class ClaudeService
         return ['texto' => $texto, 'fuentes' => array_values($fuentes), 'busquedas' => $busquedas, 'pausado' => ($mensaje->stopReason ?? null) === 'pause_turn'];
     }
 
+    /** Explica en español los errores más comunes de la API de Anthropic (saldo, clave, saturación). */
+    public static function mensajeError(\Throwable $e): string
+    {
+        $m = $e->getMessage();
+        $l = mb_strtolower($m);
+        return match (true) {
+            str_contains($l, 'credit balance is too low') => 'La cuenta de Anthropic (la IA) se quedó sin saldo. Recárgala en console.anthropic.com → Settings → Billing y vuelve a pulsar el botón: continúa donde iba.',
+            str_contains($l, 'invalid x-api-key') || str_contains($l, 'authentication_error') => 'La clave de la IA (ANTHROPIC_API_KEY en el .env de editus) no es válida o fue revocada. Crea una nueva en console.anthropic.com → API Keys.',
+            str_contains($l, 'rate_limit') || str_contains($l, '"status": 429') => 'La IA recibió demasiadas peticiones seguidas. Espera un minuto y vuelve a pulsar el botón: continúa donde iba.',
+            str_contains($l, 'overloaded') || str_contains($l, '"status": 529') => 'La IA está saturada en este momento. Vuelve a intentar en unos minutos.',
+            default => \Illuminate\Support\Str::limit($m, 300),
+        };
+    }
+
     /** Extrae el primer objeto JSON de un texto (la búsqueda web no usa salida estructurada). */
     public static function extraerJson(string $texto): ?array
     {
