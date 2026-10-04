@@ -43,6 +43,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'exento_planes' => 'boolean',
         ];
     }
     public function role()
@@ -69,6 +70,17 @@ class User extends Authenticatable
             ->withPivot(['page_access_token', 'social_account_id', 'expires_at', 'is_active'])
             ->withTimestamps();
     }
+    public function suscripcion()
+    {
+        return $this->hasOne(Suscripcion::class);
+    }
+
+    /** Sin límites de plan: administradores y equipo interno marcado como exento. */
+    public function sinLimitesDePlan(): bool
+    {
+        return $this->isAdmin() || (bool) ($this->exento_planes ?? false);
+    }
+
     public function favoritePages()
     {
         return $this->belongsToMany(MetaPage::class, 'meta_page_favorites')->withTimestamps();

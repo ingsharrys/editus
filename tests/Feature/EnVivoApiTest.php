@@ -471,6 +471,30 @@ class EnVivoApiTest extends TestCase
         $this->actingAs($periodista)->get('/en-vivo')->assertOk()->assertSee('Transmisiones anteriores')->assertSee('Rueda de prensa');
     }
 
+    public function test_plan_basico_limita_camaras_y_quita_el_logo(): void
+    {
+        (require database_path('migrations/2026_10_12_000001_add_user_id_to_transmisiones_en_vivo.php'))->up();
+        (require database_path('migrations/2026_10_13_000001_create_suscripciones.php'))->up();
+        $this->fakeTodo();
+        $rolUser = Role::firstOrCreate(['slug' => 'user'], ['name' => 'Usuario']);
+        $cliente = User::factory()->create(['role_id' => $rolUser->id]);
+        MetaPage::where('page_id', '111')->first()->users()->attach($cliente->id, ['page_access_token' => 'tok-cliente', 'is_active' => true]);
+
+        // Sin plan no puede transmitir
+        $this->actingAs($cliente)->postJson('/en-vivo/preparar', ['titulo' => 'x', 'page_ids' => ['111']])->assertStatus(422)->assertJsonPath('success', false);
+
+        $pago = \App\Models\PagoSuscripcion::create(['user_id' => $cliente->id, 'plan' => 'basico', 'periodo' => 'mensual', 'referencia' => 'T1', 'monto_centavos' => 6000000, 'estado' => 'APPROVED']);
+        app(\App\Services\PlanService::class)->aplicarPago($pago);
+        $r = $this->actingAs($cliente)->postJson('/en-vivo/preparar', ['titulo' => 'Básico', 'page_ids' => ['111'], 'plantilla' => ['logo_texto' => 'MI LOGO', 'marco_url' => 'https://x.co/m.png']])->assertOk()->json();
+        $t = TransmisionEnVivo::find($r['transmision']['id']);
+        $this->assertSame('', $t->plantilla['logo_texto']);
+        $this->assertSame('', $t->plantilla['marco_url']);
+
+        // La sala ya tiene 2 cámaras (principal + invitado-abc): el Básico no admite una tercera
+        $inv = $this->actingAs($cliente)->postJson("/en-vivo/{$t->id}/invitacion", ['modo' => 'camara'])->assertOk()->json();
+        $this->postJson('/en-vivo/invitado/' . $inv['codigo'] . '/token', ['nombre' => 'Tercera'])->assertStatus(422)->assertJsonPath('success', false);
+    }
+
     public function test_la_escena_se_sirve_sin_sesion(): void
     {
         $this->get('/en-vivo/escena?url=wss://x&token=y')->assertOk()->assertSee('START_RECORDING')->assertSee('RoomMetadataChanged');

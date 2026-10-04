@@ -360,6 +360,14 @@ class EnVivoController extends Controller
         if (!in_array($t->estado, ['sala', 'en_vivo'], true)) return response()->json(['success' => false, 'error' => 'La transmisión no está en vivo en este momento'], 422);
         $nombre = Str::limit(trim((string) $request->input('nombre', $inv['nombre'] ?? (($inv['modo'] ?? '') === 'pantalla' ? 'Pantalla' : 'Invitado'))), 40, '') ?: 'Invitado';
         $identity = 'invitado-' . $codigo;
+        // Límite de cámaras del plan de quien transmite (la cámara principal cuenta)
+        $max = app(\App\Services\PlanService::class)->camarasDe($t);
+        if ($max !== null) {
+            try { $conectados = collect($this->livekit->participantes($t->room))->pluck('identity'); } catch (\Throwable) { $conectados = collect(); }
+            if (!$conectados->contains($identity) && $conectados->count() >= $max) {
+                return response()->json(['success' => false, 'error' => "Esta transmisión ya tiene el máximo de cámaras de su plan ({$max})."], 422);
+            }
+        }
         return response()->json([
             'success' => true,
             'url' => $this->livekit->wsUrl(),

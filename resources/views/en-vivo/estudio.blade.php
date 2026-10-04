@@ -18,6 +18,13 @@
     @unless ($configurado)
         <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">El servidor de transmisión (LiveKit) no está configurado en editus: faltan LIVEKIT_URL, LIVEKIT_API_KEY y LIVEKIT_API_SECRET en el .env.</div>
     @endunless
+    @if (!empty($esCliente))
+        @if ($limites)
+            <div class="rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-900 px-4 py-3 mb-5 text-sm">Plan <strong>{{ $limites['nombre'] }}</strong>: hasta {{ $limites['camaras'] }} cámaras por transmisión, en las páginas de tu plan{{ empty($limites['plantillas_logo']) ? ', sin plantillas con logo' : '' }}. <a href="{{ route('suscripcion.index') }}" class="underline">Mi suscripción</a></div>
+        @else
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">Necesitas un plan activo para transmitir. <a href="{{ route('suscripcion.index') }}" class="font-semibold underline">Ver planes</a></div>
+        @endif
+    @endif
     <div id="ev-error" class="hidden rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm"></div>
 
     {{-- =============================================== 1. NUEVA TRANSMISIÓN --}}
@@ -70,7 +77,11 @@
                     <summary class="cursor-pointer select-none px-3 py-2.5 text-sm font-semibold text-gray-700">Plantilla en pantalla</summary>
                     <div class="border-t border-gray-100 p-3 grid sm:grid-cols-3 gap-3">
                         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Etiqueta</label><input name="etiqueta" value="EN VIVO" maxlength="30" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                        @if (empty($esCliente) || !empty($limites['plantillas_logo']))
                         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Logo (texto)</label><input name="logo_texto" maxlength="40" placeholder="Opanoticias" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                        @else
+                        <div class="text-[11px] text-gray-400 self-end pb-2">Logo: disponible en el plan Full</div>
+                        @endif
                         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Color de la etiqueta</label><input type="color" name="color_etiqueta" value="#C8102E" class="w-full h-10 rounded-lg border-gray-200 shadow-sm"></div>
                         <div class="sm:col-span-2"><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Pie</label><input name="pie" maxlength="60" placeholder="www.opanoticias.com" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm"></div>
                         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Hashtag</label><input name="hashtag" maxlength="40" placeholder="#Huila" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm"></div>
@@ -79,7 +90,7 @@
 
                 <div class="flex items-center justify-between gap-3 pt-1">
                     <p class="text-xs text-gray-500">Primero se abre el estudio (sala de espera). Sales al aire cuando pulses <strong>«Salir al aire»</strong>.</p>
-                    <button id="btn-preparar" class="h-11 shrink-0 rounded-xl bg-[#00024f] text-white px-5 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-50" @disabled(!$configurado)>Abrir el estudio</button>
+                    <button id="btn-preparar" class="h-11 shrink-0 rounded-xl bg-[#00024f] text-white px-5 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-50" @disabled(!$configurado || (!empty($esCliente) && !$limites))>Abrir el estudio</button>
                 </div>
             </form>
 
@@ -182,7 +193,7 @@
                 {{-- Invitar --}}
                 <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4">
                     <h3 class="text-sm font-bold text-gray-900 mb-1">Invitar una cámara</h3>
-                    <p class="text-xs text-gray-500 mb-3">Envía el enlace a un reportero o invitado: abre su cámara desde el celular o el computador, sin instalar nada.</p>
+                    <p class="text-xs text-gray-500 mb-3">Envía el enlace a un reportero o invitado: abre su cámara desde el celular o el computador, sin instalar nada.@if (!empty($esCliente) && $limites) Tu plan permite {{ $limites['camaras'] }} cámaras en total (incluida la tuya).@endif</p>
                     <div class="flex gap-2"><input id="inv-nombre" maxlength="60" placeholder="Nombre (opcional)" class="flex-1 min-w-0 h-9 rounded-lg border-gray-200 text-xs shadow-sm">
                         <button type="button" data-invitar="camara" class="h-9 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">Cámara</button>
                         <button type="button" data-invitar="pantalla" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700">Pantalla</button></div>

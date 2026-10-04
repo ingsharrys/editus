@@ -63,6 +63,14 @@ return [
         'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
 
+    // Pagos de suscripciones (Wompi). Las llaves solo en el .env.
+    'wompi' => [
+        'env' => env('WOMPI_ENV', 'sandbox'), // sandbox | production
+        'public_key' => env('WOMPI_PUBLIC_KEY', ''),
+        'integrity_secret' => env('WOMPI_INTEGRITY_SECRET', ''),
+        'events_secret' => env('WOMPI_EVENTS_SECRET', ''),
+    ],
+
     'facebook_login' => [
         'client_id' => env('FACEBOOK_LOGIN_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_LOGIN_CLIENT_SECRET'),

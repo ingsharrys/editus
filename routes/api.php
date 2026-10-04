@@ -68,3 +68,11 @@ Route::post('/subidas/video', [\App\Http\Controllers\Api\SubidasController::clas
     ->name('api.subidas.video');
 Route::post('/subidas/recurso', [\App\Http\Controllers\Api\SubidasController::class, 'recurso'])
     ->name('api.subidas.recurso');
+
+// Plugin de WordPress SharryStreem (autopost). Peticiones firmadas con la licencia del cliente.
+Route::prefix('sharrystreem/v1')->middleware('throttle:60,1')->group(function () {
+    Route::post('/activar', [\App\Http\Controllers\Api\SharryStreemController::class, 'activar'])->name('sharrystreem.activar');
+    Route::get('/estado', [\App\Http\Controllers\Api\SharryStreemController::class, 'estado'])->name('sharrystreem.estado');
+    Route::post('/desactivar', [\App\Http\Controllers\Api\SharryStreemController::class, 'desactivar'])->name('sharrystreem.desactivar');
+    Route::post('/publicar', [\App\Http\Controllers\Api\SharryStreemController::class, 'publicar'])->name('sharrystreem.publicar');
+});

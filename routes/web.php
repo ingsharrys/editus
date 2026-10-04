@@ -18,6 +18,9 @@ Route::view('/privacy', 'privacy')->name('privacy');
 // Escena que compone el egress (HTML estático en infra/en-vivo/escena; también se puede servir desde el VPS, ver LIVEKIT_ESCENA_URL)
 Route::get('/en-vivo/escena', fn() => response(file_get_contents(base_path('infra/en-vivo/escena/index.html')), 200, ['Content-Type' => 'text/html; charset=utf-8']))->name('en-vivo.escena');
 // Invitados a una transmisión (cámara remota desde el navegador, con código de invitación)
+// Eventos de pagos de Wompi (sin sesión; se valida el checksum con WOMPI_EVENTS_SECRET)
+Route::post('/webhooks/wompi', \App\Http\Controllers\WompiWebhookController::class)
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.wompi');
 Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoPagina'])->name('en-vivo.invitado');
 Route::post('/en-vivo/invitado/{codigo}/token', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoToken'])
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->name('en-vivo.invitado.token');
@@ -90,6 +93,13 @@ Route::middleware(['auth', 'role:user'])->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth'])->group(function () {
+    // Mi suscripción (planes, pago con Wompi, páginas del plan, licencia SharryStreem)
+    Route::get('/suscripcion', [\App\Http\Controllers\SuscripcionController::class, 'index'])->name('suscripcion.index');
+    Route::post('/suscripcion/pagar', [\App\Http\Controllers\SuscripcionController::class, 'pagar'])->name('suscripcion.pagar');
+    Route::get('/suscripcion/resultado', [\App\Http\Controllers\SuscripcionController::class, 'resultado'])->name('suscripcion.resultado');
+    Route::post('/suscripcion/paginas', [\App\Http\Controllers\SuscripcionController::class, 'paginas'])->name('suscripcion.paginas');
+    Route::post('/suscripcion/licencia', [\App\Http\Controllers\SuscripcionController::class, 'regenerarLicencia'])->name('suscripcion.licencia');
+    Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->name('suscripcion.sitio.liberar');
     // Estudio de transmisión en vivo en la web (mismo flujo que la app del editor)
     Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->name('en-vivo.web');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
@@ -183,6 +193,10 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');
 
         // Inteligencia de audiencia (campañas, temas, tablero, informes)
+        Route::get('/admin/suscripciones', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'index'])->name('admin.suscripciones');
+        Route::post('/admin/suscripciones/{user}/activar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'activar'])->name('admin.suscripciones.activar');
+        Route::post('/admin/suscripciones/{user}/cancelar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'cancelar'])->name('admin.suscripciones.cancelar');
+        Route::post('/admin/suscripciones/{user}/exento', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'exento'])->name('admin.suscripciones.exento');
         Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->name('inteligencia.index');
         Route::get('/admin/inteligencia/general', [\App\Http\Controllers\Admin\InteligenciaController::class, 'general'])->name('inteligencia.general');
         Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->name('inteligencia.general.recolectar.iniciar');

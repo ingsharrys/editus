@@ -115,7 +115,11 @@ class FacebookPageController extends Controller
         $campaigns = \App\Models\Campaign::selectable()->with('perfil.paginas')->get();
         $campaignPages = app(\App\Services\CampanasService::class)->mapaPaginas($campaigns);
 
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages'));
+        $planes = app(\App\Services\PlanService::class);
+        $esCliente = !$planes->sinLimites($user);
+        $planInfo = $esCliente ? ['limites' => $planes->limites($user), 'permitidas' => $planes->paginasPermitidas($user)->pluck('id')->map(fn($v) => (int) $v)->all()] : null;
+        if ($esCliente) $campaigns = collect();
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages', 'esCliente', 'planInfo'));
     }
     public function saveFavorites(Request $request)
     {
@@ -285,10 +289,17 @@ class FacebookPageController extends Controller
             'upload_max_filesize' => ini_get('upload_max_filesize'),
         ]);
 
+        // 0) Plan del cliente (el equipo interno y los administradores no tienen límites)
+        $planes = app(\App\Services\PlanService::class);
+        $esCliente = !$planes->sinLimites(auth()->user());
+        if ($esCliente && ($motivo = $planes->validarPaginas(auth()->user(), (array) $request->input('page_ids', [])))) {
+            return back()->withErrors(['page_ids' => $motivo])->withInput();
+        }
+
         // 1) Validación base
         $request->validate([
             'campaign_id' => [
-                'required',
+                $esCliente ? 'nullable' : 'required',
                 Rule::exists('campaigns', 'id')->where('is_active', 1)->where('is_system', 0),
             ],
             'type' => ['required', 'in:text,photo,video'],
@@ -371,7 +382,7 @@ class FacebookPageController extends Controller
             $postData = [
                 'batch_uuid' => $batch,
                 'user_id' => auth()->id(),
-                'campaign_id' => (int) $request->campaign_id,
+                'campaign_id' => $request->filled('campaign_id') ? (int) $request->campaign_id : null,
                 'meta_page_id' => $page->id,
                 'type' => $request->type,
                 'network' => 'facebook',
@@ -675,7 +686,7 @@ class FacebookPageController extends Controller
         $postData = [
             'batch_uuid' => $batch,
             'user_id' => auth()->id(),
-            'campaign_id' => (int) $request->campaign_id,
+            'campaign_id' => $request->filled('campaign_id') ? (int) $request->campaign_id : null,
             'meta_page_id' => $page->id,
             'type' => $request->type,
             'network' => 'instagram',

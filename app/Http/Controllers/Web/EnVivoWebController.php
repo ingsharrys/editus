@@ -43,6 +43,8 @@ class EnVivoWebController extends Controller
             'activa' => (clone $mias)->whereIn('estado', ['sala', 'en_vivo'])->first()?->paraApi(),
             'historial' => (clone $mias)->whereIn('estado', ['terminada', 'error'])->limit(8)->get()->map(fn($t) => $t->paraApi() + ['fecha' => $t->created_at?->format('d/m/Y H:i')]),
             'configurado' => $livekit->configurado(),
+            'limites' => app(\App\Services\PlanService::class)->limites($user),
+            'esCliente' => !app(\App\Services\PlanService::class)->sinLimites($user),
         ]);
     }
 
@@ -58,6 +60,11 @@ class EnVivoWebController extends Controller
         foreach ((array) ($datos['page_ids'] ?? []) as $id) {
             if (!$permitidas->has((string) $id)) return response()->json(['success' => false, 'error' => 'Alguna de las páginas elegidas no está conectada a tu cuenta de editus.'], 422);
         }
+        // Plan del cliente: páginas del plan y, en el Básico, sin logo ni marco
+        $planes = app(\App\Services\PlanService::class);
+        $ids = MetaPage::whereIn('page_id', (array) ($datos['page_ids'] ?? []))->pluck('id')->all();
+        if ($motivo = $planes->validarPaginas(Auth::user(), $ids)) return response()->json(['success' => false, 'error' => $motivo], 422);
+        if (!empty($datos['plantilla'])) $datos['plantilla'] = $this->plantillaDelPlan($datos['plantilla']);
         $this->preferir();
         $r = $this->api->preparar(new Request($datos + ['usuario' => null]));
         $json = $r->getData(true);
@@ -83,7 +90,9 @@ class EnVivoWebController extends Controller
     public function plantilla(Request $request, TransmisionEnVivo $transmision): JsonResponse
     {
         $this->propia($transmision);
-        return $this->api->plantilla(new Request($request->all()), $transmision);
+        $datos = $request->all();
+        if (isset($datos['plantilla']) && is_array($datos['plantilla'])) $datos['plantilla'] = $this->plantillaDelPlan($datos['plantilla']);
+        return $this->api->plantilla(new Request($datos), $transmision);
     }
 
     public function invitacion(Request $request, TransmisionEnVivo $transmision): JsonResponse
@@ -124,12 +133,24 @@ class EnVivoWebController extends Controller
     private function paginasPermitidas(): Collection
     {
         $user = Auth::user();
+        $delPlan = app(\App\Services\PlanService::class)->paginasPermitidas($user);
+        if ($delPlan !== null) return $delPlan->sortBy('name')->values();
         return MetaPage::query()
             ->whereHas('vinculos', function ($q) use ($user) {
                 $q->where('is_active', 1)->whereNotNull('page_access_token');
                 if (!$user->isAdmin()) $q->where('user_id', $user->id);
             })
             ->orderBy('name')->get();
+    }
+
+    /** El plan Básico no permite plantillas con logo: se quitan logo, logo en imagen y marco. */
+    private function plantillaDelPlan(array $p): array
+    {
+        $lim = app(\App\Services\PlanService::class)->limites(Auth::user());
+        if ($lim && empty($lim['plantillas_logo'])) {
+            $p['logo_texto'] = ''; $p['logo_url'] = ''; $p['marco_url'] = '';
+        }
+        return $p;
     }
 
     private function propia(TransmisionEnVivo $t): void

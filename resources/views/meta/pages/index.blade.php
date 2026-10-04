@@ -330,6 +330,17 @@
             
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm space-y-6">
             
+                @if (!empty($esCliente))
+                    @php $lim = $planInfo['limites'] ?? null; @endphp
+                    <div class="rounded-xl {{ $lim ? 'border border-indigo-200 bg-indigo-50 text-indigo-900' : 'border border-amber-200 bg-amber-50 text-amber-900' }} px-4 py-3 text-sm">
+                        @if ($lim)
+                            Plan <strong>{{ $lim['nombre'] }}</strong>: publicas en {{ count($planInfo['permitidas']) }} de {{ $lim['paginas'] }} página(s).
+                            <a href="{{ route('suscripcion.index') }}" class="underline">Elegir páginas del plan</a>
+                        @else
+                            Necesitas un plan activo para publicar. <a href="{{ route('suscripcion.index') }}" class="font-semibold underline">Ver planes</a>
+                        @endif
+                    </div>
+                @else
                 <!-- CAMPAÑA (obligatoria) -->
                 <div>
                     <h3 class="text-sm font-semibold text-gray-800 mb-2">
@@ -353,6 +364,7 @@
                         @endif
                     </p>
                 </div>
+                @endif
 
                 <!-- REDES DESTINO -->
                 <div>
