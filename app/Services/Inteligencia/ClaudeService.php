@@ -104,9 +104,9 @@ class ClaudeService
      */
     public function investigar(string $sistema, string $usuario, array $ubicacion = [], int $maxBusquedas = 3, int $maxTokens = 12000): array
     {
+        // Sin user_location: la búsqueda web no admite Colombia como ubicación ("Country code CO is not
+        // supported"). El territorio va en las instrucciones, así que los resultados igual se centran en él.
         $herramienta = ['type' => 'web_search_20260209', 'name' => 'web_search', 'maxUses' => $maxBusquedas];
-        $ubicacion = array_filter($ubicacion);
-        if ($ubicacion) $herramienta['userLocation'] = ['type' => 'approximate'] + $ubicacion + ['timezone' => 'America/Bogota'];
 
         $mensaje = $this->cliente()->beta->messages->create(
             model: $this->modelo(),
