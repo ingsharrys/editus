@@ -60,6 +60,7 @@ class InteligenciaRecolectar extends Command
             if ($r['errores']) $conError++;
             $this->line(sprintf('%s%s: FB %s días, IG %s días, %d publicaciones, %d métricas%s', $enCampanas->contains($p->id) ? '★ ' : '', $p->name, $r['facebook'] ?? '-', $r['instagram'] ?? '-', $r['publicaciones'], $r['metricas'],
                 $r['errores'] ? ' · errores: ' . implode(' | ', $r['errores']) : ''));
+            foreach ($r['avisos'] ?? [] as $a) $this->warn('   aviso: ' . $a);
             if ($pausa > 0 && $i < $paginas->count() - 1) sleep($pausa);
         }
         $this->info(sprintf('Listo: %d página(s), %d con errores.', $paginas->count(), $conError));

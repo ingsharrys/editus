@@ -25,19 +25,30 @@
                     @if ($sinDatos) · <span class="text-amber-700">{{ $sinDatos }} página(s) aún sin histórico</span> @endif
                 </p>
             </div>
-            <form method="POST" action="{{ route('inteligencia.general.recolectar') }}" class="flex items-center gap-2">
-                @csrf
-                <input type="hidden" name="medio" value="{{ $medio }}">
-                @foreach ($idsFiltro as $id)<input type="hidden" name="paginas[]" value="{{ $id }}">@endforeach
-                <input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><input type="hidden" name="tab" value="{{ $tab }}">
-                <select name="dias" class="h-10 rounded-xl border-gray-200 text-sm shadow-sm"><option value="7">últimos 7 días</option><option value="30">últimos 30 días</option></select>
-                <button class="h-10 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 whitespace-nowrap">⟳ Recolectar ahora</button>
-            </form>
+            <div class="flex items-center gap-2" id="recoleccion-controles">
+                <select id="rec-dias" class="h-10 rounded-xl border-gray-200 text-sm shadow-sm"><option value="7">últimos 7 días</option><option value="30">últimos 30 días</option></select>
+                <button type="button" id="rec-boton" class="h-10 rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 whitespace-nowrap">⟳ Recolectar ahora</button>
+            </div>
         </div>
     </div>
 
     @if (session('success'))<div class="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 px-4 py-3 mb-4 text-sm">{{ session('success') }}</div>@endif
     @if (session('error'))<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-4 text-sm">{{ session('error') }}</div>@endif
+
+    {{-- Progreso de la recolección (página por página) --}}
+    <div id="rec-panel" class="hidden rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-4 mb-5">
+        <div class="flex items-center justify-between gap-3 mb-2">
+            <div class="text-sm font-semibold text-gray-800" id="rec-titulo">Recolectando…</div>
+            <div class="text-xs text-gray-500" id="rec-contador">0 / 0</div>
+        </div>
+        <div class="h-2 w-full rounded-full bg-gray-100 overflow-hidden"><div id="rec-barra" class="h-2 rounded-full bg-[#00024f] transition-all" style="width: 0%"></div></div>
+        <div id="rec-avisos" class="hidden mt-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-xs"></div>
+        <div id="rec-log" class="mt-3 max-h-56 overflow-auto divide-y divide-gray-100 text-xs"></div>
+        <div class="mt-3 flex items-center gap-2">
+            <button type="button" id="rec-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Ver los datos nuevos</button>
+            <button type="button" id="rec-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">Detener</button>
+        </div>
+    </div>
 
     {{-- Filtros --}}
     <form method="GET" action="{{ route('inteligencia.general') }}" class="rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-3 mb-5 flex flex-wrap items-end gap-3 text-sm">
@@ -298,6 +309,43 @@
     tabla.querySelectorAll('th').forEach(t => delete t.dataset.asc); th.dataset.asc = asc ? '0' : '1';
   }));
   document.addEventListener('click', e => { document.querySelectorAll('details[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; }); });
+
+  // Recolección página por página con avance visible (cada paso es una petición corta)
+  const boton = g('rec-boton');
+  if (boton) {
+    const csrf = document.querySelector('meta[name="csrf-token"]').content;
+    const filtros = { medio: @json($medio), paginas: @json($idsFiltro) };
+    let detener = false;
+    const post = async (url, body) => { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body || {}) }); return r.json(); };
+    const avisosVistos = new Set();
+    boton.addEventListener('click', async () => {
+      detener = false; boton.disabled = true; boton.textContent = 'Recolectando…';
+      const panel = g('rec-panel'); panel.classList.remove('hidden'); g('rec-log').innerHTML = ''; g('rec-avisos').classList.add('hidden'); g('rec-avisos').innerHTML = ''; g('rec-recargar').classList.add('hidden'); g('rec-detener').classList.remove('hidden');
+      let ini;
+      try { ini = await post(@json(route('inteligencia.general.recolectar.iniciar')), { dias: g('rec-dias').value, medio: filtros.medio, paginas: filtros.paginas }); } catch (e) { ini = null; }
+      if (!ini || !ini.success) { g('rec-titulo').textContent = 'No se pudo iniciar la recolección.'; boton.disabled = false; boton.textContent = '⟳ Recolectar ahora'; return; }
+      g('rec-titulo').textContent = 'Recolectando ' + ini.total + ' página(s), ' + ini.dias + ' días hacia atrás…'; g('rec-contador').textContent = '0 / ' + ini.total;
+      let hecho = 0, errores = 0;
+      while (!detener) {
+        let d;
+        try { d = await post(@json(route('inteligencia.general.recolectar.paso'))); } catch (e) { d = { success: false, error: 'Se perdió la conexión con el servidor; vuelve a pulsar el botón para continuar.' }; }
+        if (!d.success) { g('rec-titulo').textContent = d.error || 'Error en la recolección.'; break; }
+        if (d.linea) {
+          const l = d.linea; const fila = document.createElement('div'); fila.className = 'py-1.5 flex gap-2';
+          fila.innerHTML = '<span class="' + (l.ok ? 'text-emerald-600' : 'text-rose-600') + '">' + (l.ok ? '✓' : '✕') + '</span><span class="font-semibold text-gray-800">' + l.pagina + '</span><span class="text-gray-500">' + l.detalle + '</span>';
+          g('rec-log').prepend(fila);
+          (l.avisos || []).forEach(a => { if (!avisosVistos.has(a)) { avisosVistos.add(a); const p = document.createElement('div'); p.textContent = '⚠ ' + a; g('rec-avisos').appendChild(p); g('rec-avisos').classList.remove('hidden'); } });
+        }
+        hecho = d.hecho; errores = d.errores; g('rec-contador').textContent = hecho + ' / ' + d.total; g('rec-barra').style.width = (d.total ? Math.round(100 * hecho / d.total) : 100) + '%';
+        if (d.terminado) { g('rec-titulo').textContent = 'Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con errores' : '') + '.'; break; }
+      }
+      if (detener) g('rec-titulo').textContent = 'Detenido en ' + hecho + ' página(s). Los datos recogidos hasta aquí ya quedaron guardados.';
+      g('rec-detener').classList.add('hidden'); g('rec-recargar').classList.remove('hidden');
+      boton.disabled = false; boton.textContent = '⟳ Recolectar ahora';
+    });
+    g('rec-detener').addEventListener('click', () => { detener = true; });
+    g('rec-recargar').addEventListener('click', () => location.reload());
+  }
 })();
 </script>
 @endsection

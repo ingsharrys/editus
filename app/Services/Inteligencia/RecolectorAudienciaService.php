@@ -23,9 +23,13 @@ class RecolectorAudienciaService
     }
 
     /** Recolecta todo para una página. Devuelve un resumen por paso (errores incluidos, nunca lanza). */
+    /** Avisos de la recolección en curso: métricas que Meta rechazó y por qué (no detienen la recolección). */
+    private array $avisos = [];
+
     public function recolectar(MetaPage $page, int $dias = 7): array
     {
-        $resumen = ['pagina' => $page->name, 'facebook' => null, 'instagram' => null, 'publicaciones' => 0, 'metricas' => 0, 'errores' => []];
+        $this->avisos = [];
+        $resumen = ['pagina' => $page->name, 'facebook' => null, 'instagram' => null, 'publicaciones' => 0, 'metricas' => 0, 'errores' => [], 'avisos' => []];
         $token = $this->tokens->forPage($page->page_id);
         if (!$token) {
             $resumen['errores'][] = 'Sin token activo';
@@ -44,7 +48,8 @@ class RecolectorAudienciaService
         }
         try { $resumen['metricas'] = $this->actualizarMetricas($page); } catch (\Throwable $e) { $resumen['errores'][] = 'Métricas: ' . $e->getMessage(); }
 
-        if ($resumen['errores']) Log::warning('[inteligencia] recolección con errores', $resumen);
+        $resumen['avisos'] = array_slice(array_values(array_unique($this->avisos)), 0, 5);
+        if ($resumen['errores'] || $resumen['avisos']) Log::warning('[inteligencia] recolección con errores o avisos', $resumen);
         return $resumen;
     }
 
@@ -215,7 +220,9 @@ class RecolectorAudienciaService
         $n = 0;
         foreach ($pubs as $p) {
             $r = $porId[$p->red . ':' . $p->post_id] ?? null;
+            if ($r && !empty($r['error']) && !isset($this->avisos['pub:' . $p->red])) $this->avisos['pub:' . $p->red] = 'métricas de publicaciones (' . $p->red . '): ' . $r['error'];
             if (!$r || empty($r['ok'])) continue;
+            if ($r['alcance'] === null && !isset($this->avisos['alcance:' . $p->red])) $this->avisos['alcance:' . $p->red] = 'Meta no entregó el alcance de las publicaciones de ' . $p->red . ' (revisa el permiso read_insights del token de la página)';
             $interacciones = (int) ($r['reacciones'] ?? 0) + (int) ($r['comentarios'] ?? 0) + (int) ($r['compartidos'] ?? 0) + (int) ($r['guardados'] ?? 0);
             $p->fill([
                 'alcance' => $r['alcance'], 'impresiones' => $r['impresiones'], 'interacciones' => $r['interacciones'] ?? $interacciones,
@@ -237,8 +244,12 @@ class RecolectorAudienciaService
         } catch (\Throwable) {
             $out = [];
             foreach ($metricas as $m) {
-                $r = $this->graph->intentar("{$objeto}/insights", $params + ['metric' => $m], $token);
-                if ($r) $out += GraphClient::insightsPorFecha($r);
+                try {
+                    $out += GraphClient::insightsPorFecha($this->graph->get("{$objeto}/insights", $params + ['metric' => $m], $token));
+                } catch (\Throwable $e) {
+                    // Se guarda el motivo para mostrarlo al administrador (permiso faltante, métrica retirada por Meta…)
+                    $this->avisos[$m] = $m . ': ' . preg_replace('/^Meta [^:]+: /', '', $e->getMessage());
+                }
             }
             return $out;
         }
