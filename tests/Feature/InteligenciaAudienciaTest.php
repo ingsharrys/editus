@@ -73,7 +73,8 @@ class InteligenciaAudienciaTest extends TestCase
                 if (str_contains($m, 'page_fans_online')) return Http::response(['data' => [['name' => 'page_fans_online', 'period' => 'day', 'values' => [['value' => ['19' => 300, '20' => 420, '8' => 100], 'end_time' => Carbon::today()->format('Y-m-d\T07:00:00+0000')]]]]]);
                 // Grupo diario: una métrica "ya no existe" → el recolector reintenta una por una
                 if (str_contains($m, ',')) return Http::response(['error' => ['message' => '(#100) page_views_total is not valid']], 400);
-                $uno = ['page_impressions_unique' => [1000, 1500, 2000], 'page_impressions' => [1500, 2200, 3000], 'page_post_engagements' => [50, 90, 160], 'page_follows' => [5000, 5010, 5030], 'page_daily_follows_unique' => [3, 10, 20]];
+                // Meta actual: alcance = page_total_media_view_unique; las impresiones antiguas ya no existen (se prueba el respaldo a page_impressions)
+                $uno = ['page_total_media_view_unique' => [1000, 1500, 2000], 'page_impressions' => [1500, 2200, 3000], 'page_post_engagements' => [50, 90, 160], 'page_follows' => [5000, 5010, 5030], 'page_daily_follows_unique' => [3, 10, 20]];
                 if (isset($uno[$m])) return Http::response(['data' => [$dia($m, $uno[$m])]]);
                 return Http::response(['error' => ['message' => "(#100) {$m} is not valid"]], 400);
             },
@@ -81,8 +82,15 @@ class InteligenciaAudienciaTest extends TestCase
                 ['id' => '111_1', 'message' => 'Capturan a tres por robo en el centro de Neiva', 'created_time' => Carbon::now()->subDays(1)->setTime(19, 30)->toIso8601String(), 'permalink_url' => 'https://fb.com/1', 'attachments' => ['data' => [['media_type' => 'photo', 'type' => 'photo']]]],
                 ['id' => '111_2', 'message' => 'Feria de empleo este sábado: 300 vacantes', 'created_time' => Carbon::now()->subDays(2)->setTime(8, 0)->toIso8601String(), 'permalink_url' => 'https://fb.com/2', 'attachments' => ['data' => [['media_type' => 'video', 'type' => 'video_inline']]]],
             ]]),
-            'graph.facebook.com/v23.0/111_1/insights*' => Http::response(['data' => [['name' => 'post_impressions', 'values' => [['value' => 3000]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 2500]]]]]),
-            'graph.facebook.com/v23.0/111_2/insights*' => Http::response(['data' => [['name' => 'post_impressions', 'values' => [['value' => 1200]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 1000]]]]]),
+            // 111_1 ya entrega las métricas nuevas; 111_2 solo las antiguas (respaldo)
+            'graph.facebook.com/v23.0/111_1/insights*' => fn($req) => str_contains((string) ($req['metric'] ?? ''), 'post_media_view')
+                ? Http::response(['data' => [['name' => 'post_media_view', 'values' => [['value' => 3000]]], ['name' => 'post_total_media_view_unique', 'values' => [['value' => 2500]]]]])
+                : Http::response(['error' => ['message' => '(#100) post_impressions is deprecated']], 400),
+            'graph.facebook.com/v23.0/111_2/insights*' => fn($req) => str_contains((string) ($req['metric'] ?? ''), 'post_media_view')
+                ? Http::response(['error' => ['message' => '(#100) Invalid metric']], 400)
+                : Http::response(['data' => [['name' => 'post_impressions', 'values' => [['value' => 1200]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 1000]]]]]),
+            // Video 111_2: sin "metric" Meta devuelve el conjunto vigente
+            'graph.facebook.com/v23.0/111_2/video_insights*' => Http::response(['data' => [['name' => 'total_video_views', 'values' => [['value' => 640]]], ['name' => 'post_impressions_unique', 'values' => [['value' => 1000]]]]]),
             'graph.facebook.com/v23.0/111_1?*' => Http::response(['reactions' => ['summary' => ['total_count' => 120]], 'comments' => ['summary' => ['total_count' => 30]], 'shares' => ['count' => 10]]),
             'graph.facebook.com/v23.0/111_2?*' => Http::response(['reactions' => ['summary' => ['total_count' => 20]], 'comments' => ['summary' => ['total_count' => 2]], 'shares' => ['count' => 1]]),
             'graph.facebook.com/v23.0/111_1/comments*' => Http::response(['data' => array_map(fn($i) => ['message' => "Comentario número {$i} sobre la seguridad"], range(1, 8))]),

@@ -58,9 +58,19 @@ class RecolectorAudienciaService
     private function diarioFacebook(MetaPage $page, string $token, Carbon $desde, Carbon $hasta): int
     {
         $rango = ['period' => 'day', 'since' => $desde->timestamp, 'until' => $hasta->copy()->addDay()->timestamp];
-        // Métricas diarias: se piden en grupo y, si Meta rechaza alguna, una por una
-        $diarias = ['page_impressions_unique', 'page_impressions', 'page_post_engagements', 'page_follows', 'page_daily_follows_unique', 'page_views_total'];
+        // Métricas diarias: se piden en grupo y, si Meta rechaza alguna, una por una.
+        // Meta retiró page_impressions (nov. 2025) y page_impressions_unique (jun. 2026): ahora son
+        // page_media_view y page_total_media_view_unique. Si la página aún no las entrega, se prueban las antiguas.
+        $diarias = ['page_total_media_view_unique', 'page_media_view', 'page_post_engagements', 'page_follows', 'page_daily_follows_unique', 'page_views_total'];
         $datos = $this->insightsTolerante($page->page_id, $diarias, $rango, $token);
+        if (empty($datos['page_total_media_view_unique']) || empty($datos['page_media_view'])) {
+            $antiguas = $this->insightsTolerante($page->page_id, array_values(array_filter(['page_impressions_unique', 'page_impressions'], fn($m) => empty($datos[$m === 'page_impressions_unique' ? 'page_total_media_view_unique' : 'page_media_view']))), $rango, $token);
+            $datos['page_total_media_view_unique'] = $datos['page_total_media_view_unique'] ?? $antiguas['page_impressions_unique'] ?? [];
+            $datos['page_media_view'] = $datos['page_media_view'] ?? $antiguas['page_impressions'] ?? [];
+            // Si las nuevas fallaron pero las antiguas respondieron, el aviso de las nuevas sobra
+            if (!empty($antiguas['page_impressions_unique'])) unset($this->avisos['page_total_media_view_unique']);
+            if (!empty($antiguas['page_impressions'])) unset($this->avisos['page_media_view']);
+        }
 
         // Demografía y horarios (lifetime / último día)
         $demo = $this->insightsTolerante($page->page_id, ['page_fans_gender_age', 'page_fans_city', 'page_fans_country'], ['period' => 'lifetime'], $token);
@@ -79,8 +89,8 @@ class RecolectorAudienciaService
         $primera = true;
         foreach (array_keys($fechas) as $fecha) {
             $fila = [
-                'alcance' => self::entero($datos['page_impressions_unique'][$fecha] ?? null),
-                'impresiones' => self::entero($datos['page_impressions'][$fecha] ?? null),
+                'alcance' => self::entero($datos['page_total_media_view_unique'][$fecha] ?? null),
+                'impresiones' => self::entero($datos['page_media_view'][$fecha] ?? null),
                 'interacciones' => self::entero($datos['page_post_engagements'][$fecha] ?? null),
                 'seguidores' => self::entero($datos['page_follows'][$fecha] ?? null),
                 'nuevos_seguidores' => self::entero($datos['page_daily_follows_unique'][$fecha] ?? null),
@@ -208,7 +218,9 @@ class RecolectorAudienciaService
     {
         $pubs = PublicacionRed::where('meta_page_id', $page->id)
             ->where('publicado_en', '>=', now()->subDays(30))
-            ->where(fn($q) => $q->whereNull('metricas_en')->orWhere('metricas_en', '<', now()->subHours(12)))
+            // También las que quedaron sin alcance (p. ej. recolectadas antes del cambio de métricas de Meta): se reintentan cada hora
+            ->where(fn($q) => $q->whereNull('metricas_en')->orWhere('metricas_en', '<', now()->subHours(12))
+                ->orWhere(fn($w) => $w->whereNull('alcance')->where('metricas_en', '<', now()->subHour())))
             ->orderByDesc('publicado_en')->limit($limite)->get();
         if ($pubs->isEmpty()) return 0;
 
