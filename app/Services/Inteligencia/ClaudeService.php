@@ -36,7 +36,7 @@ class ClaudeService
             maxTokens: $maxTokens,
             system: [['type' => 'text', 'text' => $sistema, 'cacheControl' => ['type' => 'ephemeral']]],
             messages: [['role' => 'user', 'content' => $usuario]],
-            outputConfig: ['format' => ['type' => 'json_schema', 'schema' => $esquema], 'effort' => $effort],
+            outputConfig: ['format' => ['type' => 'json_schema', 'schema' => self::esquemaCompatible($esquema)], 'effort' => $effort],
             betas: ['server-side-fallback-2026-07-01'],
             fallbacks: 'default',
             requestOptions: ['timeout' => 240.0],
@@ -49,6 +49,29 @@ class ClaudeService
             }
         }
         throw new \RuntimeException('La IA no devolvió un JSON válido');
+    }
+
+    /**
+     * La salida estructurada de Claude no acepta límites numéricos, de longitud ni de cantidad
+     * (minimum, maximum, maxLength, maxItems…): se quitan del esquema y los valores se acotan
+     * en el código que recibe la respuesta.
+     */
+    public static function esquemaCompatible(array $esquema): array
+    {
+        $quitar = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minLength', 'maxLength', 'maxItems', 'uniqueItems', 'pattern'];
+        $limpio = [];
+        foreach ($esquema as $k => $v) {
+            if (is_string($k) && in_array($k, $quitar, true)) continue;
+            if ($k === 'minItems' && is_int($v) && $v > 1) continue;
+            $limpio[$k] = is_array($v) ? self::esquemaCompatible($v) : $v;
+        }
+        // "type": ["integer", "null"] → anyOf (forma que la salida estructurada documenta)
+        if (isset($limpio['type']) && is_array($limpio['type']) && array_is_list($limpio['type'])) {
+            $tipos = $limpio['type'];
+            unset($limpio['type']);
+            $limpio['anyOf'] = array_map(fn($t) => ['type' => $t], $tipos);
+        }
+        return $limpio;
     }
 
     /** Pide un texto largo (markdown). */
