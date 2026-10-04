@@ -86,16 +86,15 @@
                 </a>
             @empty
                 <div class="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
-                    Aún no hay campañas. Crea la primera con el formulario de la derecha: elige las páginas y escribe los temas que quieres seguir.
+                    Aún no hay campañas. Cuando se creen en el módulo Campañas aparecerán aquí para analizarlas.
                 </div>
             @endforelse
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 class="text-base font-bold text-gray-900 mb-1">Las campañas se crean en Campañas</h2>
-            <p class="text-xs text-gray-500 mb-4">Allí defines el nombre, el tipo, los medios donde se publica y el contexto que lee la IA. Aparecen aquí automáticamente para analizarlas.</p>
-            <a href="{{ route('campaigns.create') }}" class="w-full h-10 inline-flex items-center justify-center rounded-lg bg-[#00024f] text-white font-semibold text-sm hover:opacity-90 shadow-sm">+ Nueva campaña</a>
-            <a href="{{ route('campaigns.index') }}" class="w-full h-10 mt-2 inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 font-medium text-sm hover:bg-gray-50">Ver todas las campañas</a>
+            <h2 class="text-base font-bold text-gray-900 mb-1">Cómo funciona</h2>
+            <p class="text-xs text-gray-500 mb-4">Aquí solo se <strong>analizan</strong> las campañas. Se crean y se editan únicamente en el módulo <strong>Campañas</strong> (nombre, tipo, medios donde se publica y contexto para la IA) y aparecen aquí solas.</p>
+            <a href="{{ route('campaigns.index') }}" class="w-full h-10 inline-flex items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-700 font-medium text-sm hover:bg-gray-50">Ir al módulo Campañas</a>
             <div class="mt-5 rounded-xl bg-gray-50 p-3 text-xs text-gray-600 space-y-1.5">
                 <div><strong class="text-gray-800">Cada madrugada:</strong> se recolectan los datos de todas las páginas y la IA clasifica y lee los comentarios de las campañas activas.</div>
                 <div><strong class="text-gray-800">Esnoticia:</strong> cubre todos los medios, así que su análisis con IA se hace solo cuando lo pidas desde la campaña.</div>

@@ -138,8 +138,8 @@ class CampanasUnificadasTest extends TestCase
         $this->actingAs($this->admin)->post("/campanas/{$esn->id}/toggle")->assertStatus(403);
 
         // Inteligencia ya no crea campañas y muestra todas, incluida Esnoticia
-        $r = $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Las campañas se crean en Campañas')->assertSee('Esnoticia')->assertSee('Ferretería El Tornillo');
-        $r->assertDontSee('name="temas"', false);
+        $r = $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Se crean y se editan únicamente en el módulo')->assertSee('Esnoticia')->assertSee('Ferretería El Tornillo');
+        $r->assertDontSee('name="temas"', false)->assertDontSee(route('campaigns.create'), false);
         $this->actingAs($this->admin)->get('/admin/inteligencia/' . $c->perfil->id . '?tab=config')->assertOk()->assertSee('Editar en Campañas');
         $this->actingAs($this->admin)->get('/admin/inteligencia/' . $esn->perfil->id . '?tab=config')->assertOk()->assertSee('La campaña de sistema no se edita');
     }
