@@ -14,6 +14,10 @@ use App\Services\Inteligencia\ClasificadorService;
 use App\Services\Inteligencia\ClaudeService;
 use App\Services\Inteligencia\ComentariosService;
 use App\Services\Inteligencia\ConsultorService;
+use App\Services\Inteligencia\DiagnosticoService;
+use App\Services\Inteligencia\Enfoque;
+use App\Services\Inteligencia\InteligenciaAvanzadaService;
+use App\Models\DiagnosticoIa;
 use App\Models\ConsultaIa;
 use App\Services\Inteligencia\InformeService;
 use App\Services\Inteligencia\RadarWebService;
@@ -66,23 +70,7 @@ class InteligenciaController extends Controller
             'desde' => ['nullable', 'date'], 'hasta' => ['nullable', 'date'],
         ]);
         [$desde, $hasta] = $this->rangoFechas($request);
-        $campana = !empty($d['campana_id']) ? Campana::with('paginas', 'temas')->find($d['campana_id']) : null;
-        if ($campana) {
-            $paginas = $campana->paginas;
-            $temas = $campana->temas;
-            $ambito = ['tipo' => 'campana', 'titulo' => $campana->nombre];
-        } else {
-            $medio = trim((string) ($d['medio'] ?? ''));
-            $idsFiltro = array_values(array_filter(array_map('intval', (array) ($d['paginas'] ?? []))));
-            $paginas = $this->paginasConDatos()
-                ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
-                ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
-                ->values();
-            $temas = Tema::all();
-            $medios = (array) config('services.editus.medios', []);
-            $titulo = $idsFiltro ? ($paginas->count() === 1 ? $paginas->first()?->name : $paginas->count() . ' páginas elegidas') : ($medio !== '' ? ($medios[$medio] ?? $medio) : 'Toda la organización');
-            $ambito = ['tipo' => 'general', 'titulo' => $titulo, 'medio' => $medio ?: null, 'paginas' => $idsFiltro];
-        }
+        [$paginas, $temas, $ambito, $campana] = $this->alcance($d);
         try {
             $consulta = $consultor->consultar(trim($d['pregunta']), $paginas, $temas, $desde, $hasta, $ambito, $campana, auth()->id());
         } catch (\Throwable $e) {
@@ -90,6 +78,72 @@ class InteligenciaController extends Controller
             return response()->json(['success' => false, 'error' => 'No se pudo consultar a la IA: ' . ClaudeService::mensajeError($e)], 422);
         }
         return response()->json(['success' => true, 'consulta' => $consulta->load('user', 'campana')->paraVista()]);
+    }
+
+    /**
+     * Páginas, temas y descripción del alcance pedido: una campaña (campana_id) o la vista
+     * general filtrada por medio o por páginas. Lo usan el consultor, el diagnóstico y el simulador.
+     */
+    private function alcance(array $d): array
+    {
+        $campana = !empty($d['campana_id']) ? Campana::with('paginas', 'temas', 'campaign')->find($d['campana_id']) : null;
+        if ($campana) return [$campana->paginas, $campana->temas, ['tipo' => 'campana', 'titulo' => $campana->nombre], $campana];
+        $medio = trim((string) ($d['medio'] ?? ''));
+        $idsFiltro = array_values(array_filter(array_map('intval', (array) ($d['paginas'] ?? []))));
+        $paginas = $this->paginasConDatos()
+            ->when($medio !== '', fn($c) => $c->where('medio_slug', $medio))
+            ->when($idsFiltro, fn($c) => $c->whereIn('id', $idsFiltro))
+            ->values();
+        $medios = (array) config('services.editus.medios', []);
+        $titulo = $idsFiltro ? ($paginas->count() === 1 ? $paginas->first()?->name : $paginas->count() . ' páginas elegidas') : ($medio !== '' ? ($medios[$medio] ?? $medio) : 'Toda la organización');
+        return [$paginas, Tema::all(), ['tipo' => 'general', 'titulo' => $titulo, 'medio' => $medio ?: null, 'paginas' => $idsFiltro], null];
+    }
+
+    /** Enfoque pedido (?enfoque=) o el que corresponde al tipo de campaña. */
+    private function enfoque(Request $request, ?Campana $campana): string
+    {
+        return Enfoque::valido($request->query('enfoque')) ?? Enfoque::deCampana($campana);
+    }
+
+    private function diagnosticosRecientes(?int $campanaId, int $limite = 8): array
+    {
+        if (!\Illuminate\Support\Facades\Schema::hasTable('diagnosticos_ia')) return [];
+        return DiagnosticoIa::with('user')->when($campanaId, fn($q) => $q->where('campana_id', $campanaId), fn($q) => $q->whereNull('campana_id'))
+            ->orderByDesc('id')->limit($limite)->get()->map(fn($x) => $x->paraVista())->all();
+    }
+
+    /** POST (JSON): diagnóstico estratégico con IA del alcance y periodo elegidos, según el enfoque. */
+    public function diagnosticar(Request $request, DiagnosticoService $diagnostico, ClaudeService $ia): \Illuminate\Http\JsonResponse
+    {
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        @set_time_limit(280);
+        $d = $request->validate([
+            'campana_id' => ['nullable', 'integer', 'exists:campanas,id'], 'enfoque' => ['required', 'in:' . implode(',', array_keys(Enfoque::NOMBRES))],
+            'medio' => ['nullable', 'string', 'max:100'], 'paginas' => ['nullable', 'array'], 'paginas.*' => ['integer'],
+            'desde' => ['nullable', 'date'], 'hasta' => ['nullable', 'date'],
+        ]);
+        [$desde, $hasta] = $this->rangoFechas($request);
+        [$paginas, $temas, $ambito, $campana] = $this->alcance($d);
+        try {
+            $x = $diagnostico->generar($paginas, $temas, $desde, $hasta, $d['enfoque'], $ambito, $campana, auth()->id());
+        } catch (\Throwable $e) {
+            \Log::warning('[inteligencia] diagnostico', ['err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => 'No se pudo hacer el diagnóstico: ' . ClaudeService::mensajeError($e)], 422);
+        }
+        return response()->json(['success' => true, 'diagnostico' => $x->load('user')->paraVista()]);
+    }
+
+    /** GET (JSON): simulador de una publicación (formato, franja, día, tema y página). */
+    public function simular(Request $request, InteligenciaAvanzadaService $avanzada): \Illuminate\Http\JsonResponse
+    {
+        $d = $request->validate([
+            'campana_id' => ['nullable', 'integer', 'exists:campanas,id'], 'medio' => ['nullable', 'string', 'max:100'], 'paginas' => ['nullable', 'array'], 'paginas.*' => ['integer'],
+            'meta_page_id' => ['nullable', 'integer'], 'formato' => ['nullable', 'string', 'max:20'], 'franja' => ['nullable', 'string', 'max:20'],
+            'dia' => ['nullable', 'integer', 'between:0,6'], 'tema_id' => ['nullable', 'integer'],
+        ]);
+        [$paginas] = $this->alcance($d);
+        if (!empty($d['meta_page_id']) && !$paginas->contains('id', (int) $d['meta_page_id'])) $d['meta_page_id'] = null;
+        return response()->json($avanzada->simular($paginas, $d));
     }
 
     private function consultasRecientes(?int $campanaId, int $limite = 15): array
@@ -119,6 +173,8 @@ class InteligenciaController extends Controller
 
         $temas = Tema::with('campana')->orderBy('nombre')->get();
         $tablero = $analisis->tableroPaginas($paginas, $temas, $desde, $hasta);
+        $enfoque = $this->enfoque($request, null);
+        $avanzado = app(InteligenciaAvanzadaService::class)->analizar($paginas, $temas, $desde, $hasta, $enfoque, $tablero);
 
         // Comparativa: cada campaña activa frente al total de la organización
         $total = $tablero['resumen'];
@@ -141,8 +197,9 @@ class InteligenciaController extends Controller
             'tablero' => $tablero, 'desde' => $desde, 'hasta' => $hasta, 'publicaciones' => $publicaciones, 'comparativa' => $comparativa,
             'universo' => $universo, 'paginas' => $paginas, 'medios' => $medios, 'medio' => $medio, 'idsFiltro' => $idsFiltro,
             'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion, 'sinDatos' => $sinDatos,
-            'tab' => in_array($request->query('tab'), ['resumen', 'paginas', 'audiencia', 'horarios', 'comentarios', 'publicaciones', 'consultor'], true) ? $request->query('tab') : 'resumen',
+            'tab' => self::pestana($request->query('tab'), ['panorama', 'emociones', 'comportamiento', 'tendencias', 'paginas', 'audiencia', 'diagnostico', 'publicaciones', 'consultor']),
             'consultas' => $this->consultasRecientes(null), 'ejemplosConsulta' => ConsultorService::ejemplos(),
+            'enfoque' => $enfoque, 'avanzado' => $avanzado, 'diagnosticos' => $this->diagnosticosRecientes(null), 'temas' => $temas,
         ]);
     }
 
@@ -241,6 +298,8 @@ class InteligenciaController extends Controller
         [$desde, $hasta] = $this->rango($request, $campana);
         $tablero = $analisis->tablero($campana, $desde, $hasta);
         $campana->load('paginas', 'temas', 'campaign');
+        $enfoque = $this->enfoque($request, $campana);
+        $avanzado = app(InteligenciaAvanzadaService::class)->analizar($campana->paginas, $campana->temas, $desde, $hasta, $enfoque, $tablero);
         $publicaciones = PublicacionRed::with('tema', 'page')->whereIn('meta_page_id', $campana->paginas->pluck('id'))
             ->whereBetween('publicado_en', [$desde->copy()->startOfDay(), $hasta->copy()->endOfDay()])
             ->orderByDesc('publicado_en')->paginate(25, ['*'], 'pubs')->withQueryString();
@@ -249,7 +308,9 @@ class InteligenciaController extends Controller
         return view('admin.inteligencia.show', [
             'campana' => $campana, 'tablero' => $tablero, 'desde' => $desde, 'hasta' => $hasta, 'publicaciones' => $publicaciones,
             'informes' => $informes, 'iaLista' => $ia->configurado(), 'ultimaRecoleccion' => $ultimaRecoleccion,
-            'paginasTodas' => MetaPage::orderBy('name')->get(), 'tab' => $request->query('tab', 'resumen'),
+            'paginasTodas' => MetaPage::orderBy('name')->get(),
+            'tab' => self::pestana($request->query('tab'), ['panorama', 'emociones', 'comportamiento', 'tendencias', 'contenido', 'audiencia', 'diagnostico', 'consultor', 'radar', 'publicaciones', 'informes', 'config']),
+            'enfoque' => $enfoque, 'avanzado' => $avanzado, 'diagnosticos' => $this->diagnosticosRecientes($campana->id),
             'consultas' => $this->consultasRecientes($campana->id), 'ejemplosConsulta' => ConsultorService::ejemplos(),
             'radares' => \Illuminate\Support\Facades\Schema::hasTable('radar_web') ? RadarWeb::where('campana_id', $campana->id)->latest()->limit(10)->get() : collect(),
             'radarId' => (int) $request->query('radar'),
@@ -441,6 +502,13 @@ class InteligenciaController extends Controller
             'paginas' => array_map('intval', $d['paginas'] ?? []),
             'temas' => array_slice($temas, 0, 30),
         ];
+    }
+
+    /** Pestaña pedida; los nombres anteriores (resumen, comentarios, pronóstico…) llevan a su nueva pestaña. */
+    private static function pestana(?string $tab, array $validas): string
+    {
+        $tab = ['resumen' => 'panorama', 'comentarios' => 'emociones', 'pronostico' => 'tendencias', 'temas' => 'contenido', 'horarios' => 'comportamiento'][$tab] ?? $tab;
+        return in_array($tab, $validas, true) ? $tab : 'panorama';
     }
 
     private function rango(Request $request, Campana $campana): array

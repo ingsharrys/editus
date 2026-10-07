@@ -234,11 +234,12 @@ class AnalisisService
     }
 
     /** Lectura agregada de comentarios en el rango: tono global, por tema, preocupaciones y palabras más repetidas. */
-    private function comentarios(Collection $pubs): array
+    public function comentarios(Collection $pubs): array
     {
         $con = $pubs->filter(fn($p) => $p->analisis);
-        $tot = ['publicaciones' => $con->count(), 'comentarios' => 0, 'a_favor' => 0, 'en_contra' => 0, 'neutro' => 0];
+        $tot = ['publicaciones' => $con->count(), 'comentarios' => 0, 'a_favor' => 0, 'en_contra' => 0, 'neutro' => 0, 'intencion' => 0];
         $preocupaciones = []; $palabras = []; $porTema = []; $resumenes = [];
+        $extras = ['preguntas' => [], 'quejas' => [], 'pedidos' => [], 'menciones' => []];
         $emociones = array_fill_keys(array_keys(ConsultorService::EMOCIONES), 0);
         foreach ($con as $p) {
             $a = $p->analisis;
@@ -246,22 +247,27 @@ class AnalisisService
             foreach ((array) ($a->emociones ?? []) as $k => $v) if (isset($emociones[$k])) $emociones[$k] += (int) $v;
             foreach ((array) $a->preocupaciones as $x) { $k = mb_strtolower(trim($x)); if ($k !== '') $preocupaciones[$k] = ($preocupaciones[$k] ?? 0) + 1; }
             foreach ((array) $a->palabras as $x) { $k = mb_strtolower(trim($x)); if ($k !== '') $palabras[$k] = ($palabras[$k] ?? 0) + 1; }
+            foreach ($extras as $campo => $_) foreach ((array) ($a->{$campo} ?? []) as $x) { $k = mb_strtolower(trim((string) $x)); if ($k !== '') $extras[$campo][$k] = ($extras[$campo][$k] ?? 0) + 1; }
+            $tot['intencion'] += (int) ($a->intencion ?? 0);
             $nombre = $p->tema?->nombre ?? 'Sin tema';
             $porTema[$nombre] ??= ['tema' => $nombre, 'comentarios' => 0, 'a_favor' => 0, 'en_contra' => 0, 'neutro' => 0];
             $porTema[$nombre]['comentarios'] += $a->total; $porTema[$nombre]['a_favor'] += $a->a_favor; $porTema[$nombre]['en_contra'] += $a->en_contra; $porTema[$nombre]['neutro'] += $a->neutro;
             if ($a->resumen) $resumenes[] = ['publicacion' => $this->pubResumen($p), 'resumen' => $a->resumen];
         }
         arsort($preocupaciones); arsort($palabras); arsort($emociones);
+        foreach ($extras as $campo => $v) { arsort($v); $extras[$campo] = array_slice($v, 0, 10, true); }
         $base = max(1, $tot['a_favor'] + $tot['en_contra'] + $tot['neutro']);
         $baseEmo = max(1, array_sum($emociones));
         return $tot + [
             'emociones' => array_map(fn($k, $v) => ['clave' => $k, 'nombre' => ConsultorService::EMOCIONES[$k], 'n' => $v, 'pct' => (int) round(100 * $v / $baseEmo)], array_keys($emociones), $emociones),
             'pct_favor' => (int) round(100 * $tot['a_favor'] / $base), 'pct_contra' => (int) round(100 * $tot['en_contra'] / $base), 'pct_neutro' => (int) round(100 * $tot['neutro'] / $base),
             'preocupaciones' => array_slice($preocupaciones, 0, 12, true),
+            'pct_intencion' => $tot['comentarios'] ? round(100 * $tot['intencion'] / $tot['comentarios'], 1) : null,
+            'favorabilidad_neta' => $tot['comentarios'] ? (int) round(100 * ($tot['a_favor'] - $tot['en_contra']) / $base) : null,
             'palabras' => array_slice($palabras, 0, 25, true),
             'por_tema' => array_values($porTema),
             'resumenes' => array_slice($resumenes, 0, 8),
-        ];
+        ] + $extras;
     }
 
     /** Tendencia por tema: tasa de interacción semanal de las últimas 8 semanas y pendiente (sube/baja/estable). */
@@ -319,7 +325,7 @@ class AnalisisService
 
     // -------------------------------------------------------------- ayudas
 
-    private function statsGrupo(Collection $g, string $nombre, ?string $color = null): array
+    public function statsGrupo(Collection $g, string $nombre, ?string $color = null): array
     {
         $n = $g->count();
         $alc = (int) $g->sum('alcance'); $int = (int) $g->sum('interacciones');
@@ -336,7 +342,7 @@ class AnalisisService
         ];
     }
 
-    private function pubResumen(PublicacionRed $p): array
+    public function pubResumen(PublicacionRed $p): array
     {
         return [
             'id' => $p->id, 'red' => $p->red, 'tipo' => $p->tipo, 'texto' => \Illuminate\Support\Str::limit(trim((string) $p->texto), 140, '…'),

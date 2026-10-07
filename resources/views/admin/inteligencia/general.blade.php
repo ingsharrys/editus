@@ -4,9 +4,12 @@
     $r = $tablero['resumen'];
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $dias = \App\Services\Inteligencia\AnalisisService::DIAS;
-    $tabs = ['resumen' => 'Resumen', 'paginas' => 'Páginas y campañas', 'audiencia' => 'Audiencia', 'horarios' => 'Horarios', 'comentarios' => 'Comentarios y emociones', 'publicaciones' => 'Publicaciones', 'consultor' => '✦ Consultor IA'];
+    $tabs = ['panorama' => 'Panorama', 'emociones' => 'Emociones', 'comportamiento' => 'Comportamiento', 'tendencias' => 'Tendencias y pronóstico', 'paginas' => 'Páginas y campañas', 'audiencia' => 'Audiencia', 'diagnostico' => '✦ Diagnóstico IA', 'consultor' => '✦ Consultor', 'publicaciones' => 'Publicaciones'];
     $filtros = array_filter(['desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'medio' => $medio ?: null, 'paginas' => $idsFiltro ?: null]);
-    $urlTab = fn($t) => route('inteligencia.general', $filtros + ['tab' => $t]);
+    $urlTab = fn($t) => route('inteligencia.general', $filtros + ['tab' => $t, 'enfoque' => $enfoque]);
+    $urlEnfoque = fn($e) => route('inteligencia.general', $filtros + ['tab' => $tab, 'enfoque' => $e]);
+    $av = $avanzado;
+    $ctx = ['medio' => $medio ?: null, 'paginas' => $idsFiltro, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString()];
     $tituloFiltro = $idsFiltro ? ($paginas->count() === 1 ? $paginas->first()->name : $paginas->count() . ' páginas elegidas') : ($medio !== '' ? ($medios[$medio] ?? $medio) : 'Toda la organización');
 @endphp
 
@@ -53,7 +56,7 @@
 
     {{-- Filtros --}}
     <form method="GET" action="{{ route('inteligencia.general') }}" class="rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-3 mb-5 flex flex-wrap items-end gap-3 text-sm">
-        <input type="hidden" name="tab" value="{{ $tab }}">
+        <input type="hidden" name="tab" value="{{ $tab }}"><input type="hidden" name="enfoque" value="{{ $enfoque }}">
         <div>
             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Medio</label>
             <select name="medio" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm w-44">
@@ -85,11 +88,13 @@
         <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 font-semibold shadow-sm">Aplicar</button>
         <div class="flex gap-1">
             @foreach ([7 => '7 días', 30 => '30 días', 90 => '90 días'] as $n => $et)
-                <a href="{{ route('inteligencia.general', array_filter(['medio' => $medio ?: null, 'paginas' => $idsFiltro ?: null]) + ['desde' => now()->subDays($n - 1)->toDateString(), 'hasta' => now()->toDateString(), 'tab' => $tab]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-50">{{ $et }}</a>
+                <a href="{{ route('inteligencia.general', array_filter(['medio' => $medio ?: null, 'paginas' => $idsFiltro ?: null]) + ['desde' => now()->subDays($n - 1)->toDateString(), 'hasta' => now()->toDateString(), 'tab' => $tab, 'enfoque' => $enfoque]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-50">{{ $et }}</a>
             @endforeach
         </div>
         @if ($medio !== '' || $idsFiltro)<a href="{{ route('inteligencia.general', ['desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'tab' => $tab]) }}" class="h-9 inline-flex items-center text-xs text-rose-600 hover:underline">Quitar filtros</a>@endif
     </form>
+
+    @include('admin.inteligencia._enfoque')
 
     {{-- Pestañas --}}
     <div class="inline-flex max-w-full overflow-x-auto rounded-xl bg-gray-200/70 p-1 gap-1 mb-5">
@@ -99,20 +104,8 @@
     </div>
 
     {{-- ============================================================ RESUMEN --}}
-    @if ($tab === 'resumen')
-        <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mb-6">
-            @foreach ([
-                ['Publicaciones', $fmt($r['publicaciones']), $r['con_tema'] . ' con tema'],
-                ['Alcance de publicaciones', $fmt($r['alcance']), 'personas únicas'],
-                ['Interacciones', $fmt($r['interacciones']), 'reacciones, comentarios, compartidos'],
-                ['Tasa de interacción', $r['tasa'] !== null ? $r['tasa'] . '%' : '—', 'por cada 100 alcanzados'],
-                ['Alcance de página / día', $fmt($r['alcance_pagina_dia']), 'suma de días'],
-                ['Seguidores', $fmt($r['seguidores']), ($r['seguidores_variacion'] >= 0 ? '+' : '') . $fmt($r['seguidores_variacion']) . ' en el periodo'],
-                ['Reproducciones', $fmt($r['reproducciones']), 'videos y reels'],
-            ] as [$t, $v, $s])
-                <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm min-w-0"><div class="text-[11px] uppercase tracking-wide text-gray-400 truncate">{{ $t }}</div><div class="text-2xl font-bold text-gray-900">{{ $v }}</div><div class="text-[11px] text-gray-400 truncate">{{ $s }}</div></div>
-            @endforeach
-        </div>
+    @if ($tab === 'panorama')
+        @include('admin.inteligencia._panorama')
 
         <div class="grid lg:grid-cols-3 gap-5">
             <div class="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
@@ -226,77 +219,24 @@
         </div>
     @endif
 
-    {{-- =========================================================== HORARIOS --}}
-    @if ($tab === 'horarios')
-        @php $h = $tablero['horarios']; $maxProm = 1; foreach ($h['matriz'] as $f) foreach ($f as $c) $maxProm = max($maxProm, (int) ($c['prom'] ?? 0)); $maxOn = 1; foreach ($h['en_linea'] as $f) foreach ($f as $v) $maxOn = max($maxOn, (int) $v); @endphp
-        <div class="grid lg:grid-cols-3 gap-5">
-            <div class="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm overflow-x-auto">
-                <h3 class="font-bold text-gray-800 mb-1">Interacción promedio según día y hora de publicación</h3>
-                <p class="text-xs text-gray-500 mb-3">Cada celda: promedio de interacciones de las publicaciones hechas en esa franja. Más oscuro = mejor.</p>
-                <table class="text-[10px]"><thead><tr><th></th>@for ($i = 0; $i < 24; $i++)<th class="font-normal text-gray-400 px-0.5">{{ $i }}</th>@endfor</tr></thead><tbody>
-                @for ($dd = 0; $dd < 7; $dd++)
-                    <tr><td class="pr-1 text-gray-600">{{ $dias[$dd] }}</td>@for ($i = 0; $i < 24; $i++)@php $c = $h['matriz'][$dd][$i]; $op = $c['prom'] ? 0.15 + 0.85 * $c['prom'] / $maxProm : 0; @endphp<td class="p-0"><div title="{{ $dias[$dd] }} {{ $i }}:00 · {{ $c['n'] }} publ. · prom {{ $c['prom'] ?? '—' }}" class="w-5 h-5 m-px rounded-sm" style="background: rgba(0,2,79,{{ $op }}); {{ !$c['n'] ? 'background:#f3f4f6' : '' }}"></div></td>@endfor</tr>
-                @endfor
-                </tbody></table>
-                <h3 class="font-bold text-gray-800 mt-6 mb-1">Seguidores en línea (dato de Meta)</h3>
-                @if ($h['en_linea'])
-                <table class="text-[10px]"><thead><tr><th></th>@for ($i = 0; $i < 24; $i++)<th class="font-normal text-gray-400 px-0.5">{{ $i }}</th>@endfor</tr></thead><tbody>
-                @for ($dd = 0; $dd < 7; $dd++)
-                    <tr><td class="pr-1 text-gray-600">{{ $dias[$dd] }}</td>@for ($i = 0; $i < 24; $i++)@php $v = (int) ($h['en_linea'][$dd][$i] ?? 0); @endphp<td class="p-0"><div title="{{ $dias[$dd] }} {{ $i }}:00 · {{ $fmt($v) }} en línea" class="w-5 h-5 m-px rounded-sm" style="background: rgba(220,38,38,{{ $v ? 0.1 + 0.9 * $v / $maxOn : 0 }})"></div></td>@endfor</tr>
-                @endfor
-                </tbody></table>
-                @else <p class="text-sm text-gray-500">Meta aún no entregó este dato para estas páginas.</p> @endif
-            </div>
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h3 class="font-bold text-gray-800 mb-2">Mejores momentos para publicar</h3>
-                @forelse ($h['mejores_publicar'] as $m)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $m['etiqueta'] }}</span><span class="text-gray-500">{{ $fmt($m['prom']) }} interac. ({{ $m['n'] }})</span></div>@empty <p class="text-sm text-gray-500">Aún no hay suficientes publicaciones.</p>@endforelse
-                <h3 class="font-bold text-gray-800 mt-5 mb-2">Cuándo hay más gente conectada</h3>
-                @forelse ($h['mejores_en_linea'] as $m)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $m['etiqueta'] }}</span><span class="text-gray-500">{{ $fmt($m['en_linea']) }}</span></div>@empty <p class="text-sm text-gray-500">Sin dato.</p>@endforelse
-            </div>
-        </div>
+    {{-- ===================================================== COMPORTAMIENTO --}}
+    @if ($tab === 'comportamiento')
+        @include('admin.inteligencia._comportamiento')
     @endif
 
-    {{-- ================================================ COMENTARIOS Y EMOCIONES --}}
-    @if ($tab === 'comentarios')
-        @php $c = $tablero['comentarios']; $maxEmo = max(1, max(array_map(fn($e) => $e['n'], $c['emociones'] ?? [[ 'n' => 0 ]]))); @endphp
-        @if (!$c['publicaciones'])
-            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm mb-4">Todavía no hay comentarios leídos por la IA en este periodo. La lectura se hace cada madrugada para las campañas activas (publicaciones con 5 o más comentarios); también puedes pedirla desde una campaña con "Clasificar y leer comentarios".</div>
-        @endif
-        <div class="grid lg:grid-cols-3 gap-5">
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
-                <h3 class="font-bold text-gray-800 mb-1">Tono general</h3>
-                <p class="text-xs text-gray-500 mb-3">{{ $fmt($c['comentarios']) }} comentarios leídos en {{ $c['publicaciones'] }} publicaciones.</p>
-                <div class="flex h-3 rounded-full overflow-hidden bg-gray-100">
-                    <div class="bg-emerald-500" style="width: {{ $c['pct_favor'] }}%"></div><div class="bg-rose-500" style="width: {{ $c['pct_contra'] }}%"></div><div class="bg-gray-300" style="width: {{ $c['pct_neutro'] }}%"></div>
-                </div>
-                <div class="flex justify-between text-xs mt-2"><span class="text-emerald-700 font-semibold">A favor {{ $c['pct_favor'] }}%</span><span class="text-rose-600 font-semibold">En contra {{ $c['pct_contra'] }}%</span><span class="text-gray-500">Neutro {{ $c['pct_neutro'] }}%</span></div>
-                <h3 class="font-bold text-gray-800 mt-5 mb-2">Emociones del público</h3>
-                @forelse (array_filter($c['emociones'] ?? [], fn($e) => $e['n'] > 0) as $e)
-                    <div class="py-1"><div class="flex justify-between text-sm"><span>{{ $e['nombre'] }}</span><span class="text-gray-500">{{ $e['pct'] }}%</span></div><div class="h-1.5 rounded bg-gray-100"><div class="h-1.5 rounded bg-[#00024f]" style="width: {{ round(100 * $e['n'] / $maxEmo) }}%"></div></div></div>
-                @empty <p class="text-sm text-gray-500">Sin lectura de emociones todavía (se agrega en cada nueva lectura de comentarios).</p> @endforelse
-            </div>
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Preocupaciones más repetidas</h3>
-                @forelse ($c['preocupaciones'] as $k => $v)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span class="truncate">{{ ucfirst($k) }}</span><span class="text-gray-400 shrink-0 ml-2">{{ $v }}</span></div>@empty <p class="text-sm text-gray-500">Sin datos.</p>@endforelse
-                <h3 class="font-bold text-gray-800 mt-5 mb-2">Palabras frecuentes</h3>
-                <div class="flex flex-wrap gap-1.5">@foreach ($c['palabras'] as $k => $v)<span class="rounded-full bg-gray-100 text-gray-700 px-2.5 py-1 text-xs">{{ $k }} <span class="text-gray-400">{{ $v }}</span></span>@endforeach</div>
-            </div>
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Por tema</h3>
-                @forelse ($c['por_tema'] as $t)
-                    @php $b = max(1, $t['a_favor'] + $t['en_contra'] + $t['neutro']); @endphp
-                    <div class="py-1.5 border-b border-gray-100"><div class="flex justify-between text-sm"><span class="truncate">{{ $t['tema'] }}</span><span class="text-gray-400 text-xs">{{ $t['comentarios'] }} coment.</span></div><div class="flex h-1.5 rounded-full overflow-hidden bg-gray-100 mt-1"><div class="bg-emerald-500" style="width: {{ round(100 * $t['a_favor'] / $b) }}%"></div><div class="bg-rose-500" style="width: {{ round(100 * $t['en_contra'] / $b) }}%"></div></div></div>
-                @empty <p class="text-sm text-gray-500">Sin datos.</p>@endforelse
-                <h3 class="font-bold text-gray-800 mt-5 mb-2">Lecturas recientes</h3>
-                @forelse ($c['resumenes'] as $x)
-                    <div class="py-2 border-b border-gray-100 text-sm"><a href="{{ $x['publicacion']['permalink'] }}" target="_blank" class="text-indigo-700 hover:underline">{{ $x['publicacion']['texto'] ?: '(sin texto)' }}</a><p class="text-xs text-gray-600 mt-1">{{ $x['resumen'] }}</p></div>
-                @empty <p class="text-sm text-gray-500">Sin lecturas todavía.</p>@endforelse
-            </div>
-        </div>
-        <div class="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4 text-sm text-gray-700 flex flex-wrap items-center justify-between gap-3">
-            <span>¿Quieres un diagnóstico y recomendaciones a partir de esto? Pregúntale al consultor.</span>
-            <a href="{{ $urlTab('consultor') }}" class="rounded-lg bg-[#00024f] text-white px-4 py-2 text-sm font-semibold">✦ Abrir el consultor IA</a>
-        </div>
+    {{-- ========================================================== EMOCIONES --}}
+    @if ($tab === 'emociones')
+        @include('admin.inteligencia._emociones')
+    @endif
+
+    {{-- ============================================== TENDENCIAS Y PRONÓSTICO --}}
+    @if ($tab === 'tendencias')
+        @include('admin.inteligencia._tendencias')
+    @endif
+
+    {{-- ===================================================== DIAGNÓSTICO IA --}}
+    @if ($tab === 'diagnostico')
+        @include('admin.inteligencia._diagnostico')
     @endif
 
     {{-- ========================================================= CONSULTOR IA --}}
@@ -399,4 +339,5 @@
   }
 })();
 </script>
+@include('admin.inteligencia._avanzado_js')
 @endsection

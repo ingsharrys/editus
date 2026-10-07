@@ -79,22 +79,27 @@ class ComentariosService
         }
         if (count($textos) < self::MINIMO) return ['ok' => false, 'motivo' => 'Meta entregó solo ' . count($textos) . ' comentario(s) con texto (se necesitan ' . self::MINIMO . ')'];
 
-        $sistema = "Eres analista de opinión pública de la campaña \"{$campana->nombre}\". Lees comentarios de redes sociales y produces una lectura AGREGADA: "
+        $enfoque = Enfoque::deCampana($campana);
+        $sistema = "Eres analista de audiencias y opinión pública para \"{$campana->nombre}\" (" . Enfoque::NOMBRES[$enfoque] . "). Lees comentarios de redes sociales y produces una lectura AGREGADA: "
             . "cuántos están a favor, en contra o neutros respecto a la publicación o al tema, cuántos comentarios expresan cada emoción "
-            . "(alegria, confianza, esperanza, enojo, miedo, tristeza, desconfianza, indiferencia: una emoción dominante por comentario), las preocupaciones que más se repiten (frases cortas, en español), "
+            . "(alegria, confianza, esperanza, enojo, miedo, tristeza, desconfianza, indiferencia: una emoción dominante por comentario), las preocupaciones que más se repiten, "
+            . "las preguntas que hace la gente, las quejas, lo que piden, las figuras públicas, instituciones, marcas o productos que mencionan, "
+            . "cuántos comentarios muestran " . Enfoque::intencion($enfoque) . ", "
             . "las palabras o expresiones más frecuentes y un resumen de 2 o 3 frases con lo que la gente pide o critica. "
-            . "No menciones nombres de personas ni cites comentarios textuales. Responde solo con el JSON pedido.";
+            . "Frases cortas en español. No menciones nombres de ciudadanos particulares ni cites comentarios textuales. Responde solo con el JSON pedido.";
         $usuario = "PUBLICACIÓN:\n" . Str::limit(trim((string) $pub->texto), 800, '…') . "\n\nCOMENTARIOS (" . count($textos) . "):\n"
             . implode("\n", array_map(fn($t, $i) => ($i + 1) . '. ' . $t, $textos, array_keys($textos)));
+        $lista = fn(int $max) => ['type' => 'array', 'items' => ['type' => 'string'], 'maxItems' => $max];
         $esquema = [
             'type' => 'object', 'additionalProperties' => false,
-            'required' => ['a_favor', 'en_contra', 'neutro', 'emociones', 'preocupaciones', 'palabras', 'resumen'],
+            'required' => ['a_favor', 'en_contra', 'neutro', 'emociones', 'preocupaciones', 'preguntas', 'quejas', 'pedidos', 'menciones', 'intencion', 'palabras', 'resumen'],
             'properties' => [
                 'a_favor' => ['type' => 'integer'], 'en_contra' => ['type' => 'integer'], 'neutro' => ['type' => 'integer'],
                 'emociones' => ['type' => 'object', 'additionalProperties' => false, 'required' => array_keys(ConsultorService::EMOCIONES),
                     'properties' => array_map(fn() => ['type' => 'integer', 'minimum' => 0], ConsultorService::EMOCIONES)],
-                'preocupaciones' => ['type' => 'array', 'items' => ['type' => 'string'], 'maxItems' => 8],
-                'palabras' => ['type' => 'array', 'items' => ['type' => 'string'], 'maxItems' => 15],
+                'preocupaciones' => $lista(8), 'preguntas' => $lista(6), 'quejas' => $lista(6), 'pedidos' => $lista(6), 'menciones' => $lista(8),
+                'intencion' => ['type' => 'integer'],
+                'palabras' => $lista(15),
                 'resumen' => ['type' => 'string'],
             ],
         ];
@@ -105,10 +110,25 @@ class ComentariosService
             'emociones' => \Illuminate\Support\Facades\Schema::hasColumn('comentarios_analisis', 'emociones') ? array_map(fn($k) => max(0, (int) data_get($r, "emociones.{$k}", 0)), array_combine(array_keys(ConsultorService::EMOCIONES), array_keys(ConsultorService::EMOCIONES))) : null,
             'preocupaciones' => array_values(array_filter(array_map('strval', (array) ($r['preocupaciones'] ?? [])))),
             'palabras' => array_values(array_filter(array_map(fn($p) => mb_strtolower(trim((string) $p)), (array) ($r['palabras'] ?? [])))),
+        ] + (\Illuminate\Support\Facades\Schema::hasColumn('comentarios_analisis', 'preguntas') ? [
+            'preguntas' => self::frases($r['preguntas'] ?? []), 'quejas' => self::frases($r['quejas'] ?? []), 'pedidos' => self::frases($r['pedidos'] ?? []),
+            'menciones' => self::frases($r['menciones'] ?? []), 'intencion' => max(0, min(count($textos), (int) ($r['intencion'] ?? 0))),
+        ] : []) + [
             'resumen' => Str::limit((string) ($r['resumen'] ?? ''), 1500, ''),
             'analizado_en' => now(),
         ]);
         return ['ok' => true, 'motivo' => count($textos) . ' comentarios leídos'];
+    }
+
+    /** Lista de frases cortas, sin vacíos ni duplicados. */
+    private static function frases($lista, int $max = 8): array
+    {
+        $out = [];
+        foreach ((array) $lista as $x) {
+            $x = Str::limit(trim((string) $x), 140, '…');
+            if ($x !== '' && !in_array(mb_strtolower($x), array_map('mb_strtolower', $out), true)) $out[] = $x;
+        }
+        return array_slice($out, 0, $max);
     }
 
     /** Textos de los comentarios (hasta 150), sin autor. */

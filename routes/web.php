@@ -212,6 +212,8 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->name('inteligencia.general.recolectar.iniciar');
         Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->name('inteligencia.general.recolectar.paso');
         Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->name('inteligencia.consultar');
+        Route::post('/admin/inteligencia/diagnostico', [\App\Http\Controllers\Admin\InteligenciaController::class, 'diagnosticar'])->name('inteligencia.diagnostico');
+        Route::get('/admin/inteligencia/simular', [\App\Http\Controllers\Admin\InteligenciaController::class, 'simular'])->name('inteligencia.simular');
         Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
         Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->name('inteligencia.temas.store');
         Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->name('inteligencia.temas.update');

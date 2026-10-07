@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Schema;
  */
 class CampanasService
 {
-    public const TIPOS = ['politica' => 'Política', 'comercial' => 'Comercial', 'institucional' => 'Institucional'];
+    public const TIPOS = ['politica' => 'Política', 'medio' => 'Medio de comunicación', 'comercial' => 'Comercial', 'institucional' => 'Institucional'];
     private const COLORES = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#4b5563'];
 
     /** Medios configurados (slug => nombre). */
