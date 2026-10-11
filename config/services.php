@@ -154,6 +154,14 @@ return [
         // Opcional: origen desde el que la escena carga los recursos (intro, plantillas, publicidad), p. ej. https://live.tudominio.com/recursos
         'recursos_url' => env('LIVEKIT_RECURSOS_URL'),
     ],
+    // Emisor de videos pregrabados programados (contenedor en el VPS de LiveKit: infra/en-vivo/instalar-emisor.sh)
+    'emisor' => [
+        'url'          => env('EMISOR_URL'),               // https://live.tudominio.com/emisor
+        'secreto'      => env('EMISOR_SECRETO'),           // el mismo de /opt/emisor/.env (mínimo 32 caracteres)
+        'max_gb'       => (int) env('EMISOR_MAX_GB', 6),   // peso máximo de cada video
+        'dias_borrado' => (int) env('EMISOR_DIAS_BORRADO', 7), // días después de emitido en que se borra del VPS
+        'cuenta_regresiva' => (int) env('EMISOR_CUENTA_REGRESIVA', 60), // segundos antes de la hora
+    ],
     'whatsapp' => [
         'token' => env('WHATSAPP_TOKEN'),
         'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),

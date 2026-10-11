@@ -29,6 +29,59 @@ Al final imprime `LIVEKIT_URL`, `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET` para
 el `.env` de editus (también quedan en `/opt/livekit/claves.txt`). Si prefieres
 hacerlo a mano, sigue las secciones siguientes.
 
+## Videos pregrabados programados (como StreamYard)
+
+En editus → **En vivo → Pregrabados programados** se sube un video ya editado, se
+eligen páginas de Facebook y canales de YouTube, la fecha y la hora, y a esa hora sale
+**en vivo solo**, aunque nadie esté conectado:
+
+```
+Navegador ──subida por partes──▶ EMISOR (VPS) ── prepara una sola vez: H.264/AAC,
+                                                 cuadro clave cada 2 s, logo, marco,
+                                                 etiqueta "PREGRABADO", cuenta regresiva
+editus (cada minuto) ── hasta 7 días antes: en vivo programado en Facebook ("Recordarme")
+                        y transmisión "próxima" en YouTube
+                     ── en el minuto anterior: el emisor emite SIN recodificar (-c copy),
+                        un proceso por destino, y la cuenta regresiva termina justo a la hora
+                     ── al terminar: cierra los Lives; 7 días después borra el archivo
+```
+
+Como el video se prepara antes y se emite sin recodificar, una emisión casi no usa CPU:
+caben varias a la vez sin quitarle CPU a los en vivo con cámaras. Si la conexión con
+Facebook o YouTube se corta, cada destino retoma desde donde iba.
+
+**Instalar el emisor** (en el mismo VPS de LiveKit, después de `instalar-ubuntu.sh`):
+
+```bash
+cd /opt/editus-src && git pull
+bash infra/en-vivo/instalar-emisor.sh https://app.editus.online
+```
+
+Al final imprime `EMISOR_URL` y `EMISOR_SECRETO` para el `.env` de editus (luego
+`php artisan migrate --force && php artisan config:clear`). El secreto se genera en el
+VPS y queda en `/opt/emisor/.env`; no lo compartas por chat. La tarea `editus:emisiones`
+ya está en el programador de Laravel (el cron de `schedule:run` que ya tienes).
+
+Prueba completa en el VPS (2 minutos, no toca Facebook: sube, prepara y emite a dos
+servidores RTMP locales, retoma y simula un destino caído):
+
+```bash
+cd /opt/emisor && docker compose run --rm --no-deps emisor node prueba.mjs
+```
+
+Opciones en `/opt/emisor/.env`: `EMISOR_MAX_GB` (peso máximo, 6), `EMISOR_PROCESOS`
+(videos que se preparan a la vez, 1), `EMISOR_HILOS` (núcleos por preparación, 2),
+`EMISOR_PRESET` (`veryfast`; `faster` o `medium` = mejor calidad, más lento). Después de
+cambiarlas: `cd /opt/emisor && docker compose up -d`.
+
+Límites por plan (`config/planes.php`): Básico, videos de hasta 2 h y 5 programados a la
+vez; Full, hasta 8 h y sin límite. Logo y marco solo en el plan Full.
+
+Reglas de las plataformas: Facebook exige que lo pregrabado se distinga de lo que es en
+vivo (por eso la etiqueta «PREGRABADO» viene activada), prohíbe los videos en bucle y pide
+que la página tenga 100 seguidores y 60 días. Instagram no permite en vivos desde
+aplicaciones externas.
+
 ## Escena servida desde el VPS (recomendado)
 
 El mezclador (egress) abre la página de la escena con un navegador automatizado.

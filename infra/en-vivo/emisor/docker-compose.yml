@@ -1,0 +1,12 @@
+# Emisor de editus (ver README de infra/en-vivo, sección "Videos pregrabados programados").
+# Las variables (EMISOR_SECRETO, EDITUS_WEBHOOK, EMISOR_ORIGENES...) van en /opt/emisor/.env
+services:
+  emisor:
+    build: /opt/editus-src/infra/en-vivo/emisor
+    image: editus-emisor:local
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      - /opt/emisor/datos:/datos
+    stop_grace_period: 10s

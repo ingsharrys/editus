@@ -16,18 +16,24 @@ class FacebookLiveService
     {
     }
 
-    /** Crea la transmisión (LIVE_NOW) y devuelve id, stream_url (secreto) y permalink. */
-    public function crear(MetaPage $page, string $titulo, string $descripcion): array
+    /**
+     * Crea la transmisión y devuelve id, stream_url (secreto) y permalink.
+     * Con $inicio crea un en vivo PROGRAMADO (hasta 7 días antes): Facebook publica el anuncio con
+     * "Recordarme" y la pone al aire a esa hora si ya está recibiendo señal.
+     */
+    public function crear(MetaPage $page, string $titulo, string $descripcion, ?\DateTimeInterface $inicio = null): array
     {
         $token = $this->tokens->forPage($page->page_id);
         if (!$token) throw new \RuntimeException('La página no tiene un token activo en editus');
 
-        $r = Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph("{$page->page_id}/live_videos"), [
-            'status' => 'LIVE_NOW',
+        $datos = [
+            'status' => $inicio ? 'SCHEDULED_UNPUBLISHED' : 'LIVE_NOW',
             'title' => Str::limit($titulo, 250, ''),
             'description' => Str::limit($descripcion, 5000, ''),
             'access_token' => $token,
-        ]);
+        ];
+        if ($inicio) $datos['event_params'] = json_encode(['start_time' => $inicio->getTimestamp()]);
+        $r = Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph("{$page->page_id}/live_videos"), $datos);
         if (!$r->ok() || !data_get($r->json(), 'id')) {
             $msg = (string) (data_get($r->json(), 'error.error_user_msg') ?: data_get($r->json(), 'error.message') ?: Str::limit($r->body(), 200, ''));
             if (stripos($msg, 'permission') !== false || stripos($msg, 'publish_video') !== false) {
@@ -52,6 +58,18 @@ class FacebookLiveService
             // informativo
         }
         return ['id' => $liveId, 'stream_url' => $streamUrl, 'permalink' => $permalink, 'video_id' => $videoId];
+    }
+
+    /** Cancela un en vivo programado que aún no salió (el anuncio desaparece de la página). */
+    public function cancelarProgramado(MetaPage $page, string $liveId): void
+    {
+        $token = $this->tokens->forPage($page->page_id);
+        if (!$token) return;
+        try {
+            Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph($liveId), ['status' => 'SCHEDULED_CANCELED', 'access_token' => $token]);
+        } catch (\Throwable) {
+            // si falla, Facebook lo borra solo al no recibir señal
+        }
     }
 
     public function terminar(MetaPage $page, string $liveId): void

@@ -29,6 +29,8 @@ Route::view('/privacy', 'privacy')->name('privacy');
 Route::get('/en-vivo/escena', fn() => response(file_get_contents(base_path('infra/en-vivo/escena/index.html')), 200, ['Content-Type' => 'text/html; charset=utf-8']))->name('en-vivo.escena');
 // Invitados a una transmisión (cámara remota desde el navegador, con código de invitación)
 // Eventos de pagos de Wompi (sin sesión; se valida el checksum con WOMPI_EVENTS_SECRET)
+Route::post('/webhooks/emisor', \App\Http\Controllers\EmisorWebhookController::class)
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:240,1')->name('webhooks.emisor');
 Route::post('/webhooks/wompi', \App\Http\Controllers\WompiWebhookController::class)
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.wompi');
 Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoPagina'])->name('en-vivo.invitado');
@@ -112,6 +114,15 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->name('suscripcion.sitio.liberar');
     // Estudio de transmisión en vivo en la web (mismo flujo que la app del editor)
     Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->name('en-vivo.web');
+    // Videos pregrabados que salen en vivo a una hora programada
+    Route::get('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'index'])->name('pregrabados.index');
+    Route::get('/en-vivo/pregrabados/estado', [\App\Http\Controllers\Web\PregrabadosController::class, 'estado'])->name('pregrabados.estado');
+    Route::post('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'store'])->middleware('throttle:20,1')->name('pregrabados.store');
+    Route::post('/en-vivo/pregrabados/{emision}/reanudar', [\App\Http\Controllers\Web\PregrabadosController::class, 'reanudar'])->name('pregrabados.reanudar');
+    Route::post('/en-vivo/pregrabados/{emision}/subido', [\App\Http\Controllers\Web\PregrabadosController::class, 'subido'])->name('pregrabados.subido');
+    Route::post('/en-vivo/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Web\PregrabadosController::class, 'cancelar'])->name('pregrabados.cancelar');
+    Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->name('pregrabados.ahora');
+    Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->name('pregrabados.destroy');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
     Route::post('/en-vivo/{transmision}/aire', [\App\Http\Controllers\Web\EnVivoWebController::class, 'aire'])->name('en-vivo.web.aire');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Web\EnVivoWebController::class, 'escena'])->name('en-vivo.web.escena');

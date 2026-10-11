@@ -13,6 +13,7 @@
             <h1 class="text-2xl sm:text-3xl font-bold text-[#00024f] tracking-tight">Estudio en vivo</h1>
             <p class="mt-1.5 text-sm text-gray-500 max-w-2xl">Transmite desde este navegador a tus páginas de Facebook y canales de YouTube a la vez, con plantilla, rótulos, cámaras invitadas y cortinillas.</p>
         </div>
+        @include('en-vivo._pestanas')
     </div>
 
     @unless ($configurado)

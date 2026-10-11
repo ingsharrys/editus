@@ -48,11 +48,13 @@ class PlanService
     public function limites(?User $user): ?array
     {
         if ($this->sinLimites($user)) {
-            return ['plan' => 'sin_limites', 'nombre' => 'Sin límites', 'paginas' => PHP_INT_MAX, 'camaras' => 50, 'plantillas_logo' => true, 'sitios' => PHP_INT_MAX];
+            return ['plan' => 'sin_limites', 'nombre' => 'Sin límites', 'paginas' => PHP_INT_MAX, 'camaras' => 50, 'plantillas_logo' => true, 'sitios' => PHP_INT_MAX, 'pregrabado_horas' => 12, 'pregrabados_cola' => null];
         }
         $s = $this->suscripcion($user);
         if (!$s || !$s->activa()) return null;
-        return ['plan' => $s->plan, 'nombre' => $s->nombrePlan()] + array_intersect_key($s->config(), array_flip(['paginas', 'camaras', 'plantillas_logo', 'sitios']));
+        return ['plan' => $s->plan, 'nombre' => $s->nombrePlan()]
+            + array_intersect_key($s->config(), array_flip(['paginas', 'camaras', 'plantillas_logo', 'sitios', 'pregrabado_horas', 'pregrabados_cola']))
+            + ['pregrabado_horas' => 2, 'pregrabados_cola' => 5]; // planes guardados antes de existir el pregrabado
     }
 
     /** Máximo de cámaras de una transmisión según el plan de quien la creó en la web (null = sin límite). */

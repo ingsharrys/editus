@@ -40,14 +40,19 @@ class YouTubeLiveService
         return $canal;
     }
 
-    /** Crea la transmisión (auto-inicio y auto-cierre) y devuelve id, stream_url (secreto) y permalink. */
-    public function crear(YoutubeCanal $canal, string $titulo, string $descripcion, string $privacidad = 'public'): array
+    /**
+     * Crea la transmisión (auto-inicio y auto-cierre) y devuelve id, stream_url (secreto) y permalink.
+     * Programada: con $inicio aparece como "próxima" en el canal; con $enlazar = false no se une
+     * todavía al stream del canal (se enlaza a la hora con enlazar(), para no chocar con otros en vivo).
+     */
+    public function crear(YoutubeCanal $canal, string $titulo, string $descripcion, string $privacidad = 'public', ?\DateTimeInterface $inicio = null, bool $enlazar = true): array
     {
         $token = $this->token($canal);
-        $stream = $this->asegurarStream($canal, $token);
+        $stream = $enlazar ? $this->asegurarStream($canal, $token) : null;
+        $cuando = $inicio ? \Carbon\Carbon::instance(\DateTime::createFromInterface($inicio))->utc()->toIso8601ZuluString() : now()->toIso8601ZuluString();
 
         $r = Http::timeout(30)->withToken($token)->post(self::API . 'liveBroadcasts?part=snippet,status,contentDetails', [
-            'snippet' => ['title' => Str::limit($titulo, 100, ''), 'description' => Str::limit($descripcion, 5000, ''), 'scheduledStartTime' => now()->toIso8601ZuluString()],
+            'snippet' => ['title' => Str::limit($titulo, 100, ''), 'description' => Str::limit($descripcion, 5000, ''), 'scheduledStartTime' => $cuando],
             'status' => ['privacyStatus' => in_array($privacidad, ['public', 'unlisted', 'private'], true) ? $privacidad : 'public', 'selfDeclaredMadeForKids' => false],
             'contentDetails' => ['enableAutoStart' => true, 'enableAutoStop' => true, 'enableDvr' => true, 'recordFromStart' => true, 'monitorStream' => ['enableMonitorStream' => false]],
         ]);
@@ -55,6 +60,7 @@ class YouTubeLiveService
             throw new \RuntimeException('YouTube no creó la transmisión: ' . $this->mensajeError($r->json(), $r->body()));
         }
         $broadcastId = (string) data_get($r->json(), 'id');
+        if (!$enlazar) return ['id' => $broadcastId, 'stream_url' => null, 'permalink' => 'https://www.youtube.com/watch?v=' . $broadcastId, 'video_id' => $broadcastId];
 
         $b = Http::timeout(30)->withToken($token)->post(self::API . 'liveBroadcasts/bind?' . http_build_query(['id' => $broadcastId, 'part' => 'id', 'streamId' => $stream['id']]));
         if (!$b->ok()) {
@@ -62,6 +68,26 @@ class YouTubeLiveService
             throw new \RuntimeException('YouTube no enlazó la transmisión con el stream: ' . $this->mensajeError($b->json(), $b->body()));
         }
         return ['id' => $broadcastId, 'stream_url' => $stream['rtmp'], 'permalink' => 'https://www.youtube.com/watch?v=' . $broadcastId, 'video_id' => $broadcastId];
+    }
+
+    /** Enlaza una transmisión programada al stream del canal y devuelve la URL RTMP(S) a la que emitir. */
+    public function enlazar(YoutubeCanal $canal, string $broadcastId): string
+    {
+        $token = $this->token($canal);
+        $stream = $this->asegurarStream($canal, $token);
+        $b = Http::timeout(30)->withToken($token)->post(self::API . 'liveBroadcasts/bind?' . http_build_query(['id' => $broadcastId, 'part' => 'id', 'streamId' => $stream['id']]));
+        if (!$b->ok()) throw new \RuntimeException('YouTube no enlazó la transmisión con el stream: ' . $this->mensajeError($b->json(), $b->body()));
+        return $stream['rtmp'];
+    }
+
+    /** Borra una transmisión programada que no llegó a salir. */
+    public function borrar(YoutubeCanal $canal, string $broadcastId): void
+    {
+        try {
+            Http::timeout(20)->withToken($this->token($canal))->delete(self::API . 'liveBroadcasts?' . http_build_query(['id' => $broadcastId]));
+        } catch (\Throwable $e) {
+            Log::info('[YouTube] borrar', ['id' => $broadcastId, 'err' => $e->getMessage()]);
+        }
     }
 
     public function terminar(YoutubeCanal $canal, string $broadcastId): void

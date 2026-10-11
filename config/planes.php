@@ -22,7 +22,9 @@ return [
             'camaras' => 2,          // cámaras simultáneas en una transmisión
             'plantillas_logo' => false, // logo, marco e imagen de marca en el en vivo
             'sitios' => 1,           // sitios WordPress con el plugin SharryStreem
-            'resumen' => ['Publica en Facebook e Instagram en 2 páginas', 'En vivo con hasta 2 cámaras', 'Plugin SharryStreem para autopost en WordPress (1 sitio)'],
+            'pregrabado_horas' => 2, // duración máxima de cada video pregrabado programado
+            'pregrabados_cola' => 5, // pregrabados programados pendientes a la vez
+            'resumen' => ['Publica en Facebook e Instagram en 2 páginas', 'En vivo con hasta 2 cámaras', 'Videos pregrabados en vivo programados (hasta 2 h, 5 en cola)', 'Plugin SharryStreem para autopost en WordPress (1 sitio)'],
         ],
         'full' => [
             'nombre' => 'Full',
@@ -32,7 +34,9 @@ return [
             'camaras' => 6,
             'plantillas_logo' => true,
             'sitios' => 3,
-            'resumen' => ['Publica en Facebook e Instagram en 10 páginas', 'En vivo con hasta 6 cámaras, plantillas con logo y marco', 'Plugin SharryStreem para autopost en WordPress (3 sitios)', 'Todas las funciones de publicación y transmisión'],
+            'pregrabado_horas' => 8,
+            'pregrabados_cola' => null, // sin límite
+            'resumen' => ['Publica en Facebook e Instagram en 10 páginas', 'En vivo con hasta 6 cámaras, plantillas con logo y marco', 'Videos pregrabados en vivo programados (hasta 8 h, sin límite)', 'Plugin SharryStreem para autopost en WordPress (3 sitios)', 'Todas las funciones de publicación y transmisión'],
         ],
     ],
 ];

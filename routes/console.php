@@ -20,6 +20,13 @@ Artisan::command('inspire', function () {
 | Todo lo demás se orquesta desde aquí.
 */
 
+// Videos pregrabados en vivo programados: va PRIMERO y en segundo plano, porque arranca la
+// cuenta regresiva en el minuto anterior a la hora y no puede esperar al worker de la cola.
+Schedule::command('editus:emisiones')
+    ->everyMinute()
+    ->withoutOverlapping(5)
+    ->runInBackground();
+
 // Worker de cola sin acumulación de procesos: atiende los jobs pendientes
 // (fotos/videos/Instagram) y TERMINA. withoutOverlapping evita que se
 // apilen workers si una corrida tarda más de un minuto.
