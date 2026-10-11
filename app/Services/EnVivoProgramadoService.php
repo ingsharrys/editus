@@ -8,7 +8,6 @@ use App\Models\User;
 use App\Models\YoutubeCanal;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 /**
@@ -26,19 +25,19 @@ class EnVivoProgramadoService
     public const MINUTOS_AVISO = 10;
     public const TOLERANCIA_MIN = 30;
 
-    public function __construct(private FacebookLiveService $facebook, private YouTubeLiveService $youtube)
+    public function __construct(private FacebookLiveService $facebook, private YouTubeLiveService $youtube, private NotificadorService $avisos)
     {
     }
 
     /** Crea la transmisión programada (sin sala todavía) y la anuncia si ya está dentro de los 7 días. */
-    public function programar(int $userId, array $d, $paginas, $canales, array $plantilla): TransmisionEnVivo
+    public function programar(?int $userId, array $d, $paginas, $canales, array $plantilla): TransmisionEnVivo
     {
         $principal = $paginas->first() ?: MetaPage::orderBy('id')->first();
         if (!$principal) throw new \RuntimeException('No hay páginas conectadas en editus');
         $t = TransmisionEnVivo::create([
             'meta_page_id' => $principal->id, 'user_id' => $userId, 'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null,
             'room' => 'envivo-' . $principal->page_id . '-' . Str::lower(Str::random(6)),
-            'estado' => 'programada', 'programada_en' => $d['programada_en'],
+            'estado' => 'programada', 'programada_en' => $d['programada_en'], 'miniatura' => $d['miniatura'] ?? null, 'usuario_app' => $d['usuario_app'] ?? null,
             'plantilla' => $plantilla, 'escena' => \App\Http\Controllers\Api\EnVivoController::escenaInicial(),
             'invitaciones' => [['codigo' => Str::lower(Str::random(10)), 'nombre' => null, 'modo' => 'camara', 'creada_en' => now()->toIso8601String()]],
             'destinos' => array_merge(
@@ -67,13 +66,15 @@ class EnVivoProgramadoService
                         $c = YoutubeCanal::find($d['canal_id'] ?? 0);
                         if (!$c) throw new \RuntimeException('El canal ya no existe en editus');
                         $r = $this->youtube->crear($c, $t->titulo, (string) $t->descripcion, 'public', $t->programada_en, false);
+                        $notaMiniatura = $this->miniaturaYoutube($c, $r['id'], $t->miniatura);
                     } else {
                         $p = MetaPage::find($d['meta_page_id'] ?? 0);
                         if (!$p) throw new \RuntimeException('La página ya no existe en editus');
-                        $r = $this->facebook->crear($p, $t->titulo, (string) $t->descripcion, $t->programada_en);
+                        $r = $this->facebook->crear($p, $t->titulo, (string) $t->descripcion, $t->programada_en, MiniaturaService::archivo($t->miniatura));
+                        $notaMiniatura = null;
                     }
                     $d = array_merge($d, ['fb_live_id' => $r['id'], 'fb_video_id' => $r['video_id'] ?? null, 'permalink' => $r['permalink'] ?? null, 'stream_url' => $r['stream_url'] ?? null,
-                        'programado' => true, 'estado' => 'anunciado', 'error' => null]);
+                        'programado' => true, 'estado' => 'anunciado', 'error' => $notaMiniatura]);
                     $ok++;
                 } catch (\Throwable $e) {
                     $d['error'] = 'Anuncio: ' . Str::limit($e->getMessage(), 300, '');
@@ -84,6 +85,19 @@ class EnVivoProgramadoService
             $t->fill(['destinos' => $destinos, 'anunciada_en' => now()])->save();
             return "anunciada en {$ok} de " . count($destinos) . ' destino(s)';
         });
+    }
+
+    /** Sube la miniatura a YouTube; si no la acepta (canal sin verificar) el anuncio sigue y queda la nota. */
+    public function miniaturaYoutube(YoutubeCanal $c, string $broadcastId, ?string $miniatura): ?string
+    {
+        $archivo = MiniaturaService::archivo($miniatura);
+        if (!$archivo) return null;
+        try {
+            $this->youtube->miniatura($c, $broadcastId, $archivo);
+            return null;
+        } catch (\Throwable $e) {
+            return 'Miniatura: ' . Str::limit($e->getMessage(), 200, '');
+        }
     }
 
     /** Un paso de la tarea de cada minuto. */
@@ -107,6 +121,8 @@ class EnVivoProgramadoService
         foreach (TransmisionEnVivo::whereIn('estado', ['programada', 'sala'])->whereNotNull('programada_en')
             ->where('programada_en', '<', $ahora->copy()->subMinutes(self::TOLERANCIA_MIN))->get() as $t) {
             $this->cancelar($t, 'Nadie salió al aire en los ' . self::TOLERANCIA_MIN . ' minutos siguientes a la hora: se quitó el anuncio de Facebook y YouTube.');
+            $this->avisos->avisar($t->user_id ? (int) $t->user_id : null, $t->usuario_app, "Se canceló: {$t->titulo}",
+                'Nadie salió al aire a tiempo, así que se quitó el anuncio de Facebook y YouTube.', ['texto' => 'Ir a En vivo', 'url' => route('en-vivo.web')], ['pantalla' => 'en-vivo']);
             $log[] = "transmisión #{$t->id} vencida y cancelada";
         }
         return $log;
@@ -136,23 +152,20 @@ class EnVivoProgramadoService
         });
     }
 
-    /** Correo a quien la programó (si el correo está configurado); la web muestra el aviso por su cuenta. */
+    /** Aviso 10 minutos antes: notificación al celular (app) y correo (web) a quien la programó. */
     private function avisar(TransmisionEnVivo $t): void
     {
         $t->fill(['avisada_en' => now()])->save();
-        $user = $t->user_id ? User::find($t->user_id) : null;
-        if (!$user?->email || in_array(config('mail.default'), ['log', 'array', null], true)) return;
-        $hora = $t->programada_en->translatedFormat('g:i a');
         $invitado = collect($t->invitaciones ?? [])->first();
-        $texto = "Hola {$user->name}:\n\nTu en vivo «{$t->titulo}» empieza a las {$hora}.\n\n"
-            . "Abre el estudio y sal al aire: " . route('en-vivo.web') . "\n"
-            . ($invitado ? 'Enlace para tus invitados: ' . route('en-vivo.invitado', $invitado['codigo']) . "\n" : '')
-            . "\nSi nadie sale al aire en los " . self::TOLERANCIA_MIN . " minutos siguientes, editus quita el anuncio de Facebook y YouTube.\n\neditus";
-        try {
-            Mail::raw($texto, fn($m) => $m->to($user->email)->subject("En {$this->minutos($t)} min: {$t->titulo}"));
-        } catch (\Throwable $e) {
-            Log::info('[en vivo programado] correo', ['id' => $t->id, 'err' => $e->getMessage()]);
-        }
+        $this->avisos->avisar($t->user_id ? (int) $t->user_id : null, $t->usuario_app,
+            "En {$this->minutos($t)} min: {$t->titulo}",
+            'Tu en vivo empieza a las ' . $t->programada_en->translatedFormat('g:i a') . '. Abre el estudio, conecta las cámaras y sal al aire.',
+            ['texto' => 'Abrir el estudio', 'url' => route('en-vivo.web')],
+            ['pantalla' => 'en-vivo', 'transmision_id' => $t->id],
+            array_filter([
+                $invitado ? 'Enlace para tus invitados: ' . route('en-vivo.invitado', $invitado['codigo']) : null,
+                'Si nadie sale al aire en los ' . self::TOLERANCIA_MIN . ' minutos siguientes, editus quita el anuncio de Facebook y YouTube.',
+            ]));
     }
 
     private function minutos(TransmisionEnVivo $t): int

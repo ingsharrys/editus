@@ -29,14 +29,14 @@ class EmisionesService
     public const SEGUNDOS_ARRANQUE = 75;  // se avisa al emisor en el minuto anterior; él espera y cuadra la cuenta regresiva
     public const TOLERANCIA_MIN = 30;     // si por algo no arrancó a tiempo, se intenta hasta 30 min después
 
-    public function __construct(private EmisorClient $emisor, private FacebookLiveService $facebook, private YouTubeLiveService $youtube, private PlanService $planes)
+    public function __construct(private EmisorClient $emisor, private FacebookLiveService $facebook, private YouTubeLiveService $youtube, private PlanService $planes, private NotificadorService $avisos)
     {
     }
 
     // ------------------------------------------------------------ creación
 
     /** Crea la programación (estado subiendo) con sus destinos. */
-    public function crear(int $userId, array $d, $paginas, $canales): EmisionProgramada
+    public function crear(?int $userId, array $d, $paginas, $canales): EmisionProgramada
     {
         $destinos = [];
         foreach ($paginas as $p) $destinos[] = ['red' => 'facebook', 'meta_page_id' => $p->id, 'nombre' => (string) $p->name, 'live_id' => null, 'stream_url' => null, 'permalink' => null, 'estado' => 'pendiente', 'error' => null];
@@ -46,6 +46,7 @@ class EmisionesService
             'programada_en' => $d['programada_en'], 'estado' => 'subiendo', 'progreso' => 0,
             'archivo_nombre' => Str::limit((string) ($d['archivo_nombre'] ?? ''), 250, ''), 'archivo_bytes' => (int) ($d['archivo_bytes'] ?? 0),
             'plantilla' => $d['plantilla'] ?? [], 'destinos' => $destinos,
+            'usuario_app' => $d['usuario_app'] ?? null, 'miniatura' => $d['miniatura'] ?? null,
         ]);
     }
 
@@ -107,6 +108,7 @@ class EmisionesService
             };
             $this->cancelarAnuncios($e);
             $e->fill(['estado' => 'error', 'error' => $motivo])->save();
+            $this->notificar($e, 'error');
             $log[] = "#{$e->id} vencida: {$motivo}";
         }
 
@@ -144,7 +146,10 @@ class EmisionesService
                     if (in_array($e->estado, ['subiendo', 'procesando'], true)) $e->fill(['estado' => 'procesando', 'progreso' => (int) ($v['progreso'] ?? 0)])->save();
                     break;
                 case 'listo':
-                    if (in_array($e->estado, ['subiendo', 'procesando'], true)) $e->fill(['estado' => 'listo', 'progreso' => 100, 'duracion' => $v['duracion'] ?? null, 'error' => null])->save();
+                    if (in_array($e->estado, ['subiendo', 'procesando'], true)) {
+                        $e->fill(['estado' => 'listo', 'progreso' => 100, 'duracion' => $v['duracion'] ?? null, 'error' => null])->save();
+                        $this->notificar($e, 'listo');
+                    }
                     break;
                 case 'emitiendo':
                     if ($e->estado === 'al_aire') $this->copiarDestinos($e, $v);
@@ -153,7 +158,10 @@ class EmisionesService
                     if ($e->estado === 'al_aire') { $this->copiarDestinos($e, $v); $this->finalizar($e, $v['error'] ?? null, true); }
                     break;
                 case 'error':
-                    if (in_array($e->estado, ['subiendo', 'procesando'], true)) $e->fill(['estado' => 'error', 'error' => (string) ($v['error'] ?? 'El emisor no pudo preparar el video.')])->save();
+                    if (in_array($e->estado, ['subiendo', 'procesando'], true)) {
+                        $e->fill(['estado' => 'error', 'error' => (string) ($v['error'] ?? 'El emisor no pudo preparar el video.')])->save();
+                        $this->notificar($e, 'error');
+                    }
                     if ($e->estado === 'al_aire') { $this->copiarDestinos($e, $v); $this->finalizar($e, (string) ($v['error'] ?? 'La transmisión se cortó.'), false); }
                     break;
             }
@@ -174,13 +182,15 @@ class EmisionesService
                     if ($d['red'] === 'facebook') {
                         $page = MetaPage::find($d['meta_page_id']);
                         if (!$page) throw new \RuntimeException('La página ya no existe en editus');
-                        $r = $this->facebook->crear($page, $e->titulo, (string) $e->descripcion, $e->programada_en);
+                        $r = $this->facebook->crear($page, $e->titulo, (string) $e->descripcion, $e->programada_en, MiniaturaService::archivo($e->miniatura ?? null));
+                        $nota = null;
                     } else {
                         $canal = YoutubeCanal::find($d['canal_id']);
                         if (!$canal) throw new \RuntimeException('El canal ya no existe en editus');
                         $r = $this->youtube->crear($canal, $e->titulo, (string) $e->descripcion, 'public', $e->programada_en, false);
+                        $nota = app(EnVivoProgramadoService::class)->miniaturaYoutube($canal, $r['id'], $e->miniatura ?? null);
                     }
-                    $d = array_merge($d, ['live_id' => $r['id'], 'stream_url' => $r['stream_url'] ?? null, 'permalink' => $r['permalink'] ?? null, 'estado' => 'anunciado', 'error' => null]);
+                    $d = array_merge($d, ['live_id' => $r['id'], 'stream_url' => $r['stream_url'] ?? null, 'permalink' => $r['permalink'] ?? null, 'estado' => 'anunciado', 'error' => $nota]);
                     $ok++;
                 } catch (\Throwable $ex) {
                     $d['error'] = 'Anuncio: ' . Str::limit($ex->getMessage(), 300, '');
@@ -247,6 +257,7 @@ class EmisionesService
                 return 'error: ' . $ex->getMessage();
             }
             $e->fill(['estado' => 'al_aire', 'inicio_real' => now(), 'error' => null])->save();
+            $this->notificar($e, 'al_aire');
             return 'al aire en ' . count($urls) . ' destino(s)' . ($cuenta ? ' con cuenta regresiva' : '');
         });
     }
@@ -273,6 +284,21 @@ class EmisionesService
     {
         $this->cerrarLives($e);
         $e->fill(['estado' => $huboEmision ? 'terminado' : 'error', 'fin_real' => now(), 'error' => $error ? Str::limit($error, 1000, '') : null])->save();
+        $this->notificar($e, $huboEmision ? 'terminado' : 'error');
+    }
+
+    /** Aviso al celular y al correo de quien programó el pregrabado. */
+    private function notificar(EmisionProgramada $e, string $evento): void
+    {
+        $cuando = $e->programada_en?->translatedFormat('l j \\d\\e F, g:i a');
+        [$titulo, $cuerpo] = match ($evento) {
+            'listo' => ["Listo para salir: {$e->titulo}", "El video quedó preparado y sale en vivo el {$cuando}."],
+            'al_aire' => ["En vivo ahora: {$e->titulo}", 'Tu pregrabado está saliendo en vivo en ' . collect((array) $e->destinos)->where('estado', 'emitiendo')->pluck('nombre')->implode(', ') . '.'],
+            'terminado' => ["Emitido: {$e->titulo}", 'El pregrabado terminó y quedó publicado en las páginas y canales.' . ($e->error ? ' Nota: ' . $e->error : '')],
+            default => ["Problema con: {$e->titulo}", (string) ($e->error ?: 'El pregrabado no pudo salir al aire.')],
+        };
+        $this->avisos->avisar($e->user_id ? (int) $e->user_id : null, $e->usuario_app ?? null, $titulo, $cuerpo,
+            ['texto' => 'Ver pregrabados', 'url' => route('pregrabados.index')], ['pantalla' => 'pregrabados', 'emision_id' => $e->id]);
     }
 
     /** Cierra los Lives en Facebook y YouTube (el video queda publicado en la página / canal). */
@@ -349,7 +375,7 @@ class EmisionesService
     /** Los Lives se crean con el token de quien programó (si conectó la página). */
     private function usarTokensDe(EmisionProgramada $e): void
     {
-        MetaPageTokenResolver::preferirUsuarioApp(null);
+        MetaPageTokenResolver::preferirUsuarioApp($e->usuario_app ?? null);
         MetaPageTokenResolver::preferirUsuarioWeb($e->user_id ? (int) $e->user_id : null);
     }
 

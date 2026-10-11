@@ -47,6 +47,7 @@ class PregrabadosTest extends TestCase
         $this->admin = User::factory()->create(['name' => 'Dario', 'role_id' => $rolAdmin->id]);
         (require database_path('migrations/2026_10_13_000001_create_suscripciones.php'))->up();
         (require database_path('migrations/2026_10_15_000001_create_emisiones_programadas.php'))->up();
+        (require database_path('migrations/2026_10_17_000001_notificaciones_y_miniaturas.php'))->up();
         $rolUser = Role::firstOrCreate(['slug' => 'user'], ['name' => 'Usuario']);
         $this->cliente = User::factory()->create(['name' => 'Cliente', 'role_id' => $rolUser->id]);
 

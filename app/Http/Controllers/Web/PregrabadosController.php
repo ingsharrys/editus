@@ -70,6 +70,7 @@ class PregrabadosController extends Controller
             'archivo_nombre' => ['required', 'string', 'max:255'], 'archivo_bytes' => ['required', 'integer', 'min:1000'],
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'],
             'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'], 'calidad' => ['nullable', 'in:auto,720'],
+            'miniatura' => ['nullable', 'string', 'max:3000000'],
         ]);
         $cuando = Carbon::createFromFormat('Y-m-d\TH:i', $d['programada_en'], config('app.timezone'))->seconds(0);
         if ($cuando->lt(now()->addMinutes(10))) return $this->error('Programa el video al menos 10 minutos en el futuro: hay que subirlo y prepararlo.');
@@ -93,7 +94,13 @@ class PregrabadosController extends Controller
         $logo = $conLogo && !empty($d['logo_id']) ? PlantillaEditor::whereNotNull('logo_path')->find($d['logo_id']) : null;
         $marco = $conLogo && !empty($d['marco_id']) && Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->where('uso', 'plantilla')->find($d['marco_id']) : null;
 
+        try {
+            $miniatura = !empty($d['miniatura']) ? app(\App\Services\MiniaturaService::class)->guardarBase64($d['miniatura']) : null;
+        } catch (\InvalidArgumentException $ex) {
+            return $this->error($ex->getMessage());
+        }
         $e = $this->emisiones->crear($user->id, [
+            'miniatura' => $miniatura,
             'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null, 'programada_en' => $cuando,
             'archivo_nombre' => $d['archivo_nombre'], 'archivo_bytes' => $d['archivo_bytes'],
             'plantilla' => [

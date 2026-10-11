@@ -80,6 +80,15 @@ class YouTubeLiveService
         return $stream['rtmp'];
     }
 
+    /** Miniatura de la transmisión (el canal debe estar verificado en YouTube para usar miniaturas propias). */
+    public function miniatura(YoutubeCanal $canal, string $broadcastId, string $archivo): void
+    {
+        $mime = str_ends_with(strtolower($archivo), '.png') ? 'image/png' : 'image/jpeg';
+        $r = Http::timeout(60)->withToken($this->token($canal))->withBody((string) file_get_contents($archivo), $mime)
+            ->post('https://www.googleapis.com/upload/youtube/v3/thumbnails/set?' . http_build_query(['videoId' => $broadcastId, 'uploadType' => 'media']));
+        if (!$r->ok()) throw new \RuntimeException('YouTube no aceptó la miniatura: ' . $this->mensajeError($r->json(), $r->body()) . ' (el canal debe estar verificado para usar miniaturas propias)');
+    }
+
     /** Borra una transmisión programada que no llegó a salir. */
     public function borrar(YoutubeCanal $canal, string $broadcastId): void
     {

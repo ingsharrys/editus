@@ -46,6 +46,20 @@ Route::middleware('editus.token')->group(function () {
     Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Api\EnVivoController::class, 'terminar'])->name('api.envivo.terminar');
     Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Api\EnVivoController::class, 'estado'])->name('api.envivo.estado');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Api\EnVivoController::class, 'preparar'])->name('api.envivo.preparar');
+    // En vivos programados con cámaras, pregrabados y celulares (app del editor)
+    Route::post('/en-vivo/programar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'programarEnVivo'])->name('api.envivo.programar');
+    Route::get('/en-vivo/programadas', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'enVivoProgramadas'])->name('api.envivo.programadas');
+    Route::post('/en-vivo/{transmision}/abrir', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'abrirEnVivo'])->name('api.envivo.abrir');
+    Route::post('/en-vivo/{transmision}/cancelar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'cancelarEnVivo'])->name('api.envivo.cancelar');
+    Route::get('/pregrabados', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'pregrabados'])->name('api.pregrabados');
+    Route::post('/pregrabados', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'crearPregrabado'])->name('api.pregrabados.crear');
+    Route::post('/pregrabados/{emision}/reanudar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'reanudarPregrabado'])->name('api.pregrabados.reanudar');
+    Route::post('/pregrabados/{emision}/subido', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'pregrabadoSubido'])->name('api.pregrabados.subido');
+    Route::post('/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'cancelarPregrabado'])->name('api.pregrabados.cancelar');
+    Route::post('/pregrabados/{emision}/ahora', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'pregrabadoAhora'])->name('api.pregrabados.ahora');
+    Route::post('/pregrabados/{emision}/quitar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'quitarPregrabado'])->name('api.pregrabados.quitar');
+    Route::post('/dispositivos', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'registrarDispositivo'])->name('api.dispositivos');
+    Route::post('/dispositivos/quitar', [\App\Http\Controllers\Api\ProgramadosAppController::class, 'quitarDispositivo'])->name('api.dispositivos.quitar');
     Route::post('/en-vivo/{transmision}/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'salirAlAire'])->name('api.envivo.aire');
     Route::post('/en-vivo/recursos/{recurso}/borrar', [\App\Http\Controllers\Api\EnVivoController::class, 'recursoBorrar'])->name('api.envivo.recursos.borrar');
     Route::get('/en-vivo/youtube', [\App\Http\Controllers\Api\EnVivoController::class, 'youtubeCanales'])->name('api.envivo.youtube');

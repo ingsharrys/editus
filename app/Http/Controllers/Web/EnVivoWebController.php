@@ -85,6 +85,7 @@ class EnVivoWebController extends Controller
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
+            'miniatura' => ['nullable', 'string', 'max:3000000'],
         ]);
         $user = Auth::user();
         if (!app(\App\Services\PlanService::class)->limites($user)) return response()->json(['success' => false, 'error' => 'Necesitas un plan activo para transmitir.'], 403);
@@ -102,7 +103,8 @@ class EnVivoWebController extends Controller
         $plantilla = EnVivoController::normalizarPlantilla($this->plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
         $this->preferir();
         try {
-            $t = $programados->programar($user->id, $datos + ['programada_en' => $cuando], $paginas, $canales, $plantilla);
+            $miniatura = !empty($datos['miniatura']) ? app(\App\Services\MiniaturaService::class)->guardarBase64($datos['miniatura']) : null;
+            $t = $programados->programar($user->id, ['miniatura' => $miniatura, 'programada_en' => $cuando] + $datos, $paginas, $canales, $plantilla);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }

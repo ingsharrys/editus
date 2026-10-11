@@ -45,6 +45,7 @@ class EnVivoProgramadoTest extends TestCase
         });
         (require database_path('migrations/2026_10_12_000001_add_user_id_to_transmisiones_en_vivo.php'))->up();
         (require database_path('migrations/2026_10_16_000001_programar_transmisiones_en_vivo.php'))->up();
+        (require database_path('migrations/2026_10_17_000001_notificaciones_y_miniaturas.php'))->up();
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
         $this->admin = User::factory()->create(['name' => 'Dario', 'email' => 'dario@prueba.co', 'role_id' => $rol->id]);
         $this->pagina = MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias']);

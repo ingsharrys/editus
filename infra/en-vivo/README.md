@@ -29,6 +29,37 @@ Al final imprime `LIVEKIT_URL`, `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET` para
 el `.env` de editus (también quedan en `/opt/livekit/claves.txt`). Si prefieres
 hacerlo a mano, sigue las secciones siguientes.
 
+## Avisos: correo corporativo, celular y miniatura del anuncio
+
+**Correo corporativo.** En el `.env` de editus (los datos los da tu proveedor de correo;
+la contraseña va solo aquí, nunca en el chat ni en el repositorio):
+
+```
+MAIL_MAILER=smtp
+MAIL_HOST=mail.tudominio.com        # o smtp.office365.com / smtp.gmail.com, según el proveedor
+MAIL_PORT=465                        # 465 con MAIL_SCHEME=smtps, o 587
+MAIL_SCHEME=smtps
+MAIL_USERNAME=avisos@tudominio.com
+MAIL_PASSWORD=la-contraseña-del-buzón
+MAIL_FROM_ADDRESS=avisos@tudominio.com
+MAIL_FROM_NAME="editus"
+```
+
+Luego `php artisan config:clear` y prueba: `php artisan editus:probar-correo tu@correo.com`.
+Se envían avisos de: en vivo programado (10 min antes y si se cancela por no salir) y
+pregrabado (listo, al aire, emitido, con error) a quien lo programó desde la web.
+
+**Celular (app editor).** Recordatorios locales gratis en iPhone y Android; push remoto gratis
+con el servicio de Expo (ver el README de la app). editus envía a `https://exp.host` sin costo; si
+activas la "seguridad reforzada" en expo.dev, pon el token en `EXPO_ACCESS_TOKEN`.
+
+**Miniatura del anuncio.** Al programar (web o app) se puede subir una imagen JPG/PNG de
+1280×720 (máx. 2 MB): Facebook la muestra en el en vivo programado y YouTube como miniatura
+(YouTube solo acepta miniaturas propias en canales verificados; si no, el anuncio sale igual).
+Se guardan en `storage/app/public/en-vivo/miniaturas` (requiere `php artisan storage:link`).
+
+Migración: `php artisan migrate --force` (tabla `dispositivos_push` y columnas `miniatura`, `usuario_app`).
+
 ## En vivo programado con cámaras (como StreamYard)
 
 En editus → **En vivo → Estudio**, en "¿Cuándo?" elige **Programar** y la fecha y hora:

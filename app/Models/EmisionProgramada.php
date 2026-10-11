@@ -15,7 +15,7 @@ class EmisionProgramada extends Model
 {
     protected $table = 'emisiones_programadas';
     protected $fillable = ['user_id', 'emisor_id', 'titulo', 'descripcion', 'programada_en', 'estado', 'progreso', 'archivo_nombre', 'archivo_bytes',
-        'duracion', 'plantilla', 'destinos', 'error', 'anunciada_en', 'inicio_real', 'fin_real', 'archivo_borrado_en'];
+        'duracion', 'plantilla', 'destinos', 'error', 'anunciada_en', 'inicio_real', 'fin_real', 'archivo_borrado_en', 'usuario_app', 'miniatura'];
     protected $casts = ['programada_en' => 'datetime', 'plantilla' => 'array', 'destinos' => 'encrypted:array', 'duracion' => 'float', 'progreso' => 'integer',
         'anunciada_en' => 'datetime', 'inicio_real' => 'datetime', 'fin_real' => 'datetime', 'archivo_borrado_en' => 'datetime', 'archivo_bytes' => 'integer'];
 
@@ -46,6 +46,7 @@ class EmisionProgramada extends Model
             'archivo' => $this->archivo_nombre, 'bytes' => $this->archivo_bytes, 'duracion' => $this->duracion, 'error' => $this->error,
             'anunciada' => (bool) $this->anunciada_en, 'inicio_real' => $this->inicio_real?->format('d/m/Y H:i'), 'fin_real' => $this->fin_real?->format('d/m/Y H:i'),
             'usuario' => $this->user?->name, 'puede_cancelar' => $this->pendiente(),
+            'miniatura' => $this->miniatura ? \App\Services\MiniaturaService::url($this->miniatura) : null,
             'destinos' => array_map(fn($d) => [
                 'red' => $d['red'] ?? 'facebook', 'nombre' => $d['nombre'] ?? '', 'estado' => $d['estado'] ?? 'pendiente', 'error' => $d['error'] ?? null, 'permalink' => $d['permalink'] ?? null,
             ], (array) $this->destinos),

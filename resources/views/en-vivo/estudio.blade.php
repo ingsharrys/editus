@@ -126,7 +126,12 @@
                             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Fecha y hora</label>
                             <input type="datetime-local" name="programada_en" step="60" min="{{ now()->addMinutes(15)->format('Y-m-d\TH:i') }}" value="{{ now()->addDay()->setTime(19, 0)->format('Y-m-d\TH:i') }}" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm">
                         </div>
-                        <p class="text-[11px] text-gray-500">Hora de Colombia. Te avisamos 10 minutos antes. Si nadie sale al aire en 30 minutos, se quita el anuncio.</p>
+                        <p class="text-[11px] text-gray-500">Hora de Colombia. Te avisamos 10 minutos antes (celular, correo y aquí). Si nadie sale al aire en 30 minutos, se quita el anuncio.</p>
+                        <div class="sm:col-span-2">
+                            <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Miniatura del anuncio (opcional)</label>
+                            <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
+                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Se ve en Facebook y YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
+                        </div>
                     </div>
                 </div>
 
@@ -318,7 +323,13 @@
     if (f.get('cuando') === 'programar') {
       const b = g('btn-preparar'); b.disabled = true; b.textContent = 'Programando…';
       try {
-        await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en') });
+        const img = f.get('miniatura_archivo');
+        let miniatura = null;
+        if (img && img.size) {
+          if (img.size > 2 * 1024 * 1024) throw new Error('La miniatura pesa más de 2 MB. Usa una imagen JPG de 1280×720.');
+          miniatura = await new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = mal; fr.readAsDataURL(img); });
+        }
+        await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en'), miniatura });
         if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) {} }
         location.reload();
       } catch (e) { error(e.message); b.disabled = false; b.textContent = 'Programar el en vivo'; }

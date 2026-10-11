@@ -118,6 +118,11 @@
                 @else
                     <p class="text-xs text-gray-500">Logo y marco: disponibles en el plan Full.</p>
                 @endif
+<div class="">
+                            <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Miniatura del anuncio (opcional)</label>
+                            <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
+                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Se ve en Facebook y YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
+                        </div>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="etiqueta" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>Etiqueta «PREGRABADO»</strong> en una esquina. <span class="text-gray-500">Facebook exige que el contenido pregrabado se distinga del que es en vivo.</span></span></label>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="cuenta" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>Cuenta regresiva</strong> de 1 minuto antes de la hora, con el título y el logo.</span></label>
             </div>
@@ -250,6 +255,11 @@
       etiqueta: f.get('etiqueta') === '1', cuenta: f.get('cuenta') === '1', archivo_nombre: archivo.name, archivo_bytes: archivo.size };
     if (!datos.titulo) return error('Escribe el título.');
     if (!datos.meta_page_ids.length && !datos.youtube_canal_ids.length) return error('Elige al menos una página de Facebook o un canal de YouTube.');
+    const img = f.get('miniatura_archivo');
+    if (img && img.size) {
+      if (img.size > 2 * 1024 * 1024) return error('La miniatura pesa más de 2 MB. Usa una imagen JPG de 1280×720.');
+      datos.miniatura = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(img); });
+    }
     const b = g('pg-boton'); b.disabled = true;
     try {
       const r = await post(RUTAS.crear, datos);

@@ -11,7 +11,7 @@ class TransmisionEnVivo extends Model
     protected $fillable = [
         'meta_page_id', 'usuario_app', 'user_id', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
         'stream_url', 'destinos', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
-        'programada_en', 'anunciada_en', 'avisada_en',
+        'programada_en', 'anunciada_en', 'avisada_en', 'miniatura',
     ];
 
     protected $casts = [
@@ -72,6 +72,7 @@ class TransmisionEnVivo extends Model
             'programada_en' => $this->programada_en?->toIso8601String(),
             'programada_texto' => $this->programada_en?->translatedFormat('D j M Y · g:i a'),
             'anunciada' => (bool) $this->anunciada_en,
+            'miniatura' => $this->miniatura ? \App\Services\MiniaturaService::url($this->miniatura) : null,
             'terminada_en' => $this->terminada_en?->toIso8601String(),
         ];
     }

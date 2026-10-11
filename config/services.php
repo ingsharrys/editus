@@ -154,6 +154,10 @@ return [
         // Opcional: origen desde el que la escena carga los recursos (intro, plantillas, publicidad), p. ej. https://live.tudominio.com/recursos
         'recursos_url' => env('LIVEKIT_RECURSOS_URL'),
     ],
+    // Notificaciones al celular con el servicio gratuito de Expo (opcional: token de acceso si activas la seguridad reforzada en expo.dev)
+    'expo' => [
+        'access_token' => env('EXPO_ACCESS_TOKEN'),
+    ],
     // Emisor de videos pregrabados programados (contenedor en el VPS de LiveKit: infra/en-vivo/instalar-emisor.sh)
     'emisor' => [
         'url'          => env('EMISOR_URL'),               // https://live.tudominio.com/emisor
