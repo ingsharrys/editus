@@ -29,6 +29,28 @@ Al final imprime `LIVEKIT_URL`, `LIVEKIT_API_KEY` y `LIVEKIT_API_SECRET` para
 el `.env` de editus (también quedan en `/opt/livekit/claves.txt`). Si prefieres
 hacerlo a mano, sigue las secciones siguientes.
 
+## En vivo programado con cámaras (como StreamYard)
+
+En editus → **En vivo → Estudio**, en "¿Cuándo?" elige **Programar** y la fecha y hora:
+
+1. Hasta 7 días antes se crea el **en vivo programado en Facebook** (aparece en la página con
+   «Recordarme») y la transmisión **próxima en YouTube**. Si se programa con más anticipación,
+   la tarea de cada minuto lo anuncia al entrar en la ventana de 7 días.
+2. El **enlace para invitados** sirve desde ya: quien lo abra antes ve la fecha y puede probar
+   su cámara; cuando el director abre el estudio, entra.
+3. **10 minutos antes** se avisa: aviso en la página del estudio, notificación del navegador (si
+   se dio permiso) y correo a quien lo programó (si el correo de editus está configurado).
+4. A la hora: **Próximos en vivo → Abrir el estudio**, cámaras, invitados, plantilla y
+   **Salir al aire**. Se sale en el MISMO en vivo anunciado (Facebook lo pone "en vivo ahora"
+   aunque se entre antes de la hora; YouTube se enlaza en ese momento), así quienes pulsaron
+   «Recordarme» reciben la notificación.
+5. Si nadie sale al aire en **30 minutos**, editus quita el anuncio de Facebook y YouTube para que
+   no quede un en vivo fantasma en la página.
+
+A diferencia de StreamYard, editus avisa antes de la hora y limpia los anuncios vencidos. Si
+Facebook rechaza el anuncio, la transmisión sale igual a la hora (se crea en directo).
+Migración: `php artisan migrate --force` (columnas `programada_en`, `anunciada_en`, `avisada_en`).
+
 ## Videos pregrabados programados (como StreamYard)
 
 En editus → **En vivo → Pregrabados programados** se sube un video ya editado, se

@@ -60,6 +60,21 @@ class FacebookLiveService
         return ['id' => $liveId, 'stream_url' => $streamUrl, 'permalink' => $permalink, 'video_id' => $videoId];
     }
 
+    /**
+     * Un en vivo programado pasa a "en vivo ahora": sale apenas reciba la señal, aunque se entre
+     * antes de la hora o la página no tenga activado el inicio automático. Devuelve si Facebook lo aceptó.
+     */
+    public function ponerAlAire(MetaPage $page, string $liveId): bool
+    {
+        $token = $this->tokens->forPage($page->page_id);
+        if (!$token) return false;
+        try {
+            return Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph($liveId), ['status' => 'LIVE_NOW', 'access_token' => $token])->ok();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
     /** Cancela un en vivo programado que aún no salió (el anuncio desaparece de la página). */
     public function cancelarProgramado(MetaPage $page, string $liveId): void
     {

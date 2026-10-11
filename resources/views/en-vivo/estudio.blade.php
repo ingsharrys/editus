@@ -28,6 +28,47 @@
     @endif
     <div id="ev-error" class="hidden rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm"></div>
 
+    {{-- =============================================== PRÓXIMOS EN VIVO (programados) --}}
+    @if (count($programadas) && !$activa)
+        <div id="ev-aviso" class="hidden rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div class="text-sm text-rose-900"><strong id="ev-aviso-texto"></strong> <span class="text-rose-800/80">Abre el estudio, conecta las cámaras y sal al aire.</span></div>
+            <button type="button" id="ev-aviso-abrir" class="h-10 rounded-xl bg-rose-600 text-white px-4 text-sm font-bold shadow-sm hover:bg-rose-700">Abrir el estudio</button>
+        </div>
+        <div class="mb-6">
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <h2 class="text-lg font-bold text-gray-900">Próximos en vivo</h2>
+                <button type="button" id="ev-permiso-avisos" class="hidden text-xs font-semibold text-indigo-700 hover:underline">🔔 Avisarme en este navegador</button>
+            </div>
+            <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4" id="ev-programadas">
+                @foreach ($programadas as $p)
+                    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 flex flex-col min-w-0" data-programada="{{ $p['id'] }}">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="min-w-0"><div class="font-semibold text-gray-900 leading-snug">{{ $p['titulo'] }}</div><div class="text-xs text-gray-500 mt-0.5">{{ $p['programada_texto'] }}</div></div>
+                            <span class="shrink-0 rounded-md bg-indigo-50 text-indigo-800 px-2 py-0.5 text-[11px] font-semibold" data-falta="{{ $p['programada_en'] }}">Programado</span>
+                        </div>
+                        <div class="mt-3 space-y-1">
+                            @foreach ($p['destinos'] as $d)
+                                <div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">{{ ($d['red'] ?? 'facebook') === 'youtube' ? '▶' : 'f' }} {{ $d['pagina'] }}</span>
+                                    <span class="shrink-0 {{ ($d['estado'] ?? '') === 'anunciado' ? 'text-indigo-700' : 'text-gray-500' }}">@if (!empty($d['permalink']) && ($d['estado'] ?? '') === 'anunciado')<a href="{{ $d['permalink'] }}" target="_blank" rel="noopener" class="underline">anunciado</a>@else{{ ($d['estado'] ?? '') === 'pendiente' ? ($p['anunciada'] ? 'se crea a la hora' : 'se anuncia 7 días antes') : $d['estado'] }}@endif</span></div>
+                                @if (!empty($d['error']))<div class="text-[11px] text-amber-700">{{ $d['error'] }} · saldrá igual a la hora.</div>@endif
+                            @endforeach
+                        </div>
+                        @if (!empty($p['invitaciones'][0]['url']))
+                            <div class="mt-3 rounded-lg bg-gray-50 px-2.5 py-2">
+                                <div class="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Enlace para invitados</div>
+                                <div class="flex items-center gap-2 mt-0.5"><code class="text-[11px] text-gray-700 truncate flex-1">{{ $p['invitaciones'][0]['url'] }}</code><button type="button" data-copiar="{{ $p['invitaciones'][0]['url'] }}" class="shrink-0 text-[11px] font-semibold text-indigo-700 hover:underline">Copiar</button></div>
+                            </div>
+                        @endif
+                        <div class="mt-auto pt-3 flex flex-wrap gap-2">
+                            <button type="button" data-abrir="{{ $p['id'] }}" class="h-8 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">Abrir el estudio</button>
+                            <button type="button" data-cancelar="{{ $p['id'] }}" class="h-8 rounded-lg border border-rose-200 px-3 text-xs text-rose-700 hover:bg-rose-50">Cancelar</button>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     {{-- =============================================== 1. NUEVA TRANSMISIÓN --}}
     <div id="vista-nueva" class="{{ $activa ? 'hidden' : '' }}">
         <div class="grid lg:grid-cols-[minmax(0,1fr)_22rem] gap-5 items-start">
@@ -74,6 +115,21 @@
                     </div>
                 @endif
 
+                <div>
+                    <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">¿Cuándo?</label>
+                    <div class="grid sm:grid-cols-2 gap-2">
+                        <label class="flex items-start gap-2.5 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40"><input type="radio" name="cuando" value="ahora" checked class="mt-0.5 h-4 w-4 text-indigo-600"><span><span class="block text-sm font-semibold text-gray-800">Ahora</span><span class="block text-xs text-gray-500">Abre el estudio y sal al aire cuando quieras.</span></span></label>
+                        <label class="flex items-start gap-2.5 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40"><input type="radio" name="cuando" value="programar" class="mt-0.5 h-4 w-4 text-indigo-600"><span><span class="block text-sm font-semibold text-gray-800">Programar</span><span class="block text-xs text-gray-500">Se anuncia en Facebook («Recordarme») y YouTube; a la hora entras y sales al aire.</span></span></label>
+                    </div>
+                    <div id="ev-programar" class="hidden mt-3 grid sm:grid-cols-2 gap-3 items-end">
+                        <div>
+                            <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Fecha y hora</label>
+                            <input type="datetime-local" name="programada_en" step="60" min="{{ now()->addMinutes(15)->format('Y-m-d\TH:i') }}" value="{{ now()->addDay()->setTime(19, 0)->format('Y-m-d\TH:i') }}" class="w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm">
+                        </div>
+                        <p class="text-[11px] text-gray-500">Hora de Colombia. Te avisamos 10 minutos antes. Si nadie sale al aire en 30 minutos, se quita el anuncio.</p>
+                    </div>
+                </div>
+
                 <details class="rounded-xl border border-gray-200">
                     <summary class="cursor-pointer select-none px-3 py-2.5 text-sm font-semibold text-gray-700">Plantilla en pantalla</summary>
                     <div class="border-t border-gray-100 p-3 grid sm:grid-cols-3 gap-3">
@@ -90,7 +146,7 @@
                 </details>
 
                 <div class="flex items-center justify-between gap-3 pt-1">
-                    <p class="text-xs text-gray-500">Primero se abre el estudio (sala de espera). Sales al aire cuando pulses <strong>«Salir al aire»</strong>.</p>
+                    <p class="text-xs text-gray-500" id="ev-pista">Primero se abre el estudio (sala de espera). Sales al aire cuando pulses <strong>«Salir al aire»</strong>.</p>
                     <button id="btn-preparar" class="h-11 shrink-0 rounded-xl bg-[#00024f] text-white px-5 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-50" @disabled(!$configurado || (!empty($esCliente) && !$limites))>Abrir el estudio</button>
                 </div>
             </form>
@@ -223,6 +279,7 @@
 (function () {
   const RUTAS = {
     preparar: @json(route('en-vivo.web.preparar')),
+    programar: @json(route('en-vivo.web.programar')),
     base: @json(url('/en-vivo')),
   };
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
@@ -258,6 +315,15 @@
       plantilla: { etiqueta: f.get('etiqueta'), logo_texto: f.get('logo_texto'), color_etiqueta: f.get('color_etiqueta'), pie: f.get('pie'), hashtag: f.get('hashtag') },
     };
     if (!datos.page_ids.length && !datos.youtube_canal_ids.length) return error('Elige al menos una página de Facebook o un canal de YouTube.');
+    if (f.get('cuando') === 'programar') {
+      const b = g('btn-preparar'); b.disabled = true; b.textContent = 'Programando…';
+      try {
+        await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en') });
+        if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) {} }
+        location.reload();
+      } catch (e) { error(e.message); b.disabled = false; b.textContent = 'Programar el en vivo'; }
+      return;
+    }
     const b = g('btn-preparar'); b.disabled = true; b.textContent = 'Abriendo el estudio…';
     try {
       const j = await pedir('POST', RUTAS.preparar, datos);
@@ -265,6 +331,50 @@
     } catch (e) { error(e.message); }
     b.disabled = false; b.textContent = 'Abrir el estudio';
   });
+
+  // ------------------------------------------------ programados
+  document.querySelectorAll('input[name="cuando"]').forEach(r => r.addEventListener('change', () => {
+    const prog = document.querySelector('input[name="cuando"]:checked').value === 'programar';
+    g('ev-programar').classList.toggle('hidden', !prog);
+    g('btn-preparar').textContent = prog ? 'Programar el en vivo' : 'Abrir el estudio';
+    g('ev-pista').innerHTML = prog ? 'Se crea el anuncio y el <strong>enlace para invitados</strong>. A la hora abres el estudio desde «Próximos en vivo».' : 'Primero se abre el estudio (sala de espera). Sales al aire cuando pulses <strong>«Salir al aire»</strong>.';
+  }));
+  const PROGRAMADAS = @json($programadas);
+  const abrirProgramada = async (id, boton) => {
+    error(null); if (boton) { boton.disabled = true; boton.textContent = 'Abriendo…'; }
+    try { const j = await pedir('POST', RUTAS.base + '/' + id + '/abrir'); T = j.transmision; g('ev-aviso')?.classList.add('hidden'); abrirEstudio(j.livekit, j.monitor); }
+    catch (e) { error(e.message); if (boton) { boton.disabled = false; boton.textContent = 'Abrir el estudio'; } }
+  };
+  const listaProg = g('ev-programadas');
+  if (listaProg) listaProg.addEventListener('click', async (ev) => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.copiar) { try { await navigator.clipboard.writeText(b.dataset.copiar); b.textContent = 'Copiado ✓'; setTimeout(() => b.textContent = 'Copiar', 1600); } catch (e) { prompt('Copia el enlace:', b.dataset.copiar); } }
+    if (b.dataset.abrir) { g('vista-nueva').classList.add('hidden'); listaProg.parentElement.classList.add('hidden'); abrirProgramada(b.dataset.abrir, b); }
+    if (b.dataset.cancelar) { if (!confirm('¿Cancelar este en vivo? Se quita el anuncio de Facebook y YouTube.')) return; try { await pedir('POST', RUTAS.base + '/' + b.dataset.cancelar + '/cancelar'); location.reload(); } catch (e) { error(e.message); } }
+  });
+  // Cuánto falta, aviso 10 minutos antes y notificación del navegador (si la página está abierta)
+  const avisadas = new Set();
+  const falta = (iso) => (new Date(iso) - Date.now()) / 1000;
+  const textoFalta = (s) => s <= 0 ? 'es ahora' : s < 3600 ? 'en ' + Math.ceil(s / 60) + ' min' : s < 86400 ? 'en ' + Math.floor(s / 3600) + ' h ' + Math.floor(s % 3600 / 60) + ' min' : 'en ' + Math.floor(s / 86400) + ' día(s)';
+  function revisarProgramadas() {
+    document.querySelectorAll('[data-falta]').forEach(e => { const s = falta(e.dataset.falta); e.textContent = s <= 600 ? '● ' + textoFalta(s) : textoFalta(s); e.className = 'shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ' + (s <= 600 ? 'bg-rose-600 text-white' : 'bg-indigo-50 text-indigo-800'); });
+    const prox = PROGRAMADAS.find(p => falta(p.programada_en) <= 600 && falta(p.programada_en) > -1800);
+    const av = g('ev-aviso');
+    if (av && prox && !T) {
+      av.classList.remove('hidden');
+      g('ev-aviso-texto').textContent = '«' + prox.titulo + '» ' + (falta(prox.programada_en) > 0 ? 'empieza ' + textoFalta(falta(prox.programada_en)) + '.' : 'ya debía empezar.');
+      g('ev-aviso-abrir').onclick = () => { g('vista-nueva').classList.add('hidden'); listaProg.parentElement.classList.add('hidden'); abrirProgramada(prox.id, g('ev-aviso-abrir')); };
+      if (!avisadas.has(prox.id) && 'Notification' in window && Notification.permission === 'granted') {
+        avisadas.add(prox.id);
+        try { const n = new Notification('En vivo ' + textoFalta(falta(prox.programada_en)) + ': ' + prox.titulo, { body: 'Abre el estudio de editus y sal al aire.' }); n.onclick = () => window.focus(); } catch (e) {}
+      }
+    }
+  }
+  if (PROGRAMADAS.length) {
+    const bp = g('ev-permiso-avisos');
+    if (bp && 'Notification' in window && Notification.permission === 'default') { bp.classList.remove('hidden'); bp.onclick = async () => { await Notification.requestPermission(); bp.classList.add('hidden'); }; }
+    revisarProgramadas(); setInterval(revisarProgramadas, 20000);
+  }
 
   // ------------------------------------------------ 2. estudio
   const url = (accion) => RUTAS.base + '/' + T.id + '/' + accion;

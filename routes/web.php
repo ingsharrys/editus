@@ -124,6 +124,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->name('pregrabados.ahora');
     Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->name('pregrabados.destroy');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
+    Route::post('/en-vivo/programar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'programar'])->middleware('throttle:20,1')->name('en-vivo.web.programar');
+    Route::post('/en-vivo/{transmision}/abrir', [\App\Http\Controllers\Web\EnVivoWebController::class, 'abrir'])->name('en-vivo.web.abrir');
+    Route::post('/en-vivo/{transmision}/cancelar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'cancelarProgramada'])->name('en-vivo.web.cancelar');
     Route::post('/en-vivo/{transmision}/aire', [\App\Http\Controllers\Web\EnVivoWebController::class, 'aire'])->name('en-vivo.web.aire');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Web\EnVivoWebController::class, 'escena'])->name('en-vivo.web.escena');
     Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Web\EnVivoWebController::class, 'plantilla'])->name('en-vivo.web.plantilla');

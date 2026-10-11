@@ -132,7 +132,10 @@ class EnVivoController extends Controller
             foreach ($t->destinosLista() as $d) {
                 $red = $d['red'] ?? 'facebook';
                 try {
-                    if ($red === 'youtube') {
+                    if (!empty($d['programado']) && !empty($d['fb_live_id'])) {
+                        // En vivo programado (anunciado con "Recordarme"): se sale en ESE mismo en vivo
+                        $live = $this->liveProgramado($d);
+                    } elseif ($red === 'youtube') {
                         $c = YoutubeCanal::find($d['canal_id'] ?? 0);
                         if (!$c) continue;
                         $live = $this->youtube->crear($c, $t->titulo, (string) ($t->descripcion ?? ''));
@@ -169,13 +172,52 @@ class EnVivoController extends Controller
             $t->fill(['egress_id' => $egressId, 'estado' => 'en_vivo', 'iniciada_en' => now()])->save();
         } catch (\Throwable $e) {
             Log::warning('[EN VIVO] no se pudo salir al aire', ['room' => $room, 'err' => $e->getMessage()]);
-            // Se cierran los lives que alcanzaron a crearse; la sala sigue viva para reintentar
-            $this->cerrarLives($t);
-            $t->fill(['destinos' => array_map(fn($d) => $d + ['fb_live_id' => null, 'stream_url' => null, 'estado' => 'pendiente'], $t->destinosLista()), 'fb_live_id' => null, 'stream_url' => null, 'error' => Str::limit($e->getMessage(), 500, '')])->save();
+            // Se cierran los lives que alcanzaron a crearse (menos los programados, que conservan su anuncio); la sala sigue viva para reintentar
+            $this->cerrarLives($t, false);
+            $t->fill(['destinos' => array_map(fn($d) => !empty($d['programado'])
+                ? array_merge($d, ['estado' => 'anunciado', 'stream_url' => ($d['red'] ?? 'facebook') === 'youtube' ? null : ($d['stream_url'] ?? null)])
+                : array_merge($d, ['fb_live_id' => null, 'stream_url' => null, 'estado' => 'pendiente']), $t->destinosLista()), 'fb_live_id' => null, 'stream_url' => null, 'error' => Str::limit($e->getMessage(), 500, '')])->save();
             return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 300, '')], 422);
         }
 
         return response()->json(['success' => true, 'transmision' => $t->fresh()->paraApi()]);
+    }
+
+    /** URL de transmisión de un destino programado: Facebook ya la dio al anunciar; YouTube se enlaza ahora. */
+    private function liveProgramado(array $d): array
+    {
+        if (($d['red'] ?? 'facebook') === 'youtube') {
+            $c = YoutubeCanal::find($d['canal_id'] ?? 0);
+            if (!$c) throw new \RuntimeException('El canal ya no existe en editus');
+            $url = $this->youtube->enlazar($c, $d['fb_live_id']);
+            return ['id' => $d['fb_live_id'], 'video_id' => $d['fb_live_id'], 'permalink' => $d['permalink'] ?? null, 'stream_url' => $url];
+        }
+        $p = MetaPage::find($d['meta_page_id'] ?? 0);
+        if (!$p) throw new \RuntimeException('La página ya no existe en editus');
+        if (empty($d['stream_url'])) throw new \RuntimeException('Facebook no entregó la URL del en vivo programado');
+        $this->facebook->ponerAlAire($p, $d['fb_live_id']); // si no lo acepta, igual sale a la hora programada
+        return ['id' => $d['fb_live_id'], 'video_id' => $d['fb_video_id'] ?? null, 'permalink' => $d['permalink'] ?? null, 'stream_url' => $d['stream_url']];
+    }
+
+    /**
+     * Abre la sala (estudio) de una transmisión PROGRAMADA: desde aquí todo sigue igual que una
+     * transmisión normal (cámaras, invitados, plantilla) y "Salir al aire" usa el en vivo anunciado.
+     */
+    public function abrirSala(TransmisionEnVivo $t): JsonResponse
+    {
+        if ($t->estado !== 'programada') return response()->json(['success' => false, 'error' => 'Esta transmisión ya no está programada (estado: ' . $t->estado . ')'], 422);
+        if (!$this->livekit->configurado()) return response()->json(['success' => false, 'error' => 'LiveKit no está configurado en editus.'], 422);
+        try {
+            $this->livekit->crearSala($t->room, $t->metadataSala(), 900);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => Str::limit($e->getMessage(), 300, '')], 422);
+        }
+        $t->fill(['estado' => 'sala', 'error' => null])->save();
+        return response()->json([
+            'success' => true, 'transmision' => $t->fresh()->paraApi(),
+            'livekit' => ['url' => $this->livekit->wsUrl(), 'token' => $this->tokenCamara($t, 'camara-principal', 'Cámara principal')],
+            'monitor' => $this->monitor($t),
+        ]);
     }
 
     /** POST /api/en-vivo/iniciar: sala + al aire en un solo paso (flujo antiguo de la app). */
@@ -349,7 +391,8 @@ class EnVivoController extends Controller
     {
         [$t, $inv] = $this->buscarInvitacion($codigo);
         if (!$t) abort(404, 'Invitación no válida');
-        return view('en-vivo.invitado', ['transmision' => $t, 'invitacion' => $inv, 'codigo' => $codigo, 'activa' => in_array($t->estado, ['sala', 'en_vivo'], true), 'modo' => $inv['modo'] ?? 'camara']);
+        return view('en-vivo.invitado', ['transmision' => $t, 'invitacion' => $inv, 'codigo' => $codigo, 'activa' => in_array($t->estado, ['sala', 'en_vivo'], true), 'modo' => $inv['modo'] ?? 'camara',
+            'programada' => $t->estado === 'programada' ? $t->programada_en : null]);
     }
 
     /** Token de LiveKit para el invitado (lo pide la página con su código). */
@@ -357,6 +400,7 @@ class EnVivoController extends Controller
     {
         [$t, $inv] = $this->buscarInvitacion($codigo);
         if (!$t) return response()->json(['success' => false, 'error' => 'Invitación no válida'], 404);
+        if ($t->estado === 'programada') return response()->json(['success' => false, 'error' => 'La transmisión está programada para el ' . $t->programada_en?->translatedFormat('l j \\d\\e F \\a \\l\\a\\s g:i a') . '. El estudio se abre poco antes: vuelve a esta página a esa hora.'], 422);
         if (!in_array($t->estado, ['sala', 'en_vivo'], true)) return response()->json(['success' => false, 'error' => 'La transmisión no está en vivo en este momento'], 422);
         $nombre = Str::limit(trim((string) $request->input('nombre', $inv['nombre'] ?? (($inv['modo'] ?? '') === 'pantalla' ? 'Pantalla' : 'Invitado'))), 40, '') ?: 'Invitado';
         $identity = 'invitado-' . $codigo;
@@ -381,7 +425,8 @@ class EnVivoController extends Controller
     {
         $codigo = Str::lower(preg_replace('/[^a-z0-9]/i', '', $codigo));
         if ($codigo === '') return [null, null];
-        $t = TransmisionEnVivo::where('created_at', '>=', now()->subDays(2))->orderByDesc('id')->get()
+        // Las de los últimos 2 días y las que siguen pendientes (una programada puede haberse creado hace semanas)
+        $t = TransmisionEnVivo::where(fn($q) => $q->where('created_at', '>=', now()->subDays(2))->orWhereIn('estado', ['programada', 'sala', 'en_vivo']))->orderByDesc('id')->get()
             ->first(fn($x) => collect($x->invitaciones ?? [])->contains(fn($i) => ($i['codigo'] ?? '') === $codigo));
         if (!$t) return [null, null];
         $inv = collect($t->invitaciones)->first(fn($i) => ($i['codigo'] ?? '') === $codigo);
@@ -475,11 +520,12 @@ class EnVivoController extends Controller
         if ($t->room) $this->livekit->borrarSala($t->room);
     }
 
-    /** Cierra el Live de cada destino (Facebook o YouTube) que alcanzó a crearse. */
-    private function cerrarLives(TransmisionEnVivo $t): void
+    /** Cierra el Live de cada destino (Facebook o YouTube) que alcanzó a crearse. Con $programados = false respeta los anunciados. */
+    private function cerrarLives(TransmisionEnVivo $t, bool $programados = true): void
     {
         foreach ($t->destinosLista() as $d) {
             if (empty($d['fb_live_id'])) continue;
+            if (!$programados && !empty($d['programado'])) continue;
             if (($d['red'] ?? 'facebook') === 'youtube') {
                 $c = YoutubeCanal::find($d['canal_id'] ?? 0);
                 if ($c) $this->youtube->terminar($c, $d['fb_live_id']);

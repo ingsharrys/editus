@@ -8,6 +8,7 @@ use App\Models\MetaPage;
 use App\Models\RecursoEnVivo;
 use App\Models\TransmisionEnVivo;
 use App\Services\CuentasAppService;
+use App\Services\EnVivoProgramadoService;
 use App\Services\LiveKitClient;
 use App\Services\MetaPageTokenResolver;
 use Illuminate\Http\JsonResponse;
@@ -41,7 +42,9 @@ class EnVivoWebController extends Controller
             'canales' => $cuentas->canalesDe(null)->map(fn($c) => ['id' => $c->id, 'titulo' => (string) $c->titulo])->values(),
             'recursos' => Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->orderBy('orden')->orderBy('id')->get()->map(fn($r) => $r->paraApi())->values() : collect(),
             'activa' => (clone $mias)->whereIn('estado', ['sala', 'en_vivo'])->first()?->paraApi(),
-            'historial' => (clone $mias)->whereIn('estado', ['terminada', 'error'])->limit(8)->get()->map(fn($t) => $t->paraApi() + ['fecha' => $t->created_at?->format('d/m/Y H:i')]),
+            'historial' => (clone $mias)->whereIn('estado', ['terminada', 'error', 'cancelada'])->limit(8)->get()->map(fn($t) => $t->paraApi() + ['fecha' => $t->created_at?->format('d/m/Y H:i')]),
+            'programadas' => Schema::hasColumn('transmisiones_en_vivo', 'programada_en')
+                ? (clone $mias)->reorder()->where('estado', 'programada')->orderBy('programada_en')->limit(20)->get()->map(fn($t) => $t->paraApi())->values() : collect(),
             'configurado' => $livekit->configurado(),
             'limites' => app(\App\Services\PlanService::class)->limites($user),
             'esCliente' => !app(\App\Services\PlanService::class)->sinLimites($user),
@@ -72,6 +75,54 @@ class EnVivoWebController extends Controller
             TransmisionEnVivo::whereKey($json['transmision']['id'])->update(['user_id' => Auth::id()]);
         }
         return $r;
+    }
+
+    /** Programa un en vivo con cámaras: se anuncia en Facebook y YouTube y a la hora se entra al estudio. */
+    public function programar(Request $request, EnVivoProgramadoService $programados, CuentasAppService $cuentas): JsonResponse
+    {
+        $datos = $request->validate([
+            'page_ids' => ['nullable', 'array', 'max:10'], 'page_ids.*' => ['string'],
+            'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
+            'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
+            'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
+        ]);
+        $user = Auth::user();
+        if (!app(\App\Services\PlanService::class)->limites($user)) return response()->json(['success' => false, 'error' => 'Necesitas un plan activo para transmitir.'], 403);
+        $cuando = \Carbon\Carbon::createFromFormat('Y-m-d\TH:i', $datos['programada_en'], config('app.timezone'))->seconds(0);
+        if ($cuando->lt(now()->addMinutes(10))) return response()->json(['success' => false, 'error' => 'Programa el en vivo al menos 10 minutos en el futuro (o usa «Abrir el estudio» para salir ahora).'], 422);
+        if ($cuando->gt(now()->addDays(365))) return response()->json(['success' => false, 'error' => 'Se puede programar hasta con un año de anticipación.'], 422);
+        $permitidas = $this->paginasPermitidas()->keyBy(fn($p) => (string) $p->page_id);
+        $paginas = collect((array) ($datos['page_ids'] ?? []))->map(fn($id) => $permitidas->get((string) $id));
+        if ($paginas->contains(null)) return response()->json(['success' => false, 'error' => 'Alguna de las páginas elegidas no está conectada a tu cuenta de editus.'], 422);
+        if ($motivo = app(\App\Services\PlanService::class)->validarPaginas($user, $paginas->pluck('id')->all())) return response()->json(['success' => false, 'error' => $motivo], 422);
+        $canalesOk = $cuentas->canalesDe(null)->keyBy('id');
+        $canales = collect((array) ($datos['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
+        if ($canales->contains(null)) return response()->json(['success' => false, 'error' => 'Alguno de los canales de YouTube no está disponible.'], 422);
+        if ($paginas->isEmpty() && $canales->isEmpty()) return response()->json(['success' => false, 'error' => 'Elige al menos una página de Facebook o un canal de YouTube.'], 422);
+        $plantilla = EnVivoController::normalizarPlantilla($this->plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
+        $this->preferir();
+        try {
+            $t = $programados->programar($user->id, $datos + ['programada_en' => $cuando], $paginas, $canales, $plantilla);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+        return response()->json(['success' => true, 'transmision' => $t->paraApi()]);
+    }
+
+    /** Abre el estudio de una transmisión programada (a la hora o un poco antes). */
+    public function abrir(TransmisionEnVivo $transmision): JsonResponse
+    {
+        $this->propia($transmision);
+        $this->preferir();
+        return $this->api->abrirSala($transmision);
+    }
+
+    /** Cancela una programada: quita los anuncios de Facebook y YouTube. */
+    public function cancelarProgramada(TransmisionEnVivo $transmision, EnVivoProgramadoService $programados): JsonResponse
+    {
+        $this->propia($transmision);
+        $programados->cancelar($transmision, 'Cancelada por ' . Auth::user()->name . '.');
+        return response()->json(['success' => true, 'transmision' => $transmision->fresh()->paraApi()]);
     }
 
     public function aire(Request $request, TransmisionEnVivo $transmision): JsonResponse

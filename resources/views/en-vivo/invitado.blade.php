@@ -41,6 +41,9 @@
     <p class="sub">Vas a enviar tu cámara a esta transmisión. El director decide cuándo sales al aire.</p>
   @endif
 
+  @if (!$activa && !empty($programada))
+    <div class="aviso" style="margin:0 0 14px;background:#1e3a8a;color:#e0e7ff">📅 Programada para el <strong>{{ $programada->translatedFormat('l j \d\e F \a \l\a\s g:i a') }}</strong>: vuelve a este enlace unos minutos antes: cuando el director abra el estudio podrás enviar tu cámara. Mientras tanto puedes probar tu cámara aquí.</div>
+  @endif
   <div class="marco">
     <video id="previa" autoplay playsinline muted></video>
     <span id="estado" class="estado">VISTA PREVIA</span>
@@ -70,7 +73,8 @@
   </div>
 
   <div id="aviso" class="aviso {{ $activa ? 'oculto' : '' }}">
-    @if (!$activa) La transmisión todavía no está en vivo. Deja esta página abierta y vuelve a intentar cuando el director la inicie. @endif
+    @if (!$activa && !empty($programada)) Aún no empieza: vuelve a la hora programada.
+    @elseif (!$activa) La transmisión todavía no está en vivo. Deja esta página abierta y vuelve a intentar cuando el director la inicie. @endif
   </div>
 </main>
 
