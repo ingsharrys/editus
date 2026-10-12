@@ -68,6 +68,7 @@ class AvisosYAppTest extends TestCase
                 return Http::response(['data' => array_map(fn($m) => str_contains($m['to'], 'Muerto') ? ['status' => 'error', 'details' => ['error' => 'DeviceNotRegistered']] : ['status' => 'ok', 'id' => 'x'], $r->data())]);
             }
             if (str_contains($url, '/111/live_videos')) return Http::response(['id' => '9001', 'secure_stream_url' => 'rtmps://live-api-s.facebook.com:443/rtmp/CLAVE']);
+            if (str_contains($url, '/111/photos') || str_contains($url, '/111/feed')) return Http::response(['id' => 'foto-1', 'post_id' => '111_9']);
             if (str_contains($url, 'graph.facebook.com')) return Http::response(['success' => true, 'permalink_url' => '/opa/videos/9001/']);
             if (str_contains($url, 'thumbnails/set')) return Http::response(['items' => [['default' => ['url' => 'x']]]]);
             if (str_contains($url, 'liveBroadcasts')) return Http::response(['id' => 'yt-1']);
@@ -143,11 +144,13 @@ class AvisosYAppTest extends TestCase
             ->assertStatus(422)->assertJsonFragment(['success' => false]);
         $r = $this->api('POST', '/en-vivo/programar', ['usuario' => '7', 'page_ids' => ['111'], 'youtube_canal_ids' => [$canal->id], 'titulo' => 'Debate', 'programada_en' => now()->addDays(2)->toIso8601String(), 'miniatura' => $this->jpgBase64()])->assertOk();
         $this->assertStringContainsString('/storage/en-vivo/miniaturas/', $r->json('transmision.miniatura'));
-        $fb = collect($this->llamadas)->first(fn($l) => str_contains($l['url'], '/111/live_videos'));
-        $this->assertNotNull($fb['multipart'], 'Facebook recibe la imagen');
+        $this->assertNull(collect($this->llamadas)->first(fn($l) => str_contains($l['url'], '/111/live_videos')), 'sin en vivo programado (Meta lo eliminó)');
+        $fb = collect($this->llamadas)->first(fn($l) => str_contains($l['url'], '/111/photos'));
+        $this->assertNotNull($fb['multipart'], 'la publicación de anuncio lleva la imagen');
         $partes = collect($fb['multipart'])->keyBy('name');
-        $this->assertSame('SCHEDULED_UNPUBLISHED', $partes['status']['contents']);
-        $this->assertTrue($partes->has('schedule_custom_profile_image'));
+        $this->assertTrue($partes->has('source'));
+        $this->assertStringContainsString('Debate', $partes['message']['contents']);
+        $this->assertSame('111_9', TransmisionEnVivo::find($r->json('transmision.id'))->destinosLista()[0]['anuncio_post_id']);
         $this->assertNotNull(collect($this->llamadas)->first(fn($l) => str_contains($l['url'], 'thumbnails/set?videoId=yt-1')), 'YouTube recibe la miniatura');
     }
 

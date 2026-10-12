@@ -133,7 +133,7 @@ class EnVivoController extends Controller
                 $red = $d['red'] ?? 'facebook';
                 try {
                     if (!empty($d['programado']) && !empty($d['fb_live_id'])) {
-                        // En vivo programado (anunciado con "Recordarme"): se sale en ESE mismo en vivo
+                        // Destino ya creado al anunciar (YouTube, o Facebook de antes de que Meta quitara los programados)
                         $live = $this->liveProgramado($d);
                     } elseif ($red === 'youtube') {
                         $c = YoutubeCanal::find($d['canal_id'] ?? 0);

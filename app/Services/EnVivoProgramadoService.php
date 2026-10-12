@@ -13,15 +13,17 @@ use Illuminate\Support\Str;
 /**
  * En vivo PROGRAMADO con cámaras (como StreamYard, con dos mejoras):
  *   1. Se programa: título, páginas / canales, fecha y hora, plantilla.
- *   2. Hasta 7 días antes se anuncia: en vivo programado en Facebook ("Recordarme") y
- *      transmisión "próxima" en YouTube. El enlace de invitados sirve desde ya.
+ *   2. Al programar se anuncia: publicación en la página de Facebook (Meta eliminó los en
+ *      vivos programados de la API) y transmisión "próxima" en YouTube. El enlace de
+ *      invitados sirve desde ya.
  *   3. 10 minutos antes se avisa a quien la programó (correo y aviso en la web).
- *   4. A la hora se abre el estudio y "Salir al aire" usa el MISMO en vivo anunciado.
+ *   4. A la hora se abre el estudio y "Salir al aire": en YouTube usa la MISMA transmisión
+ *      anunciada; en Facebook crea el en vivo en ese momento.
  *   5. Si nadie sale al aire en 30 minutos, se quita el anuncio (no queda un en vivo fantasma).
  */
 class EnVivoProgramadoService
 {
-    public const DIAS_ANUNCIO = 7;
+    public const DIAS_ANUNCIO = 365; // el anuncio se publica apenas se programa
     public const MINUTOS_AVISO = 10;
     public const TOLERANCIA_MIN = 30;
 
@@ -29,7 +31,7 @@ class EnVivoProgramadoService
     {
     }
 
-    /** Crea la transmisión programada (sin sala todavía) y la anuncia si ya está dentro de los 7 días. */
+    /** Crea la transmisión programada (sin sala todavía) y publica sus anuncios. */
     public function programar(?int $userId, array $d, $paginas, $canales, array $plantilla): TransmisionEnVivo
     {
         $principal = $paginas->first() ?: MetaPage::orderBy('id')->first();
@@ -42,7 +44,7 @@ class EnVivoProgramadoService
             'invitaciones' => [['codigo' => Str::lower(Str::random(10)), 'nombre' => null, 'modo' => 'camara', 'creada_en' => now()->toIso8601String()]],
             'destinos' => array_merge(
                 $paginas->map(fn($p) => ['red' => 'facebook', 'meta_page_id' => $p->id, 'page_id' => (string) $p->page_id, 'pagina' => (string) $p->name, 'fb_live_id' => null, 'fb_video_id' => null,
-                    'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null])->values()->all(),
+                    'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null, 'anunciar' => (bool) ($d['anuncio_facebook'] ?? true)])->values()->all(),
                 $canales->map(fn($c) => ['red' => 'youtube', 'canal_id' => $c->id, 'page_id' => 'yt:' . $c->channel_id, 'pagina' => (string) $c->titulo, 'fb_live_id' => null, 'fb_video_id' => null,
                     'permalink' => null, 'stream_url' => null, 'estado' => 'pendiente', 'error' => null])->values()->all(),
             ),
@@ -68,10 +70,15 @@ class EnVivoProgramadoService
                         $r = $this->youtube->crear($c, $t->titulo, (string) $t->descripcion, 'public', $t->programada_en, false);
                         $notaMiniatura = $this->miniaturaYoutube($c, $r['id'], $t->miniatura);
                     } else {
+                        // Facebook ya no deja programar en vivos por la API: se publica un anuncio en la
+                        // página y el en vivo se crea a la hora, al salir al aire
+                        if (array_key_exists('anunciar', $d) && !$d['anunciar']) continue;
                         $p = MetaPage::find($d['meta_page_id'] ?? 0);
                         if (!$p) throw new \RuntimeException('La página ya no existe en editus');
-                        $r = $this->facebook->crear($p, $t->titulo, (string) $t->descripcion, $t->programada_en, MiniaturaService::archivo($t->miniatura));
-                        $notaMiniatura = null;
+                        $r = $this->facebook->publicarAnuncio($p, FacebookLiveService::textoAnuncio($t->titulo, $t->descripcion, $t->programada_en), MiniaturaService::archivo($t->miniatura));
+                        $d = array_merge($d, ['anuncio_post_id' => $r['id'], 'anuncio_permalink' => $r['permalink'] ?? null, 'error' => null]);
+                        $ok++;
+                        continue;
                     }
                     $d = array_merge($d, ['fb_live_id' => $r['id'], 'fb_video_id' => $r['video_id'] ?? null, 'permalink' => $r['permalink'] ?? null, 'stream_url' => $r['stream_url'] ?? null,
                         'programado' => true, 'estado' => 'anunciado', 'error' => $notaMiniatura]);
@@ -105,7 +112,7 @@ class EnVivoProgramadoService
     {
         $log = [];
         $ahora = now();
-        // Anunciar las que entran en la ventana de 7 días
+        // Anunciar las que aún no tienen anuncio (se reintenta una vez por minuto si la primera vez falló del todo)
         foreach (TransmisionEnVivo::where('estado', 'programada')->whereNull('anunciada_en')
             ->where('programada_en', '<=', $ahora->copy()->addDays(self::DIAS_ANUNCIO)->subMinutes(5))
             ->where('programada_en', '>', $ahora->copy()->addMinutes(5))->limit(10)->get() as $t) {
@@ -136,6 +143,11 @@ class EnVivoProgramadoService
             $this->usarTokensDe($t);
             $destinos = $t->destinosLista();
             foreach ($destinos as &$d) {
+                if (!empty($d['anuncio_post_id']) && ($p = MetaPage::find($d['meta_page_id'] ?? 0))) {
+                    $this->facebook->borrarAnuncio($p, $d['anuncio_post_id']);
+                    $d['anuncio_post_id'] = null; $d['anuncio_permalink'] = null;
+                    if (($d['estado'] ?? '') === 'pendiente') $d['estado'] = 'cancelado';
+                }
                 if (empty($d['programado']) || empty($d['fb_live_id'])) continue;
                 try {
                     if (($d['red'] ?? 'facebook') === 'youtube' && ($c = YoutubeCanal::find($d['canal_id'] ?? 0))) $this->youtube->borrar($c, $d['fb_live_id']);

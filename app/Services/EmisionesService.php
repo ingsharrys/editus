@@ -15,8 +15,8 @@ use Illuminate\Support\Str;
  *
  *   subiendo   el navegador sube el video por partes directo al emisor del VPS
  *   procesando el emisor lo prepara (formato de transmisión, logo, marco, cuenta regresiva)
- *   listo      programado: hasta 7 días antes se crea el en vivo programado en Facebook
- *              (anuncio con "Recordarme") y la transmisión "próxima" en YouTube
+ *   listo      programado: se publica el anuncio en la página de Facebook (Meta ya no permite
+ *              programar en vivos por la API) y la transmisión "próxima" en YouTube
  *   al_aire    un minuto antes el emisor envía la cuenta regresiva y, a la hora, el video
  *   terminado  al acabar el video se cierran los en vivo; el archivo se borra días después
  *
@@ -25,7 +25,7 @@ use Illuminate\Support\Str;
  */
 class EmisionesService
 {
-    public const DIAS_ANUNCIO = 7;        // Facebook acepta en vivos programados hasta 7 días antes
+    public const DIAS_ANUNCIO = 365;      // el anuncio se publica apenas el video está listo
     public const SEGUNDOS_ARRANQUE = 75;  // se avisa al emisor en el minuto anterior; él espera y cuadra la cuenta regresiva
     public const TOLERANCIA_MIN = 30;     // si por algo no arrancó a tiempo, se intenta hasta 30 min después
 
@@ -39,7 +39,7 @@ class EmisionesService
     public function crear(?int $userId, array $d, $paginas, $canales): EmisionProgramada
     {
         $destinos = [];
-        foreach ($paginas as $p) $destinos[] = ['red' => 'facebook', 'meta_page_id' => $p->id, 'nombre' => (string) $p->name, 'live_id' => null, 'stream_url' => null, 'permalink' => null, 'estado' => 'pendiente', 'error' => null];
+        foreach ($paginas as $p) $destinos[] = ['red' => 'facebook', 'meta_page_id' => $p->id, 'nombre' => (string) $p->name, 'live_id' => null, 'stream_url' => null, 'permalink' => null, 'estado' => 'pendiente', 'error' => null, 'anunciar' => (bool) ($d['anuncio_facebook'] ?? true)];
         foreach ($canales as $c) $destinos[] = ['red' => 'youtube', 'canal_id' => $c->id, 'nombre' => (string) $c->titulo, 'live_id' => null, 'stream_url' => null, 'permalink' => null, 'estado' => 'pendiente', 'error' => null];
         return EmisionProgramada::create([
             'user_id' => $userId, 'emisor_id' => 'em-' . Str::lower(Str::random(24)), 'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null,
@@ -93,7 +93,7 @@ class EmisionesService
             ->where('programada_en', '>=', $ahora->copy()->subMinutes(self::TOLERANCIA_MIN))->get();
         foreach ($listas as $e) $log[] = "#{$e->id} " . $this->arrancar($e);
 
-        // 3) Anunciar en Facebook / YouTube las que ya están dentro de la ventana de 7 días
+        // 3) Anunciar en Facebook / YouTube las que ya están listas
         $porAnunciar = EmisionProgramada::where('estado', 'listo')->whereNull('anunciada_en')
             ->where('programada_en', '<=', $ahora->copy()->addDays(self::DIAS_ANUNCIO)->subMinutes(5))
             ->where('programada_en', '>', $ahora->copy()->addMinutes(5))->limit(10)->get();
@@ -168,7 +168,7 @@ class EmisionesService
         });
     }
 
-    /** Crea los en vivo programados (anuncio) en cada destino. Si falla, se reintenta y a la hora se crea en directo. */
+    /** Publica los anuncios (Facebook: publicación en la página; YouTube: transmisión próxima). Si fallan, a la hora se crea en directo. */
     public function anunciar(EmisionProgramada $e): string
     {
         return $this->conCandado($e, function (EmisionProgramada $e) {
@@ -180,10 +180,14 @@ class EmisionesService
                 if (($d['estado'] ?? '') !== 'pendiente') continue;
                 try {
                     if ($d['red'] === 'facebook') {
+                        // Publicación de anuncio en la página; el en vivo se crea a la hora (arrancar)
+                        if (array_key_exists('anunciar', $d) && !$d['anunciar']) continue;
                         $page = MetaPage::find($d['meta_page_id']);
                         if (!$page) throw new \RuntimeException('La página ya no existe en editus');
-                        $r = $this->facebook->crear($page, $e->titulo, (string) $e->descripcion, $e->programada_en, MiniaturaService::archivo($e->miniatura ?? null));
-                        $nota = null;
+                        $r = $this->facebook->publicarAnuncio($page, FacebookLiveService::textoAnuncio($e->titulo, $e->descripcion, $e->programada_en, true), MiniaturaService::archivo($e->miniatura ?? null));
+                        $d = array_merge($d, ['anuncio_post_id' => $r['id'], 'anuncio_permalink' => $r['permalink'] ?? null, 'error' => null]);
+                        $ok++;
+                        continue;
                     } else {
                         $canal = YoutubeCanal::find($d['canal_id']);
                         if (!$canal) throw new \RuntimeException('El canal ya no existe en editus');
@@ -328,6 +332,11 @@ class EmisionesService
         $this->usarTokensDe($e);
         $destinos = (array) $e->destinos;
         foreach ($destinos as &$d) {
+            if (!empty($d['anuncio_post_id']) && ($page = MetaPage::find($d['meta_page_id'] ?? 0))) {
+                $this->facebook->borrarAnuncio($page, $d['anuncio_post_id']);
+                $d['anuncio_post_id'] = null; $d['anuncio_permalink'] = null;
+                if (($d['estado'] ?? '') === 'pendiente') $d['estado'] = 'cancelado';
+            }
             if (($d['estado'] ?? '') !== 'anunciado' || empty($d['live_id'])) continue;
             try {
                 if ($d['red'] === 'facebook' && ($page = MetaPage::find($d['meta_page_id']))) $this->facebook->cancelarProgramado($page, $d['live_id']);

@@ -121,8 +121,9 @@
 <div class="">
                             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Miniatura del anuncio (opcional)</label>
                             <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
-                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Se ve en Facebook y YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
+                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
                         </div>
+                <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="anuncio_facebook" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>Publicar anuncio en Facebook</strong>. <span class="text-gray-500">Meta ya no permite programar en vivos desde aplicaciones: publicamos un post con la fecha y la hora (se borra si cancelas). El en vivo se crea solo a la hora.</span></span></label>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="etiqueta" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>Etiqueta «PREGRABADO»</strong> en una esquina. <span class="text-gray-500">Facebook exige que el contenido pregrabado se distinga del que es en vivo.</span></span></label>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="cuenta" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>Cuenta regresiva</strong> de 1 minuto antes de la hora, con el título y el logo.</span></label>
             </div>
@@ -146,7 +147,7 @@
                 @foreach ([
                     ['Subes el video', 'Va directo al servidor de transmisión, por partes. Si se corta, vuelves a elegir el mismo archivo y continúa.'],
                     ['Se prepara una sola vez', 'Formato de transmisión, logo, marco y etiqueta. Un video de 1 hora tarda unos 30 a 60 minutos.'],
-                    ['Se anuncia', 'Hasta 7 días antes se publica el en vivo programado en Facebook (con «Recordarme») y en YouTube.'],
+                    ['Se anuncia', 'Apenas el video está listo se publica un anuncio en tu página de Facebook (con la miniatura, la fecha y la hora) y la transmisión próxima en YouTube.'],
                     ['Sale en vivo solo', 'Un minuto antes empieza la cuenta regresiva y, a la hora, el video. Al terminar se cierra y queda publicado.'],
                 ] as $i => [$t, $d])
                     <li class="flex gap-3"><span class="shrink-0 h-6 w-6 rounded-full bg-[#00024f] text-white grid place-items-center text-xs font-bold">{{ $i + 1 }}</span><span><b class="text-gray-800">{{ $t }}.</b> <span class="text-gray-600">{{ $d }}</span></span></li>
@@ -252,7 +253,7 @@
     const datos = { titulo: f.get('titulo'), descripcion: f.get('descripcion'), programada_en: f.get('programada_en'), calidad: f.get('calidad'),
       meta_page_ids: f.getAll('meta_page_ids[]').map(Number), youtube_canal_ids: f.getAll('youtube_canal_ids[]').map(Number),
       logo_id: f.get('logo_id') ? Number(f.get('logo_id')) : null, marco_id: f.get('marco_id') ? Number(f.get('marco_id')) : null,
-      etiqueta: f.get('etiqueta') === '1', cuenta: f.get('cuenta') === '1', archivo_nombre: archivo.name, archivo_bytes: archivo.size };
+      etiqueta: f.get('etiqueta') === '1', cuenta: f.get('cuenta') === '1', anuncio_facebook: f.get('anuncio_facebook') === '1', archivo_nombre: archivo.name, archivo_bytes: archivo.size };
     if (!datos.titulo) return error('Escribe el título.');
     if (!datos.meta_page_ids.length && !datos.youtube_canal_ids.length) return error('Elige al menos una página de Facebook o un canal de YouTube.');
     const img = f.get('miniatura_archivo');
@@ -287,7 +288,7 @@
       ${texto ? `<div class="text-xs text-gray-600 mt-2">${texto}</div>` : ''}
       ${barra ? `<div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div class="h-1.5 rounded-full ${e.estado === 'al_aire' ? 'bg-rose-500' : 'bg-[#00024f]'}" style="width:${e.progreso}%"></div></div>` : ''}
       ${e.error ? `<div class="mt-2 rounded-lg bg-rose-50 text-rose-700 text-xs px-2.5 py-1.5">${esc(e.error)}</div>` : ''}
-      <div class="mt-3 space-y-1">${e.destinos.map(d => `<div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">${d.red === 'youtube' ? '▶' : 'f'} ${esc(d.nombre)}</span><span class="shrink-0 ${DEST[d.estado] || ''}">${d.permalink ? `<a href="${esc(d.permalink)}" target="_blank" rel="noopener" class="underline">${esc(d.estado)}</a>` : esc(d.estado)}</span></div>${d.error ? `<div class="text-[11px] text-rose-600">${esc(d.error)}</div>` : ''}`).join('')}</div>
+      <div class="mt-3 space-y-1">${e.destinos.map(d => `<div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">${d.red === 'youtube' ? '▶' : 'f'} ${esc(d.nombre)}</span><span class="shrink-0 ${DEST[d.estado] || ''}">${d.permalink ? `<a href="${esc(d.permalink)}" target="_blank" rel="noopener" class="underline">${esc(d.estado)}</a>` : d.anuncio && d.estado === 'pendiente' ? `<span class="text-indigo-700">${d.anuncio_permalink ? `<a href="${esc(d.anuncio_permalink)}" target="_blank" rel="noopener" class="underline">anuncio publicado</a>` : 'anuncio publicado'}</span>` : esc(d.estado)}</span></div>${d.error ? `<div class="text-[11px] text-rose-600">${esc(d.error)}</div>` : ''}`).join('')}</div>
       <div class="mt-auto pt-3 flex flex-wrap gap-2">
         ${e.estado === 'subiendo' && subiendo !== e.id ? `<label class="h-8 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold cursor-pointer">Continuar subida<input type="file" class="sr-only" data-reanudar="${e.id}" accept="video/*,.mkv"></label>` : ''}
         ${e.estado === 'listo' ? `<button type="button" data-ahora="${e.id}" class="h-8 rounded-lg border border-gray-200 px-3 text-xs text-gray-700 hover:bg-gray-50">Salir en 2 minutos</button>` : ''}

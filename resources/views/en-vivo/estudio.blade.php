@@ -49,7 +49,7 @@
                         <div class="mt-3 space-y-1">
                             @foreach ($p['destinos'] as $d)
                                 <div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">{{ ($d['red'] ?? 'facebook') === 'youtube' ? '▶' : 'f' }} {{ $d['pagina'] }}</span>
-                                    <span class="shrink-0 {{ ($d['estado'] ?? '') === 'anunciado' ? 'text-indigo-700' : 'text-gray-500' }}">@if (!empty($d['permalink']) && ($d['estado'] ?? '') === 'anunciado')<a href="{{ $d['permalink'] }}" target="_blank" rel="noopener" class="underline">anunciado</a>@else{{ ($d['estado'] ?? '') === 'pendiente' ? ($p['anunciada'] ? 'se crea a la hora' : 'se anuncia 7 días antes') : $d['estado'] }}@endif</span></div>
+                                    <span class="shrink-0 {{ ($d['estado'] ?? '') === 'anunciado' || !empty($d['anuncio_post_id']) ? 'text-indigo-700' : 'text-gray-500' }}">@if (!empty($d['permalink']) && ($d['estado'] ?? '') === 'anunciado')<a href="{{ $d['permalink'] }}" target="_blank" rel="noopener" class="underline">anunciado</a>@elseif (!empty($d['anuncio_post_id']))@if (!empty($d['anuncio_permalink']))<a href="{{ $d['anuncio_permalink'] }}" target="_blank" rel="noopener" class="underline">anuncio publicado</a>@else anuncio publicado @endif · el en vivo se crea a la hora @else{{ ($d['estado'] ?? '') === 'pendiente' ? (($d['red'] ?? 'facebook') === 'facebook' ? 'el en vivo se crea a la hora' : ($p['anunciada'] ? 'se crea a la hora' : 'se anuncia en un momento')) : $d['estado'] }}@endif</span></div>
                                 @if (!empty($d['error']))<div class="text-[11px] text-amber-700">{{ $d['error'] }} · saldrá igual a la hora.</div>@endif
                             @endforeach
                         </div>
@@ -119,7 +119,7 @@
                     <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">¿Cuándo?</label>
                     <div class="grid sm:grid-cols-2 gap-2">
                         <label class="flex items-start gap-2.5 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40"><input type="radio" name="cuando" value="ahora" checked class="mt-0.5 h-4 w-4 text-indigo-600"><span><span class="block text-sm font-semibold text-gray-800">Ahora</span><span class="block text-xs text-gray-500">Abre el estudio y sal al aire cuando quieras.</span></span></label>
-                        <label class="flex items-start gap-2.5 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40"><input type="radio" name="cuando" value="programar" class="mt-0.5 h-4 w-4 text-indigo-600"><span><span class="block text-sm font-semibold text-gray-800">Programar</span><span class="block text-xs text-gray-500">Se anuncia en Facebook («Recordarme») y YouTube; a la hora entras y sales al aire.</span></span></label>
+                        <label class="flex items-start gap-2.5 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40"><input type="radio" name="cuando" value="programar" class="mt-0.5 h-4 w-4 text-indigo-600"><span><span class="block text-sm font-semibold text-gray-800">Programar</span><span class="block text-xs text-gray-500">Se anuncia en tu página de Facebook (publicación) y en YouTube (próxima transmisión); a la hora entras y sales al aire.</span></span></label>
                     </div>
                     <div id="ev-programar" class="hidden mt-3 grid sm:grid-cols-2 gap-3 items-end">
                         <div>
@@ -130,8 +130,9 @@
                         <div class="sm:col-span-2">
                             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Miniatura del anuncio (opcional)</label>
                             <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
-                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Se ve en Facebook y YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
+                            <p class="text-[11px] text-gray-400 mt-1">JPG o PNG de 1280×720, hasta 2 MB. Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).</p>
                         </div>
+                        <label class="sm:col-span-2 flex items-start gap-2 text-sm text-gray-700"><input type="checkbox" name="anuncio_facebook" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span>Publicar anuncio en Facebook <span class="block text-[11px] text-gray-500">Meta ya no permite programar en vivos desde aplicaciones: publicamos un post con la miniatura, la fecha y la hora (se borra si cancelas). El en vivo se crea a la hora, al salir al aire.</span></span></label>
                     </div>
                 </div>
 
@@ -329,7 +330,7 @@
           if (img.size > 2 * 1024 * 1024) throw new Error('La miniatura pesa más de 2 MB. Usa una imagen JPG de 1280×720.');
           miniatura = await new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = mal; fr.readAsDataURL(img); });
         }
-        await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en'), miniatura });
+        await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en'), miniatura, anuncio_facebook: f.get('anuncio_facebook') === '1' });
         if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) {} }
         location.reload();
       } catch (e) { error(e.message); b.disabled = false; b.textContent = 'Programar el en vivo'; }

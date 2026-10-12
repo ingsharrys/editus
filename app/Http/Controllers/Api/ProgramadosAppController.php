@@ -60,7 +60,7 @@ class ProgramadosAppController extends Controller
             'page_ids' => ['nullable', 'array', 'max:10'], 'page_ids.*' => ['string'],
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
-            'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'string', 'max:40'], 'miniatura' => ['nullable', 'string', 'max:3000000'],
+            'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'string', 'max:40'], 'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
         ]);
         try {
             $cuando = $this->hora($d['programada_en']);
@@ -69,6 +69,7 @@ class ProgramadosAppController extends Controller
             $miniatura = !empty($d['miniatura']) ? app(MiniaturaService::class)->guardarBase64($d['miniatura']) : null;
             $t = $programados->programar(null, [
                 'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null, 'programada_en' => $cuando, 'miniatura' => $miniatura, 'usuario_app' => $d['usuario'],
+                'anuncio_facebook' => (bool) ($d['anuncio_facebook'] ?? true),
             ], $paginas, $canales, EnVivoController::normalizarPlantilla((array) ($d['plantilla'] ?? []), $d['titulo']));
         } catch (\Throwable $e) {
             return $this->error($e->getMessage());
@@ -125,7 +126,7 @@ class ProgramadosAppController extends Controller
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'programada_en' => ['required', 'string', 'max:40'], 'archivo_nombre' => ['required', 'string', 'max:255'], 'archivo_bytes' => ['required', 'integer', 'min:1000'],
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'], 'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'],
-            'calidad' => ['nullable', 'in:auto,720'], 'miniatura' => ['nullable', 'string', 'max:3000000'],
+            'calidad' => ['nullable', 'in:auto,720'], 'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
         ]);
         $max = (int) config('services.emisor.max_gb', 6) * 1024 ** 3;
         if ($d['archivo_bytes'] > $max) return $this->error('El video supera el máximo de ' . config('services.emisor.max_gb', 6) . ' GB.');
@@ -137,6 +138,7 @@ class ProgramadosAppController extends Controller
             $miniatura = !empty($d['miniatura']) ? app(MiniaturaService::class)->guardarBase64($d['miniatura']) : null;
             $e = $emisiones->crear(null, [
                 'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null, 'programada_en' => $cuando, 'usuario_app' => $d['usuario'], 'miniatura' => $miniatura,
+                'anuncio_facebook' => (bool) ($d['anuncio_facebook'] ?? true),
                 'archivo_nombre' => $d['archivo_nombre'], 'archivo_bytes' => $d['archivo_bytes'],
                 'plantilla' => ['logo_id' => $logo?->id, 'logo_url' => $logo?->logoUrl(), 'marco_id' => $marco?->id, 'marco_url' => $marco?->url(),
                     'etiqueta' => $request->boolean('etiqueta', true), 'cuenta' => $request->boolean('cuenta', true), 'calidad' => ($d['calidad'] ?? 'auto') === '720' ? '720' : 'auto'],

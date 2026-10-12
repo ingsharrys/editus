@@ -17,28 +17,21 @@ class FacebookLiveService
     }
 
     /**
-     * Crea la transmisión y devuelve id, stream_url (secreto) y permalink.
-     * Con $inicio crea un en vivo PROGRAMADO (hasta 7 días antes): Facebook publica el anuncio con
-     * "Recordarme" y la pone al aire a esa hora si ya está recibiendo señal.
+     * Crea la transmisión (LIVE_NOW) y devuelve id, stream_url (secreto) y permalink.
+     * Meta eliminó los en vivos programados de la API ("Scheduled Live has been deprecated"): un en
+     * vivo programado se anuncia con publicarAnuncio() y la transmisión se crea a la hora.
      */
-    public function crear(MetaPage $page, string $titulo, string $descripcion, ?\DateTimeInterface $inicio = null, ?string $miniatura = null): array
+    public function crear(MetaPage $page, string $titulo, string $descripcion): array
     {
         $token = $this->tokens->forPage($page->page_id);
         if (!$token) throw new \RuntimeException('La página no tiene un token activo en editus');
 
-        $datos = [
-            'status' => $inicio ? 'SCHEDULED_UNPUBLISHED' : 'LIVE_NOW',
+        $r = Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph("{$page->page_id}/live_videos"), [
+            'status' => 'LIVE_NOW',
             'title' => Str::limit($titulo, 250, ''),
             'description' => Str::limit($descripcion, 5000, ''),
             'access_token' => $token,
-        ];
-        if ($inicio) $datos['event_params'] = json_encode(['start_time' => $inicio->getTimestamp()]);
-        // Miniatura del anuncio (solo en programados): imagen que se ve en la página antes de empezar
-        $peticion = Http::timeout(60);
-        $peticion = ($inicio && $miniatura && is_file($miniatura))
-            ? $peticion->attach('schedule_custom_profile_image', (string) file_get_contents($miniatura), basename($miniatura))
-            : $peticion->asForm();
-        $r = $peticion->post(SocialPhotoPublisher::graph("{$page->page_id}/live_videos"), $datos);
+        ]);
         if (!$r->ok() || !data_get($r->json(), 'id')) {
             $msg = (string) (data_get($r->json(), 'error.error_user_msg') ?: data_get($r->json(), 'error.message') ?: Str::limit($r->body(), 200, ''));
             if (stripos($msg, 'permission') !== false || stripos($msg, 'publish_video') !== false) {
@@ -78,6 +71,53 @@ class FacebookLiveService
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Anuncio de un en vivo o pregrabado programado: una publicación en la página con la fecha y
+     * la hora (y la miniatura, si hay, subida como foto). Devuelve id y permalink de la publicación.
+     */
+    public function publicarAnuncio(MetaPage $page, string $mensaje, ?string $imagen = null): array
+    {
+        $token = $this->tokens->forPage($page->page_id);
+        if (!$token) throw new \RuntimeException('La página no tiene un token activo en editus');
+        $r = ($imagen && is_file($imagen))
+            ? Http::timeout(60)->attach('source', (string) file_get_contents($imagen), basename($imagen))
+                ->post(SocialPhotoPublisher::graph("{$page->page_id}/photos"), ['message' => $mensaje, 'published' => 'true', 'access_token' => $token])
+            : Http::timeout(30)->asForm()->post(SocialPhotoPublisher::graph("{$page->page_id}/feed"), ['message' => $mensaje, 'access_token' => $token]);
+        $id = (string) (data_get($r->json(), 'post_id') ?: data_get($r->json(), 'id') ?: '');
+        if (!$r->ok() || $id === '') {
+            throw new \RuntimeException('Facebook no publicó el anuncio: ' . (string) (data_get($r->json(), 'error.error_user_msg') ?: data_get($r->json(), 'error.message') ?: Str::limit($r->body(), 200, '')));
+        }
+        $permalink = null;
+        try {
+            $info = Http::timeout(20)->get(SocialPhotoPublisher::graph($id), ['fields' => 'permalink_url', 'access_token' => $token]);
+            $permalink = data_get($info->json(), 'permalink_url') ?: null;
+        } catch (\Throwable) {
+        }
+        return ['id' => $id, 'permalink' => $permalink];
+    }
+
+    /** Borra la publicación de anuncio (si el en vivo se cancela o no se hizo). */
+    public function borrarAnuncio(MetaPage $page, string $postId): void
+    {
+        $token = $this->tokens->forPage($page->page_id);
+        if (!$token) return;
+        try {
+            Http::timeout(20)->delete(SocialPhotoPublisher::graph($postId) . '?' . http_build_query(['access_token' => $token]));
+        } catch (\Throwable) {
+        }
+    }
+
+    /** Texto del anuncio: fecha y hora en español, título y descripción. */
+    public static function textoAnuncio(string $titulo, ?string $descripcion, \DateTimeInterface $cuando, bool $pregrabado = false): string
+    {
+        $c = \Carbon\Carbon::instance(\DateTime::createFromInterface($cuando))->setTimezone(config('app.timezone'));
+        $dias = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+        $meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+        $fecha = $dias[$c->dayOfWeek] . ' ' . $c->day . ' de ' . $meses[$c->month - 1] . ' a las ' . $c->format('g:i') . ($c->hour < 12 ? ' a. m.' : ' p. m.');
+        return "🔴 EN VIVO el {$fecha}\n\n{$titulo}" . (trim((string) $descripcion) !== '' ? "\n\n" . trim((string) $descripcion) : '')
+            . ($pregrabado ? '' : "\n\nAquí mismo, en esta página. ¡Te esperamos!");
     }
 
     /** Cancela un en vivo programado que aún no salió (el anuncio desaparece de la página). */

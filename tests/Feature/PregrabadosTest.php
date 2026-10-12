@@ -64,10 +64,10 @@ class PregrabadosTest extends TestCase
         parent::tearDown();
     }
 
-    /** Emisor, Facebook y YouTube simulados. $fbProgramadoFalla: Facebook rechaza el en vivo programado. */
-    private function simular(bool $fbProgramadoFalla = false): void
+    /** Emisor, Facebook y YouTube simulados. $fbAnuncioFalla: Facebook rechaza la publicación de anuncio. */
+    private function simular(bool $fbAnuncioFalla = false): void
     {
-        Http::fake(function (PeticionHttp $r) use ($fbProgramadoFalla) {
+        Http::fake(function (PeticionHttp $r) use ($fbAnuncioFalla) {
             $url = $r->url();
             $this->llamadas[] = ['metodo' => $r->method(), 'url' => $url, 'datos' => $r->data(), 'cuerpo' => $r->body(), 'cabeceras' => $r->headers()];
             if (str_starts_with($url, 'https://live.prueba.co/emisor/')) {
@@ -81,9 +81,12 @@ class PregrabadosTest extends TestCase
                 return Http::response(['ok' => true]);
             }
             if (str_contains($url, 'graph.facebook.com') && str_ends_with(parse_url($url, PHP_URL_PATH), '/live_videos')) {
-                if (($r->data()['status'] ?? '') === 'SCHEDULED_UNPUBLISHED' && $fbProgramadoFalla) return Http::response(['error' => ['message' => '(#100) Invalid parameter']], 400);
-                $id = ($r->data()['status'] ?? '') === 'SCHEDULED_UNPUBLISHED' ? 'fb-programado' : 'fb-directo';
-                return Http::response(['id' => $id, 'secure_stream_url' => "rtmps://live-api-s.facebook.com:443/rtmp/{$id}?s_ps=1"]);
+                // Como Meta hoy: los en vivos programados ya no existen en la API
+                if (($r->data()['status'] ?? '') !== 'LIVE_NOW') return Http::response(['error' => ['message' => '(#100) Invalid broadcast status, Scheduled Live has been deprecated']], 400);
+                return Http::response(['id' => 'fb-directo', 'secure_stream_url' => 'rtmps://live-api-s.facebook.com:443/rtmp/fb-directo?s_ps=1']);
+            }
+            if (str_contains($url, '/501/feed') || str_contains($url, '/501/photos')) {
+                return $fbAnuncioFalla ? Http::response(['error' => ['message' => '(#200) Permisos insuficientes']], 400) : Http::response(['id' => '501_77']);
             }
             if (str_contains($url, 'graph.facebook.com')) return Http::response(['success' => true, 'permalink_url' => '/opa/videos/1']);
             if (str_contains($url, 'liveBroadcasts/bind')) return Http::response(['id' => 'yt-b1']);
@@ -164,16 +167,15 @@ class PregrabadosTest extends TestCase
         $e->refresh();
         $this->assertSame('listo', $e->estado);
         $this->assertSame(600.5, $e->duracion);
-        // A 3 días: se anuncia en Facebook como en vivo programado con la hora exacta
+        // Listo: se publica el anuncio en la página (Meta ya no permite en vivos programados)
         $this->assertNotNull($e->anunciada_en);
-        $fb = $this->llamadasA('/501/live_videos')[0]['datos'];
-        $this->assertSame('SCHEDULED_UNPUBLISHED', $fb['status']);
-        $this->assertSame(['start_time' => $hora->getTimestamp()], json_decode($fb['event_params'], true));
+        $this->assertCount(0, $this->llamadasA('/501/live_videos'));
+        $fb = $this->llamadasA('/501/feed', 'POST')[0]['datos'];
+        $this->assertStringContainsString('EN VIVO el ', $fb['message']);
         $this->assertSame('tok-admin', $fb['access_token'], 'usa el token de quien programó');
-        $this->assertSame('anunciado', $e->destinos[0]['estado']);
-        $this->assertSame('fb-programado', $e->destinos[0]['live_id']);
-        // La clave de transmisión queda cifrada en la base de datos
-        $this->assertStringNotContainsString('rtmps://', (string) DB::table('emisiones_programadas')->value('destinos'));
+        $this->assertSame('pendiente', $e->destinos[0]['estado']);
+        $this->assertSame('501_77', $e->destinos[0]['anuncio_post_id']);
+        $this->actingAs($this->admin)->getJson('/en-vivo/pregrabados/estado')->assertOk()->assertJsonPath('emisiones.0.destinos.0.anuncio', true);
 
         // Antes de la hora no sale; en el minuto anterior arranca con cuenta regresiva
         Carbon::setTestNow($hora->copy()->subMinutes(5));
@@ -184,10 +186,12 @@ class PregrabadosTest extends TestCase
         $e->refresh();
         $this->assertSame('al_aire', $e->estado);
         $emitir = $this->llamadasA('/emitir')[0]['datos'];
-        $this->assertSame(['rtmps://live-api-s.facebook.com:443/rtmp/fb-programado?s_ps=1'], $emitir['destinos']);
+        $this->assertSame(['rtmps://live-api-s.facebook.com:443/rtmp/fb-directo?s_ps=1'], $emitir['destinos']);
         $this->assertTrue($emitir['cuenta_regresiva']);
         $this->assertSame($hora->getTimestamp(), $emitir['hora_video'], 'el emisor recibe la hora exacta del video');
-        $this->assertCount(1, $this->llamadasA('/live_videos'), 'reutiliza el en vivo programado, no crea otro');
+        $this->assertCount(1, $this->llamadasA('/live_videos'), 'el en vivo de Facebook se crea a la hora');
+        // La clave de transmisión queda cifrada en la base de datos
+        $this->assertStringNotContainsString('rtmps://', (string) DB::table('emisiones_programadas')->value('destinos'));
 
         // Progreso y fin: se cierra el Live y se olvida la clave
         $this->emisor = ['estado' => 'emitiendo', 'emision' => ['total' => 660, 'posicion' => 330, 'destinos' => [['estado' => 'emitiendo', 'intentos' => 0]]]];
@@ -201,7 +205,7 @@ class PregrabadosTest extends TestCase
         $this->assertNotNull($e->fin_real);
         $this->assertSame('terminado', $e->destinos[0]['estado']);
         $this->assertNull($e->destinos[0]['stream_url']);
-        $fin = collect($this->llamadasA('fb-programado', 'POST'))->first(fn($l) => ($l['datos']['end_live_video'] ?? '') === 'true');
+        $fin = collect($this->llamadasA('fb-directo', 'POST'))->first(fn($l) => ($l['datos']['end_live_video'] ?? '') === 'true');
         $this->assertNotNull($fin, 'se cierra el Live en Facebook');
 
         // A los 7 días se borra el archivo del VPS
@@ -215,7 +219,7 @@ class PregrabadosTest extends TestCase
 
     public function test_si_el_anuncio_falla_sale_en_directo_y_youtube_se_enlaza_a_la_hora(): void
     {
-        $this->simular(fbProgramadoFalla: true);
+        $this->simular(fbAnuncioFalla: true);
         $canal = YoutubeCanal::create(['channel_id' => 'UC1', 'titulo' => 'Opa TV', 'access_token' => 'yt-tok', 'expira_en' => now()->addDays(30), 'visible_en_editor' => true]);
         $e = EmisionProgramada::find($this->programar($this->admin, ['youtube_canal_ids' => [$canal->id], 'cuenta' => false])->assertOk()->json('emision.id'));
         $svc = app(EmisionesService::class);
@@ -266,10 +270,10 @@ class PregrabadosTest extends TestCase
         $this->assertSame('listo', $e->refresh()->estado);
         $this->call('POST', '/webhooks/emisor', [], [], [], $this->servidor($cab + ['X-Emisor-Firma' => $firma]), $cuerpo)->assertStatus(401); // nonce repetido
 
-        // Cancelar una anunciada: se cancela el programado en Facebook y se borra el archivo
+        // Cancelar una anunciada: se borra la publicación de anuncio y el archivo
         app(EmisionesService::class)->anunciar($e);
         $this->actingAs($this->admin)->postJson("/en-vivo/pregrabados/{$e->id}/cancelar")->assertOk()->assertJsonPath('emision.estado', 'cancelado');
-        $this->assertNotNull(collect($this->llamadasA('fb-programado', 'POST'))->first(fn($l) => ($l['datos']['status'] ?? '') === 'SCHEDULED_CANCELED'));
+        $this->assertCount(1, $this->llamadasA('/501_77', 'DELETE'));
         $this->assertCount(1, $this->llamadasA('/videos/' . $e->emisor_id, 'DELETE'));
 
         // Vencida: no terminó de prepararse antes de la hora

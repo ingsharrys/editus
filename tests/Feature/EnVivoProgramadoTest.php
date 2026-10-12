@@ -22,7 +22,7 @@ class EnVivoProgramadoTest extends TestCase
     private User $admin;
     private MetaPage $pagina;
     private array $llamadas = [];
-    private bool $fbProgramadoFalla = false;
+    private bool $fbAnuncioFalla = false;
 
     protected function setUp(): void
     {
@@ -64,9 +64,14 @@ class EnVivoProgramadoTest extends TestCase
         Http::fake(function (PeticionHttp $r) {
             $url = $r->url();
             $this->llamadas[] = ['url' => $url, 'metodo' => $r->method(), 'datos' => $r->data()];
-            if (str_contains($url, '/111/live_videos') && ($r->data()['status'] ?? '') === 'SCHEDULED_UNPUBLISHED' && $this->fbProgramadoFalla) return Http::response(['error' => ['message' => '(#100) Invalid parameter']], 400);
-            if (str_contains($url, '/111/live_videos')) return Http::response(['id' => ($r->data()['status'] ?? '') === 'SCHEDULED_UNPUBLISHED' ? '9001' : '7001', 'secure_stream_url' => 'rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-' . (($r->data()['status'] ?? '') === 'SCHEDULED_UNPUBLISHED' ? 'PROGRAMADA' : 'DIRECTA')]);
-            if (str_contains($url, 'graph.facebook.com') && $r->method() === 'GET') return Http::response(['permalink_url' => '/opa/videos/9001/', 'video' => ['id' => '9002'], 'status' => 'LIVE']);
+            // Como Meta hoy: los en vivos programados ya no existen en la API
+            if (str_contains($url, '/111/live_videos') && ($r->data()['status'] ?? '') !== 'LIVE_NOW') return Http::response(['error' => ['message' => '(#100) Invalid broadcast status, Scheduled Live has been deprecated']], 400);
+            if (str_contains($url, '/111/live_videos')) return Http::response(['id' => '7001', 'secure_stream_url' => 'rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-DIRECTA']);
+            if (str_contains($url, '/111/feed') || str_contains($url, '/111/photos')) {
+                return $this->fbAnuncioFalla ? Http::response(['error' => ['message' => '(#200) Permisos insuficientes']], 400) : Http::response(['id' => 'foto-1', 'post_id' => '111_555']);
+            }
+            if (str_contains($url, '/111_555') && $r->method() === 'GET') return Http::response(['permalink_url' => 'https://www.facebook.com/opa/posts/555']);
+            if (str_contains($url, 'graph.facebook.com') && $r->method() === 'GET') return Http::response(['permalink_url' => '/opa/videos/7001/', 'video' => ['id' => '7002'], 'status' => 'LIVE']);
             if (str_contains($url, 'graph.facebook.com')) return Http::response(['success' => true]);
             if (str_contains($url, 'liveBroadcasts/bind')) return Http::response(['id' => 'yt-1']);
             if (str_contains($url, 'liveBroadcasts')) return Http::response(['id' => 'yt-1']);
@@ -91,38 +96,44 @@ class EnVivoProgramadoTest extends TestCase
         ]);
     }
 
-    public function test_programa_anuncia_y_sale_al_aire_en_el_mismo_en_vivo(): void
+    public function test_programa_publica_el_anuncio_y_sale_al_aire_a_la_hora(): void
     {
         $canal = YoutubeCanal::create(['channel_id' => 'UC1', 'titulo' => 'Opa TV', 'access_token' => 'yt', 'expira_en' => now()->addDays(30), 'visible_en_editor' => true]);
         $this->programar(['programada_en' => now()->addMinutes(5)->format('Y-m-d\TH:i')])->assertStatus(422);
         $r = $this->programar(['youtube_canal_ids' => [$canal->id]])->assertOk()->assertJsonPath('transmision.estado', 'programada')->assertJsonPath('transmision.anunciada', true);
-        $this->assertStringNotContainsString('CLAVE-PROGRAMADA', $r->getContent(), 'la clave no sale en la respuesta');
         $t = TransmisionEnVivo::find($r->json('transmision.id'));
-        // Facebook: en vivo programado con la hora; YouTube: "próximo" sin enlazar al stream
-        $fb = $this->llamadasA('/111/live_videos')[0]['datos'];
-        $this->assertSame('SCHEDULED_UNPUBLISHED', $fb['status']);
-        $this->assertSame(['start_time' => $t->programada_en->getTimestamp()], json_decode($fb['event_params'], true));
+        // Facebook: publicación de anuncio con la fecha (ya no hay en vivos programados); YouTube: "próximo" sin enlazar
+        $this->assertCount(0, $this->llamadasA('/111/live_videos'), 'no intenta el en vivo programado que Meta eliminó');
+        $anuncio = $this->llamadasA('/111/feed', 'POST')[0]['datos']['message'];
+        $this->assertStringContainsString('EN VIVO el ', $anuncio);
+        $this->assertStringContainsString(' a las 7:00 p. m.', $anuncio);
+        $this->assertStringContainsString('Debate de candidatos', $anuncio);
         $this->assertCount(0, $this->llamadasA('liveBroadcasts/bind'));
-        $this->assertSame(['anunciado', 'anunciado'], array_column($t->destinosLista(), 'estado'));
+        $this->assertSame(['pendiente', 'anunciado'], array_column($t->destinosLista(), 'estado'));
+        $this->assertSame('111_555', $t->destinosLista()[0]['anuncio_post_id']);
+        $this->assertNull($t->destinosLista()[0]['error']);
         $this->assertCount(0, $this->llamadasA('CreateRoom'), 'todavía no hay sala');
 
         // Enlace de invitados desde ya: la página muestra la hora y no da token antes de tiempo
         $codigo = $t->invitaciones[0]['codigo'];
         $this->get("/en-vivo/invitado/{$codigo}")->assertOk()->assertSee('Programada para el');
         $this->postJson("/en-vivo/invitado/{$codigo}/token")->assertStatus(422)->assertJsonFragment(['success' => false]);
-        $this->actingAs($this->admin)->get('/en-vivo')->assertOk()->assertSee('Próximos en vivo')->assertSee('Debate de candidatos')->assertSee("/en-vivo/invitado/{$codigo}");
+        $this->actingAs($this->admin)->get('/en-vivo')->assertOk()->assertSee('Próximos en vivo')->assertSee('Debate de candidatos')->assertSee("/en-vivo/invitado/{$codigo}")
+            ->assertSee('anuncio publicado')->assertSee('https://www.facebook.com/opa/posts/555')->assertDontSee('saldrá igual a la hora');
 
-        // A la hora: abre la sala (el invitado ya puede entrar) y sale al aire en ESE en vivo
+        // A la hora: abre la sala (el invitado ya puede entrar) y sale al aire
         Carbon::setTestNow($t->programada_en->copy()->subMinutes(5));
         $this->actingAs($this->admin)->postJson("/en-vivo/{$t->id}/abrir")->assertOk()->assertJsonPath('transmision.estado', 'sala')->assertJsonPath('livekit.url', 'wss://live.prueba.test');
         $this->assertCount(1, $this->llamadasA('CreateRoom'));
         $this->postJson("/en-vivo/invitado/{$codigo}/token")->assertOk()->assertJsonPath('success', true);
         $this->actingAs($this->admin)->postJson("/en-vivo/{$t->id}/aire")->assertOk()->assertJsonPath('transmision.estado', 'en_vivo');
-        $this->assertCount(1, $this->llamadasA('/111/live_videos'), 'no crea otro en vivo en Facebook');
-        $this->assertNotNull(collect($this->llamadasA('/9001', 'POST'))->first(fn($l) => ($l['datos']['status'] ?? '') === 'LIVE_NOW'), 'lo pone al aire ya');
+        $vivos = $this->llamadasA('/111/live_videos');
+        $this->assertCount(1, $vivos, 'Facebook: el en vivo se crea al salir al aire');
+        $this->assertSame('LIVE_NOW', $vivos[0]['datos']['status']);
         $this->assertCount(1, $this->llamadasA('liveBroadcasts/bind'), 'YouTube se enlaza a la hora');
         $egress = $this->llamadasA('StartRoomCompositeEgress')[0]['datos']['stream_outputs'][0]['urls'];
-        $this->assertSame(['rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-PROGRAMADA', 'rtmps://a.rtmps.youtube.com/live2/clave-yt'], $egress);
+        $this->assertSame(['rtmps://live-api-s.facebook.com:443/rtmp/CLAVE-DIRECTA', 'rtmps://a.rtmps.youtube.com/live2/clave-yt'], $egress);
+        $this->assertCount(0, $this->llamadasA('/111_555', 'DELETE'), 'el anuncio se queda en la página');
         // Ya no cuenta como vencible
         Carbon::setTestNow($t->programada_en->copy()->addHour());
         app(EnVivoProgramadoService::class)->tick();
@@ -148,22 +159,26 @@ class EnVivoProgramadoTest extends TestCase
         $t->refresh();
         $this->assertSame('cancelada', $t->estado);
         $this->assertStringContainsString('se quitó el anuncio', $t->error);
-        $this->assertNotNull(collect($this->llamadasA('/9001', 'POST'))->first(fn($l) => ($l['datos']['status'] ?? '') === 'SCHEDULED_CANCELED'));
+        $this->assertCount(1, $this->llamadasA('/111_555', 'DELETE'), 'se borra la publicación de anuncio');
+        $this->assertNull($t->destinosLista()[0]['anuncio_post_id']);
 
-        // Cancelar a mano; programar a más de 7 días no anuncia todavía (lo hace la tarea al entrar en la ventana)
+        // Programar con semanas de anticipación anuncia de una vez; cancelar a mano borra el anuncio
         Carbon::setTestNow(Carbon::parse('2026-10-11 09:00:00'));
         $lejos = TransmisionEnVivo::find($this->programar(['programada_en' => now()->addDays(20)->format('Y-m-d\TH:i')])->json('transmision.id'));
-        $this->assertFalse((bool) $lejos->anunciada_en);
-        Carbon::setTestNow($lejos->programada_en->copy()->subDays(6));
-        $svc->tick();
-        $this->assertNotNull($lejos->refresh()->anunciada_en);
+        $this->assertNotNull($lejos->anunciada_en);
         $this->actingAs($this->admin)->postJson("/en-vivo/{$lejos->id}/cancelar")->assertOk()->assertJsonPath('transmision.estado', 'cancelada');
+        $this->assertCount(2, $this->llamadasA('/111_555', 'DELETE'));
+        // Sin anuncio en Facebook si se desmarca
+        $antes = count($this->llamadasA('/111/feed'));
+        $sin = TransmisionEnVivo::find($this->programar(['anuncio_facebook' => false])->assertOk()->json('transmision.id'));
+        $this->assertCount($antes, $this->llamadasA('/111/feed'));
+        $this->assertArrayNotHasKey('anuncio_post_id', $sin->destinosLista()[0]);
         $this->actingAs($this->admin)->postJson("/en-vivo/{$lejos->id}/abrir")->assertStatus(422);
     }
 
     public function test_si_falla_el_anuncio_sale_igual_con_en_vivo_directo(): void
     {
-        $this->fbProgramadoFalla = true;
+        $this->fbAnuncioFalla = true;
         $t = TransmisionEnVivo::find($this->programar()->assertOk()->json('transmision.id'));
         $this->assertSame('pendiente', $t->destinosLista()[0]['estado']);
         $this->assertStringContainsString('Anuncio', $t->destinosLista()[0]['error']);

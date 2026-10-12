@@ -54,7 +54,7 @@ con el servicio de Expo (ver el README de la app). editus envía a `https://exp.
 activas la "seguridad reforzada" en expo.dev, pon el token en `EXPO_ACCESS_TOKEN`.
 
 **Miniatura del anuncio.** Al programar (web o app) se puede subir una imagen JPG/PNG de
-1280×720 (máx. 2 MB): Facebook la muestra en el en vivo programado y YouTube como miniatura
+1280×720 (máx. 2 MB): va en la publicación de anuncio de Facebook y YouTube la usa como miniatura
 (YouTube solo acepta miniaturas propias en canales verificados; si no, el anuncio sale igual).
 Se guardan en `storage/app/public/en-vivo/miniaturas` (requiere `php artisan storage:link`).
 
@@ -64,19 +64,20 @@ Migración: `php artisan migrate --force` (tabla `dispositivos_push` y columnas 
 
 En editus → **En vivo → Estudio**, en "¿Cuándo?" elige **Programar** y la fecha y hora:
 
-1. Hasta 7 días antes se crea el **en vivo programado en Facebook** (aparece en la página con
-   «Recordarme») y la transmisión **próxima en YouTube**. Si se programa con más anticipación,
-   la tarea de cada minuto lo anuncia al entrar en la ventana de 7 días.
+1. Apenas se programa se publica un **anuncio en la página de Facebook** (post con la miniatura,
+   la fecha y la hora; se puede desmarcar) y la transmisión **próxima en YouTube**.
+   Meta eliminó de su API los en vivos programados («Recordarme»): la API responde
+   `(#100) Invalid broadcast status, Scheduled Live has been deprecated`. Por eso en Facebook
+   el en vivo se crea en directo a la hora, al salir al aire.
 2. El **enlace para invitados** sirve desde ya: quien lo abra antes ve la fecha y puede probar
    su cámara; cuando el director abre el estudio, entra.
 3. **10 minutos antes** se avisa: aviso en la página del estudio, notificación del navegador (si
    se dio permiso) y correo a quien lo programó (si el correo de editus está configurado).
 4. A la hora: **Próximos en vivo → Abrir el estudio**, cámaras, invitados, plantilla y
-   **Salir al aire**. Se sale en el MISMO en vivo anunciado (Facebook lo pone "en vivo ahora"
-   aunque se entre antes de la hora; YouTube se enlaza en ese momento), así quienes pulsaron
-   «Recordarme» reciben la notificación.
-5. Si nadie sale al aire en **30 minutos**, editus quita el anuncio de Facebook y YouTube para que
-   no quede un en vivo fantasma en la página.
+   **Salir al aire**. En YouTube se sale en la MISMA transmisión anunciada (se enlaza en ese
+   momento); en Facebook se crea el en vivo y la página avisa a sus seguidores como siempre.
+5. Si nadie sale al aire en **30 minutos** (o se cancela), editus borra la publicación de anuncio
+   de Facebook y la transmisión de YouTube para que no quede un anuncio fantasma.
 
 A diferencia de StreamYard, editus avisa antes de la hora y limpia los anuncios vencidos. Si
 Facebook rechaza el anuncio, la transmisión sale igual a la hora (se crea en directo).
@@ -92,7 +93,7 @@ eligen páginas de Facebook y canales de YouTube, la fecha y la hora, y a esa ho
 Navegador ──subida por partes──▶ EMISOR (VPS) ── prepara una sola vez: H.264/AAC,
                                                  cuadro clave cada 2 s, logo, marco,
                                                  etiqueta "PREGRABADO", cuenta regresiva
-editus (cada minuto) ── hasta 7 días antes: en vivo programado en Facebook ("Recordarme")
+editus (cada minuto) ── al quedar listo: publicación de anuncio en Facebook
                         y transmisión "próxima" en YouTube
                      ── en el minuto anterior: el emisor emite SIN recodificar (-c copy),
                         un proceso por destino, y la cuenta regresiva termina justo a la hora

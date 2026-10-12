@@ -49,6 +49,7 @@ class EmisionProgramada extends Model
             'miniatura' => $this->miniatura ? \App\Services\MiniaturaService::url($this->miniatura) : null,
             'destinos' => array_map(fn($d) => [
                 'red' => $d['red'] ?? 'facebook', 'nombre' => $d['nombre'] ?? '', 'estado' => $d['estado'] ?? 'pendiente', 'error' => $d['error'] ?? null, 'permalink' => $d['permalink'] ?? null,
+                'anuncio' => !empty($d['anuncio_post_id']), 'anuncio_permalink' => $d['anuncio_permalink'] ?? null,
             ], (array) $this->destinos),
         ];
     }
