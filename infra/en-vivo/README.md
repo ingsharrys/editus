@@ -136,6 +136,33 @@ vivo (por eso la etiqueta «PREGRABADO» viene activada), prohíbe los videos en
 que la página tenga 100 seguidores y 60 días. Instagram no permite en vivos desde
 aplicaciones externas.
 
+## Estudio en vivo (al estilo StreamYard)
+
+En editus → **En vivo → Estudio**, al abrir el estudio se ve a pantalla completa:
+
+- **Escenario** (lo que ve la audiencia), **8 diseños** debajo (una persona, dos, grupo de hasta
+  6, principal con laterales, pantalla y presentador, principal con fila, imagen en imagen y
+  pantalla completa) y los **bastidores**: cada cámara o pantalla con «Añadir al escenario».
+- **Controles**: micrófono, cámara, presentar (compartir pantalla), invitar, teleprompter con
+  las notas, ajustes (dispositivos, escuchar a los invitados, espejo) y salir.
+- **Panel** con pestañas: Comentarios (Facebook y YouTube juntos; uno se muestra en pantalla),
+  Banners (fijos o cinta que corre), Activos multimedia (logo y su ubicación, superposiciones,
+  clips de video y pantallas de espera/temporizador con bucle, fondos, efectos de sonido y
+  música de fondo con volumen), Estilo (color, tema, fuente, nombres sobre las cámaras),
+  Widgets (reloj y cuenta regresiva), Notas, Personas (rótulos, al escenario, sacar, invitar)
+  y Chat privado con los invitados (no sale al aire; la página del invitado también lo tiene).
+- **Marcas**: todo lo de identidad (logo, colores, tema, fondo, superposición, banners) se
+  guarda en una marca reutilizable; se pueden tener varias («Marca 1 ▾»).
+- Los efectos de sonido y las músicas incluidas se **generan en el momento** (Web Audio,
+  `escena/sonidos.js`): no hay archivos ni derechos de autor. Lo que suba cada usuario (logos,
+  superposiciones PNG, fondos, clips, sonidos y música) va a `storage/app/public/en-vivo/recursos`
+  y lo sirve el VPS con `LIVEKIT_RECURSOS_URL`.
+
+Migración: `php artisan migrate --force` (tablas `marcas_en_vivo`, `activos_en_vivo` y columnas
+`notas`, `marca_id`). La escena cambió: en el VPS hay que actualizar `/opt/editus-src`.
+Para subir clips grandes, el PHP del hosting debe permitirlo (`upload_max_filesize` y
+`post_max_size`, p. ej. 300M); si no, el estudio avisa que el archivo supera el límite.
+
 ## Escena servida desde el VPS (recomendado)
 
 El mezclador (egress) abre la página de la escena con un navegador automatizado.

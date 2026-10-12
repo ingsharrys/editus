@@ -30,6 +30,14 @@
   .aviso { margin-top: 14px; padding: 12px; border-radius: 10px; background: #122b4a; color: #cbd5e1; font-size: 14px; line-height: 1.4; }
   .aviso.error { background: #4c0519; color: #fecdd3; }
   .oculto { display: none !important; }
+  /* Chat privado con el estudio (no sale al aire) */
+  .chat { margin-top: 16px; border: 1px solid #1e3a5f; border-radius: 12px; background: #0e2440; }
+  .chat h2 { margin: 0; padding: 10px 12px; font-size: 14px; border-bottom: 1px solid #1e3a5f; }
+  .chat .lista { max-height: 220px; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+  .chat .msg b { color: #93c5fd; } .chat .msg.mio b { color: #fda4af; }
+  .chat form { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #1e3a5f; }
+  .chat form input { flex: 1; padding: 10px; font-size: 15px; } .chat form button { flex: none; padding: 10px 16px; font-size: 15px; }
+  .chat .vacio { color: #94a3b8; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -69,6 +77,11 @@
       <button id="mic" type="button">Silenciar micrófono</button>
       <button id="pantalla" type="button" class="oculto">Compartir pantalla</button>
       <button id="salir" type="button">Salir</button>
+    </div>
+    <div class="chat">
+      <h2>💬 Chat privado con el estudio</h2>
+      <div id="chat-lista" class="lista"><div class="vacio">Solo lo ven el director y los invitados. No sale al aire.</div></div>
+      <form id="chat-form"><input id="chat-texto" maxlength="500" placeholder="Escribe un mensaje…" autocomplete="off"><button type="submit">Enviar</button></form>
     </div>
   </div>
 
@@ -116,6 +129,10 @@
       room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { facingMode: frontal ? 'user' : 'environment', resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
       room.on(RoomEvent.Disconnected, () => { estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
+      room.on(RoomEvent.DataReceived, (payload, participante, tipo, tema) => {
+        if (tema !== 'chat') return;
+        try { const m = JSON.parse(new TextDecoder().decode(payload)); agregarMensaje(m.nombre || (participante && participante.name) || 'Estudio', m.texto, false); } catch (e) {}
+      });
       await room.connect(j.url, j.token);
       if (MODO === 'pantalla') {
         await room.localParticipant.setScreenShareEnabled(true, { audio: true, resolution: { width: 1920, height: 1080, frameRate: 15 } });
@@ -170,6 +187,28 @@
     await room.localParticipant.setMicrophoneEnabled(micActivo);
     document.getElementById('mic').textContent = micActivo ? 'Silenciar micrófono' : 'Activar micrófono';
   };
+  // Chat privado (mensajes de datos de la sala; la escena no los muestra)
+  const chatLista = document.getElementById('chat-lista');
+  function agregarMensaje(nombre, texto, mio) {
+    if (!texto) return;
+    const vacio = chatLista.querySelector('.vacio'); if (vacio) vacio.remove();
+    const d = document.createElement('div'); d.className = 'msg' + (mio ? ' mio' : '');
+    const b = document.createElement('b'); b.textContent = (mio ? 'Tú' : nombre) + ': ';
+    d.appendChild(b); d.appendChild(document.createTextNode(texto));
+    chatLista.appendChild(d); chatLista.scrollTop = chatLista.scrollHeight;
+    if (!mio && navigator.vibrate) navigator.vibrate(60);
+  }
+  document.getElementById('chat-form').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const inp = document.getElementById('chat-texto'), texto = inp.value.trim();
+    if (!texto || !room) return;
+    const nombre = document.getElementById('nombre').value || 'Invitado';
+    try {
+      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ nombre, texto })), { reliable: true, topic: 'chat' });
+      agregarMensaje(nombre, texto, true); inp.value = '';
+    } catch (e) { mostrar('No se pudo enviar el mensaje: ' + e.message, true); }
+  };
+
   document.getElementById('salir').onclick = async () => { if (room) await room.disconnect(); };
 
   if (MODO === 'pantalla') {

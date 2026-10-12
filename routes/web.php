@@ -27,6 +27,8 @@ Route::view('/privacy', 'privacy')->name('privacy');
 // Escena de las transmisiones en vivo (la carga el egress de LiveKit con su propio token)
 // Escena que compone el egress (HTML estático en infra/en-vivo/escena; también se puede servir desde el VPS, ver LIVEKIT_ESCENA_URL)
 Route::get('/en-vivo/escena', fn() => response(file_get_contents(base_path('infra/en-vivo/escena/index.html')), 200, ['Content-Type' => 'text/html; charset=utf-8']))->name('en-vivo.escena');
+// Efectos de sonido y música sintetizados (los usan la escena y el estudio)
+Route::get('/en-vivo/sonidos.js', fn() => response(file_get_contents(base_path('infra/en-vivo/escena/sonidos.js')), 200, ['Content-Type' => 'application/javascript; charset=utf-8', 'Cache-Control' => 'public, max-age=3600']))->name('en-vivo.sonidos');
 // Invitados a una transmisión (cámara remota desde el navegador, con código de invitación)
 // Eventos de pagos de Wompi (sin sesión; se valida el checksum con WOMPI_EVENTS_SECRET)
 Route::post('/webhooks/emisor', \App\Http\Controllers\EmisorWebhookController::class)
@@ -123,6 +125,15 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/en-vivo/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Web\PregrabadosController::class, 'cancelar'])->name('pregrabados.cancelar');
     Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->name('pregrabados.ahora');
     Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->name('pregrabados.destroy');
+    // Panel del estudio: marcas, archivos propios, notas y comentarios en vivo
+    Route::post('/en-vivo/marcas', [\App\Http\Controllers\Web\EstudioController::class, 'marcaCrear'])->name('en-vivo.marcas.crear');
+    Route::post('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaGuardar'])->name('en-vivo.marcas.guardar');
+    Route::delete('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaBorrar'])->name('en-vivo.marcas.borrar');
+    Route::post('/en-vivo/activos', [\App\Http\Controllers\Web\EstudioController::class, 'activoSubir'])->middleware('throttle:60,1')->name('en-vivo.activos.subir');
+    Route::delete('/en-vivo/activos/{activo}', [\App\Http\Controllers\Web\EstudioController::class, 'activoBorrar'])->name('en-vivo.activos.borrar');
+    Route::post('/en-vivo/{transmision}/marca', [\App\Http\Controllers\Web\EstudioController::class, 'marcaAplicar'])->name('en-vivo.web.marca');
+    Route::post('/en-vivo/{transmision}/notas', [\App\Http\Controllers\Web\EstudioController::class, 'notas'])->name('en-vivo.web.notas');
+    Route::get('/en-vivo/{transmision}/comentarios', [\App\Http\Controllers\Web\EstudioController::class, 'comentarios'])->middleware('throttle:40,1')->name('en-vivo.web.comentarios');
     Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
     Route::post('/en-vivo/programar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'programar'])->middleware('throttle:20,1')->name('en-vivo.web.programar');
     Route::post('/en-vivo/{transmision}/abrir', [\App\Http\Controllers\Web\EnVivoWebController::class, 'abrir'])->name('en-vivo.web.abrir');

@@ -5,86 +5,174 @@
 <meta name="google" content="notranslate">
 <title>Escena en vivo</title>
 <!--
-  Escena que compone el egress de LiveKit (plantilla y diseño en tiempo real):
-  recibe ?url=&token=&layout=&room= del egress, se une a la sala como
-  participante oculto y compone las cámaras según la metadata de la sala:
-    - plantilla: logo, cintillo con título y etiqueta, pie, hashtag
-    - escena: { layout: solo|dos|pip|cuadricula, principal: identity, visibles: [identity...] }
+  Escena que compone el egress de LiveKit (lo que ve la audiencia), en tiempo real.
+  Recibe ?url=&token= del egress, entra a la sala como participante oculto y compone
+  las cámaras según la metadata de la sala (plantilla + escena):
+
+    plantilla (marca): logo (texto o imagen, izquierda/derecha), fondo, tema y fuente de
+      los textos, superposición (prediseñada o PNG), cintillo con etiqueta y título, pie,
+      hashtag, marco PNG, desvanecer al mostrar/ocultar, nombres en las cámaras.
+    escena: layout (solo|dos|cuadricula|lider|lateral|barra|pip|cine), principal, visibles,
+      nombres por cámara y rótulo, banner (fijo o cinta), comentario destacado, widgets
+      (reloj, cuenta regresiva), recurso a pantalla completa (video en bucle o no, imagen o
+      pantalla prediseñada), efecto de sonido y música de fondo con sus volúmenes.
+
   Avisa al egress con console.log('START_RECORDING') / 'END_RECORDING'.
+  ?monitor=1: la misma escena para el estudio, sin audio (evita el eco).
 -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;700;900&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800;900&family=Playfair+Display:wght@700;800&family=Montserrat:wght@600;700;800&family=Oswald:wght@500;600;700&family=Roboto+Slab:wght@600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
   html, body { margin: 0; width: 100vw; height: 100vh; background: #000; overflow: hidden; font-family: Inter, system-ui, sans-serif; }
   /* La escena se diseña a 1280×720 y se escala al tamaño real de salida (720p o 1080p) */
-  #escenario { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; }
-  #lienzo { position: absolute; inset: 0; background: #0b1c33; }
+  #escenario { --marca: #C8102E; --marca-txt: #fff; --fuente: Inter, system-ui, sans-serif; --titulo: 'Playfair Display', serif;
+    position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; font-family: var(--fuente); }
+  #fondo { position: absolute; inset: 0; background: linear-gradient(160deg, #18345a, #0b1c33); background-size: cover; background-position: center; transition: background .6s; }
+  #lienzo { position: absolute; inset: 0; z-index: 0; }
   #audios { display: none; }
-  .celda { position: absolute; overflow: hidden; background: #000; }
+  .celda { position: absolute; overflow: hidden; background: #000; transition: left .35s ease, top .35s ease, width .35s ease, height .35s ease, border-radius .35s; }
   .celda video { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .celda.pantalla video { object-fit: contain; background: #000; }
-  .celda .nombre { position: absolute; left: 12px; bottom: 12px; padding: 4px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: #fff; font-size: 16px; font-weight: 600; }
-  /* Diseños */
-  .solo .celda { inset: 0; }
-  .dos .celda { top: 90px; width: 616px; height: 462px; border-radius: 10px; }
-  .dos .celda:nth-child(1) { left: 16px; } .dos .celda:nth-child(2) { left: 648px; }
-  .pip .celda:nth-child(1) { inset: 0; }
-  .pip .celda:nth-child(2) { right: 40px; top: 40px; width: 360px; height: 203px; border-radius: 10px; border: 3px solid #fff; }
-  .cuadricula .celda { width: 632px; height: 356px; border-radius: 8px; }
-  .cuadricula .celda:nth-child(1) { left: 4px; top: 4px; } .cuadricula .celda:nth-child(2) { left: 644px; top: 4px; }
-  .cuadricula .celda:nth-child(3) { left: 4px; top: 364px; } .cuadricula .celda:nth-child(4) { left: 644px; top: 364px; }
-  #espera { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 700; background: linear-gradient(160deg, #18345a, #0b1c33); }
-  .oculto { display: none !important; }
-  #sombra { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.85), rgba(0,0,0,0)); pointer-events: none; }
-  #logo { position: absolute; left: 44px; top: 36px; display: flex; align-items: center; gap: 4px; }
-  #logo img { height: 56px; max-width: 320px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,.5)); }
+  .celda.pantalla video, .celda.contener video { object-fit: contain; background: #000; }
+  .celda .nombre { position: absolute; left: 10px; bottom: 10px; max-width: calc(100% - 20px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding: 4px 10px; border-radius: 6px; background: var(--marca); color: var(--marca-txt); font-size: 15px; font-weight: 700; transition: opacity .3s; }
+  .celda.chica .nombre { font-size: 12px; padding: 2px 7px; left: 6px; bottom: 6px; }
+  #espera { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 34px; font-weight: 700; }
+  .nada { display: none !important; }
+  /* Mostrar / ocultar (con desvanecer si la marca lo pide) */
+  .capa { transition: opacity 0s, transform 0s; }
+  #escenario.suave .capa { transition: opacity .45s ease, transform .45s ease; }
+  .oculto { opacity: 0 !important; visibility: hidden; }
+  #escenario.suave .oculto { visibility: visible; pointer-events: none; }
+  #sombra { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; background: linear-gradient(to top, rgba(0,0,0,.8), rgba(0,0,0,0)); pointer-events: none; }
+  #logo { position: absolute; left: 40px; top: 32px; display: flex; align-items: center; gap: 4px; }
+  #logo.der { left: auto; right: 40px; }
+  #logo img { height: 64px; max-width: 300px; object-fit: contain; filter: drop-shadow(1px 1px 2px rgba(0,0,0,.45)); }
   #logo .caja { width: 44px; height: 44px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; }
   #logo .resto { font-weight: 700; font-size: 26px; margin-left: 8px; }
-  #vivo { position: absolute; right: 44px; top: 40px; display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,.55); border-radius: 8px; padding: 8px 14px; color: #fff; font-weight: 800; font-size: 20px; letter-spacing: 2px; }
+  #esquina { position: absolute; right: 40px; top: 36px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #escenario.logo-der #esquina { right: auto; left: 40px; align-items: flex-start; }
+  #vivo { display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,.55); border-radius: 8px; padding: 8px 14px; color: #fff; font-weight: 800; font-size: 20px; letter-spacing: 2px; }
   #vivo i { width: 12px; height: 12px; border-radius: 50%; background: #e11d48; animation: latir 1.2s infinite; }
+  #reloj { background: rgba(0,0,0,.55); color: #fff; border-radius: 8px; padding: 6px 12px; font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
   @keyframes latir { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
-  #inferior { position: absolute; left: 44px; bottom: 96px; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; max-width: 980px; }
+  #cuenta { position: absolute; left: 50%; top: 30px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: var(--marca); color: var(--marca-txt);
+    padding: 10px 22px; border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  #cuenta .t { font-size: 18px; font-weight: 700; max-width: 420px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #cuenta .n { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  #inferior { position: absolute; left: 40px; bottom: 92px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 1000px; }
+  #escenario.con-cinta #inferior { bottom: 138px; }
   #cintillo { max-width: 980px; }
-  /* Rótulo (nombre y cargo del presentador o periodista) */
+  #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
+  #titulo { font-family: var(--titulo); font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
+  #pie { position: absolute; left: 40px; right: 40px; bottom: 34px; display: flex; justify-content: space-between; color: #fff; font-weight: 600; font-size: 20px; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }
+  #escenario.con-cinta #pie { bottom: 80px; }
+  /* Rótulo (nombre y cargo de quien está en cuadro) */
   #rotulo { display: flex; align-items: stretch; filter: drop-shadow(2px 2px 3px rgba(0,0,0,.45)); }
-  #rotulo .barra { width: 10px; }
+  #rotulo .barra { width: 10px; background: var(--marca); }
   #rotulo .textos { background: rgba(255,255,255,.96); padding: 8px 22px 9px 16px; }
   #rotulo .nombre { font-weight: 800; font-size: 27px; line-height: 1.1; color: #111; }
   #rotulo .cargo { font-weight: 600; font-size: 17px; letter-spacing: 1px; color: #444; text-transform: uppercase; margin-top: 2px; }
-  /* Recurso a pantalla completa (cortinilla, comercial, imagen) */
+  /* Banner (texto destacado) */
+  #banner { display: flex; flex-direction: column; max-width: 1000px; filter: drop-shadow(2px 3px 4px rgba(0,0,0,.35)); }
+  #banner .bt { align-self: flex-start; background: var(--marca); color: var(--marca-txt); font-weight: 800; font-size: 17px; letter-spacing: 1.5px; text-transform: uppercase; padding: 5px 14px; }
+  #banner .bx { background: #fff; color: #111; font-weight: 700; font-size: 28px; line-height: 1.2; padding: 12px 20px; }
+  /* Comentario destacado */
+  #comentario { display: flex; align-items: flex-start; gap: 14px; background: #fff; color: #111; border-radius: 14px; padding: 14px 20px 14px 14px; max-width: 760px;
+    box-shadow: 0 8px 22px rgba(0,0,0,.35); border-left: 8px solid var(--marca); }
+  #comentario img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #ddd; flex: none; }
+  #comentario .cn { font-weight: 800; font-size: 19px; display: flex; align-items: center; gap: 8px; }
+  #comentario .red { font-size: 12px; font-weight: 800; color: #fff; border-radius: 4px; padding: 2px 6px; letter-spacing: .5px; }
+  #comentario .ct { font-weight: 500; font-size: 23px; line-height: 1.25; margin-top: 2px; }
+  /* Cinta que corre (ticker) */
+  #cinta { position: absolute; left: 0; right: 0; bottom: 0; height: 58px; display: flex; align-items: stretch; background: rgba(255,255,255,.97); overflow: hidden; }
+  #cinta .ct-et { flex: none; display: flex; align-items: center; padding: 0 20px; background: var(--marca); color: var(--marca-txt); font-weight: 800; font-size: 19px; letter-spacing: 2px; text-transform: uppercase; z-index: 1; }
+  #cinta .ct-via { position: relative; flex: 1; overflow: hidden; }
+  #cinta .ct-txt { position: absolute; top: 0; height: 58px; display: flex; align-items: center; white-space: nowrap; color: #111; font-weight: 700; font-size: 24px; will-change: transform; animation: correr linear infinite; }
+  @keyframes correr { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  /* Temas */
+  .tema-burbuja #banner .bt { border-radius: 999px 999px 999px 0; padding: 5px 16px; }
+  .tema-burbuja #banner .bx { border-radius: 0 22px 22px 22px; }
+  .tema-burbuja #rotulo .barra { border-radius: 14px 0 0 14px; }
+  .tema-burbuja #rotulo .textos { border-radius: 0 14px 14px 0; }
+  .tema-burbuja .celda .nombre { border-radius: 999px; padding: 4px 14px; }
+  .tema-burbuja #cinta { left: 24px; right: 24px; bottom: 14px; border-radius: 999px; }
+  .tema-minimal #banner .bt { background: transparent; color: #fff; padding: 0 0 4px; text-shadow: 1px 1px 2px rgba(0,0,0,.6); }
+  .tema-minimal #banner .bx { background: rgba(0,0,0,.62); color: #fff; border-left: 6px solid var(--marca); }
+  .tema-minimal #rotulo .textos { background: rgba(0,0,0,.62); }
+  .tema-minimal #rotulo .nombre { color: #fff; } .tema-minimal #rotulo .cargo { color: #ddd; }
+  .tema-minimal .celda .nombre { background: rgba(0,0,0,.62); color: #fff; }
+  .tema-minimal #comentario { background: rgba(0,0,0,.7); color: #fff; }
+  .tema-minimal #cinta { background: rgba(0,0,0,.72); } .tema-minimal #cinta .ct-txt { color: #fff; }
+  .tema-bloque #banner .bt, .tema-bloque #banner .bx { text-transform: uppercase; }
+  .tema-bloque #banner .bx { background: var(--marca); color: var(--marca-txt); font-weight: 800; border: 4px solid #fff; }
+  .tema-bloque #banner .bt { background: #111; color: #fff; }
+  .tema-bloque #rotulo .textos { background: var(--marca); } .tema-bloque #rotulo .barra { background: #111; }
+  .tema-bloque #rotulo .nombre, .tema-bloque #rotulo .cargo { color: var(--marca-txt); text-transform: uppercase; }
+  .tema-bloque .celda .nombre { border-radius: 0; text-transform: uppercase; }
+  /* Superposiciones (prediseñadas o PNG) y marco PNG sobre el video, debajo de los textos */
+  #marco, #superposicion img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+  #superposicion { position: absolute; inset: 0; pointer-events: none; }
+  .sp { position: absolute; display: flex; align-items: center; gap: 12px; font-weight: 800; color: #fff; }
+  .sp-suscribete { right: 40px; bottom: 150px; background: #fff; color: #111; border-radius: 999px; padding: 10px 22px 10px 10px; font-size: 22px; box-shadow: 0 8px 20px rgba(0,0,0,.35); animation: saltar 2.4s ease-in-out infinite; }
+  .sp-suscribete .ic { width: 44px; height: 44px; border-radius: 50%; background: var(--marca); color: var(--marca-txt); display: flex; align-items: center; justify-content: center; font-size: 22px; }
+  @keyframes saltar { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-8px) } }
+  .sp-bienvenidos { left: 0; right: 0; top: 260px; justify-content: center; }
+  .sp-bienvenidos span { background: var(--marca); color: var(--marca-txt); font-size: 64px; letter-spacing: 2px; padding: 14px 44px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.4); transform: rotate(-2deg); }
+  .sp-preguntas { left: 40px; top: 120px; background: var(--marca); color: var(--marca-txt); padding: 10px 20px; border-radius: 12px; font-size: 24px; }
+  .sp-preguntas b { width: 38px; height: 38px; border-radius: 50%; background: #fff; color: var(--marca); display: flex; align-items: center; justify-content: center; font-size: 26px; }
+  .sp-ultima { left: 0; top: 118px; }
+  .sp-ultima span:first-child { background: #e11d48; padding: 10px 22px 10px 40px; font-size: 28px; letter-spacing: 3px; animation: latir 1.6s infinite; }
+  .sp-ultima span:last-child { background: rgba(0,0,0,.75); padding: 10px 22px; font-size: 24px; margin-left: -12px; }
+  .sp-logro { right: 40px; top: 120px; flex-direction: column; align-items: center; gap: 6px; background: linear-gradient(160deg, #fbbf24, #f59e0b); color: #111; padding: 16px 26px; border-radius: 18px; font-size: 22px; box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+  .sp-logro .tr { font-size: 46px; line-height: 1; }
+  .sp-redes { left: 50%; transform: translateX(-50%); top: 30px; background: rgba(0,0,0,.6); padding: 8px 20px; border-radius: 999px; font-size: 20px; }
+  .sp-redes i { font-style: normal; background: var(--marca); color: var(--marca-txt); border-radius: 6px; padding: 2px 8px; }
+  /* Recurso a pantalla completa (clip, imagen o pantalla prediseñada) */
   #recurso { position: absolute; inset: 0; background: #000; z-index: 50; display: flex; align-items: center; justify-content: center; }
-  /* Marco (plantilla PNG transparente) sobre las cámaras y debajo de los textos */
-  #marco { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
   #recurso img, #recurso video { width: 100%; height: 100%; object-fit: contain; }
+  .pantalla-p { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; color: #fff; text-align: center;
+    background: radial-gradient(1200px 600px at 20% 10%, rgba(255,255,255,.18), transparent 60%), linear-gradient(140deg, var(--marca), #0b1c33 75%); }
+  .pantalla-p .pl img { height: 90px; max-width: 420px; object-fit: contain; }
+  .pantalla-p .pt { font-size: 66px; font-weight: 800; line-height: 1.08; max-width: 1050px; text-shadow: 0 4px 18px rgba(0,0,0,.35); }
+  .pantalla-p .ps { font-size: 28px; font-weight: 600; opacity: .9; max-width: 1000px; }
+  .pantalla-p .pc { font-size: 120px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+  .pantalla-p .anillo { width: 260px; height: 260px; border-radius: 50%; border: 10px solid rgba(255,255,255,.25); border-top-color: #fff; display: flex; align-items: center; justify-content: center; animation: girar 1.4s linear infinite; }
+  .pantalla-p .anillo .pc { animation: girar 1.4s linear infinite reverse; }
+  @keyframes girar { to { transform: rotate(360deg); } }
+  .pantalla-p .ondas { position: absolute; inset: auto 0 0 0; height: 160px; opacity: .35; background: repeating-linear-gradient(90deg, rgba(255,255,255,.25) 0 2px, transparent 2px 26px); animation: deslizar 6s linear infinite; }
+  @keyframes deslizar { to { background-position: 260px 0; } }
   /* Formato "mitad": las cámaras a la izquierda (escaladas) y la publicidad a la derecha */
   #escenario.mitad #lienzo { transform: scale(0.5); transform-origin: 0 50%; }
   #escenario.mitad #recurso { inset: 0 0 0 640px; }
-  #escenario.mitad #inferior { max-width: 560px; }
-  #escenario.mitad #cintillo { max-width: 560px; }
+  #escenario.mitad #inferior, #escenario.mitad #cintillo { max-width: 560px; }
   #escenario.mitad #titulo { font-size: 32px; }
-  #etiqueta { display: inline-block; padding: 6px 18px; font-weight: 700; font-size: 20px; letter-spacing: 3px; }
-  #titulo { font-family: 'Playfair Display', serif; font-weight: 800; font-size: 44px; line-height: 1.12; margin-top: 10px; text-shadow: 2px 2px 3px rgba(0,0,0,.5); }
-  #pie { position: absolute; left: 44px; right: 44px; bottom: 36px; display: flex; justify-content: space-between; color: #fff; font-weight: 600; font-size: 20px; }
 </style>
 </head>
 <body>
-<div id="escenario">
-  <div id="lienzo" class="solo"></div>
+<div id="escenario" class="tema-clasico">
+  <div id="fondo"></div>
+  <div id="lienzo"></div>
   <div id="espera">Esperando la cámara…</div>
-  <img id="marco" class="oculto" alt="">
-  <div id="sombra"></div>
-  <div id="logo"></div>
-  <div id="vivo"><i></i>EN VIVO</div>
+  <img id="marco" class="nada" alt="">
+  <div id="superposicion" class="capa oculto"></div>
+  <div id="sombra" class="capa"></div>
+  <div id="logo" class="capa"></div>
+  <div id="esquina"><div id="vivo" class="capa"><i></i>EN VIVO</div><div id="reloj" class="capa oculto"></div></div>
+  <div id="cuenta" class="capa oculto"><span class="t"></span><span class="n">00:00</span></div>
   <div id="inferior">
-    <div id="rotulo" class="oculto"><div class="barra"></div><div class="textos"><div class="nombre"></div><div class="cargo"></div></div></div>
-    <div id="cintillo"><span id="etiqueta"></span><div id="titulo"></div></div>
+    <div id="rotulo" class="capa oculto"><div class="barra"></div><div class="textos"><div class="nombre"></div><div class="cargo"></div></div></div>
+    <div id="comentario" class="capa oculto"><img alt=""><div><div class="cn"><span class="nm"></span><span class="red"></span></div><div class="ct"></div></div></div>
+    <div id="banner" class="capa oculto"><div class="bt"></div><div class="bx"></div></div>
+    <div id="cintillo" class="capa"><span id="etiqueta"></span><div id="titulo"></div></div>
   </div>
-  <div id="recurso" class="oculto"></div>
-  <div id="pie"><span id="pie-izq"></span><span id="pie-der"></span></div>
+  <div id="cinta" class="capa oculto"><div class="ct-et"></div><div class="ct-via"><div class="ct-txt"></div></div></div>
+  <div id="pie" class="capa"><span id="pie-izq"></span><span id="pie-der"></span></div>
+  <div id="recurso" class="capa oculto"></div>
 </div>
 <div id="audios"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+  <script src="sonidos.js"></script>
   <script>
     // Escalar el diseño 1280×720 a la ventana real (el egress abre Chrome al tamaño de salida)
     function escalar() {
@@ -96,22 +184,84 @@
 
     const q = new URLSearchParams(location.search);
     const url = q.get('url'); const token = q.get('token');
-    // Monitor de programa (la app): misma escena, pero sin audio (evita el eco con el micrófono del teléfono)
+    // Monitor de programa (estudio y app): misma escena, pero sin audio (evita el eco con el micrófono)
     const MONITOR = q.get('monitor') === '1';
     const PRINCIPAL = 'camara-principal';
-    const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 4 };
+    const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 6, lider: 4, lateral: 2, barra: 5, cine: 1 };
+    const $ = (id) => document.getElementById(id);
+    const ver = (el, on) => el.classList.toggle('oculto', !on);
 
+    // Fondos prediseñados (sin archivos)
+    const FONDOS = {
+      noche: 'linear-gradient(160deg, #18345a, #0b1c33)',
+      'olas-azules': 'radial-gradient(120% 80% at 10% 110%, #60a5fa 0 30%, transparent 31%), radial-gradient(110% 70% at 90% -10%, #1d4ed8 0 35%, transparent 36%), linear-gradient(135deg, #1e3a8a, #2563eb 55%, #93c5fd)',
+      'montanas-negras': 'linear-gradient(160deg, transparent 0 55%, rgba(255,255,255,.05) 55% 56%, transparent 56%), linear-gradient(20deg, transparent 0 60%, rgba(255,255,255,.06) 60% 61%, transparent 61%), linear-gradient(180deg, #111 0%, #000 100%)',
+      'olas-moradas': 'radial-gradient(90% 60% at 80% 100%, #c4b5fd 0 35%, transparent 36%), radial-gradient(80% 60% at 10% 0%, #a78bfa 0 30%, transparent 31%), linear-gradient(135deg, #7c3aed, #a78bfa 60%, #ddd6fe)',
+      'cielo-cian': 'linear-gradient(160deg, #a5f3fc, #22d3ee 45%, #0ea5e9)',
+      'olas-cian': 'repeating-linear-gradient(115deg, rgba(255,255,255,.12) 0 40px, transparent 40px 110px), linear-gradient(135deg, #0891b2, #22d3ee)',
+      'azul-rosa': 'linear-gradient(120deg, #3b82f6, #a855f7 50%, #f43f5e)',
+      'morado-fucsia': 'linear-gradient(120deg, #4c1d95, #c026d3 55%, #db2777)',
+      'cian-verde': 'linear-gradient(120deg, #22d3ee, #34d399 60%, #a3e635)',
+      estudio: 'radial-gradient(70% 70% at 50% 40%, #3f3f46, #09090b)',
+      blanco: 'linear-gradient(160deg, #ffffff, #e5e7eb)',
+    };
+    const FUENTES = {
+      inter: ['Inter, system-ui, sans-serif', "'Playfair Display', serif"],
+      montserrat: ['Montserrat, sans-serif', 'Montserrat, sans-serif'],
+      oswald: ['Oswald, sans-serif', 'Oswald, sans-serif'],
+      poppins: ['Poppins, sans-serif', 'Poppins, sans-serif'],
+      slab: ["'Roboto Slab', serif", "'Roboto Slab', serif"],
+      playfair: ["'Playfair Display', serif", "'Playfair Display', serif"],
+    };
+    // Superposiciones prediseñadas: HTML con el color de la marca
+    const SUPERPOSICIONES = {
+      suscribete: (t) => '<div class="sp sp-suscribete"><span class="ic">👍</span>' + esc(t || 'Dale me gusta y comparte') + '</div>',
+      bienvenidos: (t) => '<div class="sp sp-bienvenidos"><span>' + esc(t || '¡Bienvenidos!') + '</span></div>',
+      preguntas: (t) => '<div class="sp sp-preguntas"><b>?</b>' + esc(t || 'Preguntas y respuestas') + '</div>',
+      ultima: (t) => '<div class="sp sp-ultima"><span>ÚLTIMA HORA</span><span>' + esc(t || 'Información en desarrollo') + '</span></div>',
+      logro: (t) => '<div class="sp sp-logro"><span class="tr">🏆</span>' + esc(t || '¡Gracias por su apoyo!') + '</div>',
+      redes: (t) => '<div class="sp sp-redes">Síguenos <i>' + esc(t || '@tumedio') + '</i></div>',
+    };
+    const PANTALLAS = {
+      pronto: { t: 'La transmisión comenzará pronto', s: '' },
+      enseguida: { t: 'Volvemos enseguida', s: 'No te vayas' },
+      gracias: { t: '¡Gracias por acompañarnos!', s: 'Síguenos para la próxima transmisión' },
+      temporizador: { t: '', s: '' },
+    };
+    // Vista previa sin sala (?demo=<metadata JSON>&falsas=Nombre1,Nombre2): para revisar diseños
+    const FALSAS = new Map((q.get('falsas') || '').split(',').filter(Boolean).map((n, i) => [i === 0 ? 'camara-principal' : (n.startsWith('Pantalla') ? 'camara-principal#pantalla' : 'invitado-' + i), n]));
+    const RED = { facebook: ['Facebook', '#1877F2'], youtube: ['YouTube', '#FF0000'] };
+
+    function esc(t) { return String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
     function contraste(hex) {
       const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || '');
       if (!m) return '#fff';
       const l = (0.299 * parseInt(m[1], 16) + 0.587 * parseInt(m[2], 16) + 0.114 * parseInt(m[3], 16)) / 255;
       return l > 0.6 ? '#111' : '#fff';
     }
+    const reloj2 = (s) => { s = Math.max(0, Math.ceil(s)); const m = Math.floor(s / 60); return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 
+    let plantillaActual = {};
     function pintar(p) {
       p = p || {};
-      const logo = document.getElementById('logo');
+      plantillaActual = p;
+      const escenario = $('escenario');
+      const color = p.color_etiqueta || '#C8102E';
+      escenario.style.setProperty('--marca', color);
+      escenario.style.setProperty('--marca-txt', contraste(color));
+      const f = FUENTES[p.fuente] || FUENTES.inter;
+      escenario.style.setProperty('--fuente', f[0]); escenario.style.setProperty('--titulo', f[1]);
+      escenario.className = escenario.className.replace(/\btema-\S+/g, '').trim() + ' tema-' + (['clasico', 'burbuja', 'minimal', 'bloque'].includes(p.tema) ? p.tema : 'clasico');
+      escenario.classList.toggle('suave', p.desvanecer !== false);
+      escenario.classList.toggle('logo-der', p.logo_pos === 'der');
+      // Fondo
+      const fo = p.fondo || {};
+      $('fondo').style.background = fo.tipo === 'imagen' && fo.valor ? 'center / cover no-repeat url("' + String(fo.valor).replace(/"/g, '') + '")'
+        : fo.tipo === 'color' && /^#[0-9a-f]{6}$/i.test(fo.valor || '') ? fo.valor : (FONDOS[fo.valor] || FONDOS.noche);
+      // Logo
+      const logo = $('logo');
       logo.innerHTML = '';
+      logo.classList.toggle('der', p.logo_pos === 'der');
       const texto = (p.logo_texto || '').trim();
       if (p.logo_url) {
         const img = document.createElement('img'); img.src = p.logo_url; img.alt = texto; logo.appendChild(img);
@@ -119,61 +269,220 @@
         const [marca, ...resto] = texto.split(/\s+/);
         for (const ch of marca.toUpperCase()) {
           const c = document.createElement('div'); c.className = 'caja';
-          c.style.background = p.color_logo || '#fff'; c.style.color = contraste(p.color_logo || '#fff'); c.textContent = ch; logo.appendChild(c);
+          c.style.background = p.color_logo || '#FFFFFF'; c.style.color = contraste(p.color_logo || '#FFFFFF'); c.textContent = ch; logo.appendChild(c);
         }
-        if (resto.length) { const r = document.createElement('span'); r.className = 'resto'; r.style.color = p.color_logo || '#fff'; r.textContent = resto.join(' '); logo.appendChild(r); }
+        if (resto.length) { const r = document.createElement('span'); r.className = 'resto'; r.style.color = p.color_logo || '#FFFFFF'; r.textContent = resto.join(' '); logo.appendChild(r); }
       }
-      document.getElementById('vivo').classList.toggle('oculto', p.en_vivo === false);
-      const marco = document.getElementById('marco');
-      if (p.marco_url) { if (marco.getAttribute('src') !== p.marco_url) marco.src = p.marco_url; marco.classList.remove('oculto'); } else { marco.classList.add('oculto'); }
-      plantillaActual = p;
+      ver(logo, !!(p.logo_url || texto));
+      ver($('vivo'), p.en_vivo !== false);
+      const marco = $('marco');
+      if (p.marco_url) { if (marco.getAttribute('src') !== p.marco_url) marco.src = p.marco_url; marco.classList.remove('nada'); } else { marco.classList.add('nada'); }
+      // Superposición
+      const sp = p.superposicion || null, cont = $('superposicion');
+      const clave = sp ? (sp.tipo + ':' + sp.valor + ':' + (sp.texto || '')) : '';
+      if (cont.dataset.clave !== clave) {
+        cont.dataset.clave = clave;
+        if (sp && sp.tipo === 'imagen' && sp.valor) cont.innerHTML = '<img src="' + esc(sp.valor) + '" alt="">';
+        else if (sp && SUPERPOSICIONES[sp.valor]) cont.innerHTML = SUPERPOSICIONES[sp.valor](sp.texto);
+        else if (!sp) { /* se vacía al terminar de desvanecer */ setTimeout(() => { if (!cont.dataset.clave) cont.innerHTML = ''; }, 600); }
+      }
+      ver(cont, !!sp);
       pintarRotulo();
       const mostrar = p.mostrar !== false;
-      document.getElementById('cintillo').classList.toggle('oculto', !mostrar);
-      document.getElementById('sombra').classList.toggle('oculto', !mostrar);
-      const et = document.getElementById('etiqueta');
-      et.textContent = (p.etiqueta || '').toUpperCase(); et.classList.toggle('oculto', !p.etiqueta);
-      et.style.background = p.color_etiqueta || '#C8102E'; et.style.color = contraste(p.color_etiqueta || '#C8102E');
-      const t = document.getElementById('titulo'); t.textContent = p.titulo || ''; t.style.color = p.color_titulo || '#fff';
-      document.getElementById('pie-izq').textContent = p.pie || '';
-      document.getElementById('pie-der').textContent = p.hashtag || '';
+      ver($('cintillo'), mostrar && !!((p.titulo || '').trim() || (p.etiqueta || '').trim()));
+      ver($('sombra'), mostrar);
+      const et = $('etiqueta');
+      et.textContent = (p.etiqueta || '').toUpperCase(); et.classList.toggle('nada', !p.etiqueta);
+      et.style.background = color; et.style.color = contraste(color);
+      const t = $('titulo'); t.textContent = p.titulo || ''; t.style.color = p.color_titulo || '#fff';
+      $('pie-izq').textContent = p.pie || '';
+      $('pie-der').textContent = p.hashtag || '';
+      ver($('pie'), !!((p.pie || '').trim() || (p.hashtag || '').trim()));
     }
 
     // Rótulo: el nombre fijo elegido por el director (escena.rotulo_de), el de quien habla
     // (escena.rotulo_auto) o, si no hay nombres por cámara, el de la plantilla.
-    let plantillaActual = {};
     let escenaActual = { nombres: {}, rotulo_de: null, rotulo_auto: false };
     let hablando = null; // identity del participante que más habla
+    const persona = (id) => { const n = (escenaActual.nombres || {})[id]; if (!n) return null; if (Array.isArray(n.personas)) return n.personas[n.activa || 0] || n.personas[0] || null; return n; };
     function pintarRotulo() {
       const p = plantillaActual || {};
-      const rot = document.getElementById('rotulo');
-      const nombres = escenaActual.nombres || {};
-      // Persona en cuadro de una cámara: formato nuevo {personas:[...], activa} o antiguo {nombre, cargo}
-      const persona = (id) => { const n = nombres[id]; if (!n) return null; if (Array.isArray(n.personas)) return n.personas[n.activa || 0] || n.personas[0] || null; return n; };
+      const rot = $('rotulo');
       let nombre = '', cargo = '';
       const de = escenaActual.rotulo_de ? persona(escenaActual.rotulo_de) : null;
       const hab = escenaActual.rotulo_auto && hablando ? persona(hablando) : null;
       if (de && (de.nombre || '').trim()) { nombre = de.nombre; cargo = de.cargo || ''; }
       else if (hab && (hab.nombre || '').trim()) { nombre = hab.nombre; cargo = hab.cargo || ''; }
       else if (p.rotulo_mostrar && (p.rotulo_nombre || '').trim()) { nombre = p.rotulo_nombre; cargo = p.rotulo_cargo || ''; }
-      rot.classList.toggle('oculto', !nombre);
-      rot.querySelector('.barra').style.background = p.color_etiqueta || '#C8102E';
-      rot.querySelector('.nombre').textContent = nombre;
-      const c = rot.querySelector('.cargo'); c.textContent = cargo; c.classList.toggle('oculto', !(cargo || '').trim());
+      if (nombre) { rot.querySelector('.nombre').textContent = nombre; const c = rot.querySelector('.cargo'); c.textContent = cargo; c.classList.toggle('nada', !(cargo || '').trim()); }
+      ver(rot, !!nombre);
+    }
+
+    // Banner (fijo) o cinta que corre
+    function pintarBanner(b) {
+      const caja = $('banner'), cinta = $('cinta');
+      const fijo = b && !b.cinta && (b.texto || '').trim();
+      const corre = b && b.cinta && (b.texto || '').trim();
+      if (fijo) { caja.querySelector('.bt').textContent = b.titulo || ''; caja.querySelector('.bt').classList.toggle('nada', !(b.titulo || '').trim()); caja.querySelector('.bx').textContent = b.texto; }
+      ver(caja, !!fijo);
+      if (corre) {
+        cinta.querySelector('.ct-et').textContent = b.titulo || plantillaActual.etiqueta || 'EN VIVO';
+        const tx = cinta.querySelector('.ct-txt');
+        const clave = b.texto;
+        if (tx.dataset.clave !== clave) {
+          tx.dataset.clave = clave;
+          const pedazo = esc(b.texto) + '&nbsp;&nbsp;&nbsp;•&nbsp;&nbsp;&nbsp;';
+          tx.innerHTML = pedazo.repeat(4) + pedazo.repeat(4);
+          requestAnimationFrame(() => { tx.style.animationDuration = Math.max(10, tx.scrollWidth / 2 / 110) + 's'; });
+        }
+      }
+      ver(cinta, !!corre);
+      $('escenario').classList.toggle('con-cinta', !!corre);
+    }
+
+    function pintarComentario(c) {
+      const el = $('comentario');
+      if (c && (c.texto || '').trim()) {
+        el.querySelector('.nm').textContent = c.nombre || 'Comentario';
+        el.querySelector('.ct').textContent = c.texto;
+        const img = el.querySelector('img');
+        if (c.foto) { img.src = c.foto; img.classList.remove('nada'); } else img.classList.add('nada');
+        const red = RED[c.red];
+        const r = el.querySelector('.red'); r.classList.toggle('nada', !red);
+        if (red) { r.textContent = red[0]; r.style.background = red[1]; }
+      }
+      ver(el, !!(c && (c.texto || '').trim()));
+    }
+
+    // Widgets: reloj (hora de Colombia) y cuenta regresiva
+    let widgets = {};
+    function pintarWidgets() {
+      const w = widgets || {};
+      const r = $('reloj');
+      if (w.reloj) r.textContent = new Date().toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' });
+      ver(r, !!w.reloj);
+      const c = $('cuenta'), cu = w.cuenta;
+      const resta = cu && cu.fin ? (cu.fin - Date.now()) / 1000 : -99;
+      if (cu && resta > -4) { c.querySelector('.t').textContent = cu.texto || 'Empezamos en'; c.querySelector('.t').classList.toggle('nada', !(cu.texto || '').trim()); c.querySelector('.n').textContent = resta > 0 ? reloj2(resta) : '¡Ya!'; }
+      ver(c, !!(cu && resta > -4));
+    }
+    setInterval(pintarWidgets, 500);
+
+    // ----------------------------------------------------------- audio (efectos y música)
+    let actx = null, gEfectos = null, gMusica = null;
+    function audio() {
+      if (MONITOR || !window.EditusAudio) return null;
+      if (!actx) {
+        try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+        gEfectos = actx.createGain(); gEfectos.connect(actx.destination);
+        gMusica = actx.createGain(); gMusica.connect(actx.destination);
+      }
+      if (actx.state === 'suspended') actx.resume().catch(() => {});
+      return actx;
+    }
+    let volEfectos = 0.8, volMusica = 0.35;
+    const sonados = new Set();
+    let elEfecto = null;
+    function sonar1(s) {
+      if (!s || !s.inicio) return;
+      const clave = s.id + ':' + s.inicio;
+      if (sonados.has(clave)) return;
+      sonados.add(clave);
+      if (Date.now() - s.inicio > 8000) return; // ya pasó (alguien entró tarde a la sala)
+      if (MONITOR) return;
+      if (s.url) {
+        try { if (elEfecto) elEfecto.pause(); elEfecto = new Audio(s.url); elEfecto.volume = volEfectos; elEfecto.play().catch(() => {}); } catch (e) {}
+      } else if (audio()) { window.EditusAudio.efecto(actx, gEfectos, s.preset || s.id); }
+      console.log('escena: sonido ' + (s.preset || s.url));
+    }
+    let musicaClave = null, musicaSint = null, musicaEl = null;
+    function pintarMusica(m) {
+      const clave = m ? (m.id + ':' + m.inicio) : null;
+      if (clave === musicaClave) return;
+      musicaClave = clave;
+      if (musicaSint) { musicaSint.detener(); musicaSint = null; }
+      if (musicaEl) { const el = musicaEl; musicaEl = null; let v = el.volume; const baja = setInterval(() => { v -= 0.05; if (v <= 0) { clearInterval(baja); el.pause(); el.remove(); } else el.volume = v; }, 60); }
+      if (!m || MONITOR) return;
+      if (m.url) {
+        const el = new Audio(m.url); el.loop = m.bucle !== false; el.volume = volMusica; el.preload = 'auto';
+        el.onloadedmetadata = () => { const pasado = (Date.now() - (m.inicio || Date.now())) / 1000; if (pasado > 1 && isFinite(el.duration) && el.duration > 0) el.currentTime = el.loop ? pasado % el.duration : Math.min(pasado, el.duration); };
+        el.play().catch((e) => console.log('escena: música no sonó ' + (e && e.message)));
+        musicaEl = el;
+      } else if (audio()) {
+        musicaSint = new window.EditusAudio.Musica(actx, gMusica, m.preset || m.id); musicaSint.iniciar();
+      }
+      console.log('escena: música ' + (m.preset || m.url));
+    }
+    function volumenes(e) {
+      volEfectos = typeof e.vol_sonidos === 'number' ? Math.max(0, Math.min(1, e.vol_sonidos)) : 0.8;
+      volMusica = typeof e.vol_musica === 'number' ? Math.max(0, Math.min(1, e.vol_musica)) : 0.35;
+      if (gEfectos) gEfectos.gain.value = volEfectos;
+      if (gMusica) gMusica.gain.value = volMusica * 1.6;
+      if (musicaEl) musicaEl.volume = volMusica;
     }
 
     let grabando = false;
     function empezar() { if (!grabando) { grabando = true; if (!MONITOR) console.log('START_RECORDING'); } }
 
+    // Posición de cada cámara según el diseño (lienzo de 1280×720)
+    function rectangulos(layout, n) {
+      const R = (x, y, w, h, extra) => Object.assign({ x, y, w, h, radio: 10 }, extra || {});
+      if (n <= 0) return [];
+      switch (layout) {
+        case 'solo': return [R(0, 0, 1280, 720, { radio: 0 })];
+        case 'cine': return [R(0, 0, 1280, 720, { radio: 0, contener: true })];
+        case 'pip': return n === 1 ? [R(0, 0, 1280, 720, { radio: 0 })] : [R(0, 0, 1280, 720, { radio: 0 }), R(1280 - 40 - 352, 104, 352, 198, { chica: true, borde: true })];
+        case 'dos': {
+          if (n === 1) return [R(0, 0, 1280, 720, { radio: 0 })];
+          const w = 618, h = Math.round(w * 9 / 16), y = Math.round((720 - h) / 2) - 16;
+          return [R(16, y, w, h), R(16 + w + 12, y, w, h)];
+        }
+        case 'lateral': {
+          if (n === 1) return [R(0, 0, 1280, 720, { radio: 0 })];
+          const h = 478, w1 = 850, w2 = 380, x0 = Math.round((1280 - w1 - 12 - w2) / 2), y = Math.round((720 - h) / 2) - 16;
+          return [R(x0, y, w1, h, { contener: true }), R(x0 + w1 + 12, y, w2, h)];
+        }
+        case 'lider': {
+          if (n === 1) return [R(0, 0, 1280, 720, { radio: 0 })];
+          const w = 900, h = 506, sh = Math.round((h - 24) / 3), sw = Math.round(sh * 16 / 9), x0 = Math.round((1280 - w - 12 - sw) / 2), y = Math.round((720 - h) / 2) - 16;
+          const out = [R(x0, y, w, h)];
+          const k = n - 1, top = y + Math.round((h - (k * sh + (k - 1) * 12)) / 2);
+          for (let i = 0; i < k; i++) out.push(R(x0 + w + 12, top + i * (sh + 12), sw, sh, { chica: true }));
+          return out;
+        }
+        case 'barra': {
+          if (n === 1) return [R(0, 0, 1280, 720, { radio: 0 })];
+          const h = 470, w = Math.round(h * 16 / 9), out = [R(Math.round((1280 - w) / 2), 14, w, h)];
+          const k = n - 1, tw = 210, th = 118, x0 = Math.round((1280 - (k * tw + (k - 1) * 10)) / 2);
+          for (let i = 0; i < k; i++) out.push(R(x0 + i * (tw + 10), 14 + h + 10, tw, th, { chica: true }));
+          return out;
+        }
+        default: { // cuadrícula (hasta 6)
+          if (n === 1) return [R(0, 0, 1280, 720, { radio: 0 })];
+          if (n === 2) return rectangulos('dos', 2);
+          const cols = n <= 4 ? 2 : 3, filas = Math.ceil(n / cols), gap = 12;
+          let w = Math.floor((1248 - gap * (cols - 1)) / cols), h = Math.round(w * 9 / 16);
+          const altoMax = 624;
+          if (filas * h + (filas - 1) * gap > altoMax) { h = Math.floor((altoMax - gap * (filas - 1)) / filas); w = Math.round(h * 16 / 9); }
+          const y0 = Math.round((720 - (filas * h + (filas - 1) * gap)) / 2) - 16, out = [];
+          for (let f = 0; f < filas; f++) {
+            const enFila = Math.min(cols, n - f * cols), x0 = Math.round((1280 - (enFila * w + (enFila - 1) * gap)) / 2);
+            for (let c = 0; c < enFila; c++) out.push(R(x0 + c * (w + gap), y0 + f * (h + gap), w, h, { chica: cols === 3 }));
+          }
+          return out;
+        }
+      }
+    }
+
     async function main() {
       const { Room, RoomEvent, Track } = LivekitClient;
       const room = new Room({ adaptiveStream: false, dynacast: false });
-      const lienzo = document.getElementById('lienzo');
-      const espera = document.getElementById('espera');
+      const lienzo = $('lienzo');
+      const espera = $('espera');
       let escena = { layout: 'solo', principal: PRINCIPAL, visibles: [] };
       const celdas = new Map(); // identity -> {el, video, track}
       const audios = new Map(); // identity -> {el, track}  (solo suena quien está al aire)
-      const audiosDiv = document.getElementById('audios');
+      const audiosDiv = $('audios');
 
       // Micrófono de cada participante; la pantalla compartida (id#pantalla) usa el micrófono de su dueño
       // y, si existe, el audio de la propia pantalla
@@ -188,11 +497,10 @@
         }
         return out;
       }
-      let silenciarCamaras = false; // mientras suena un video de producción
+      let silenciarCamaras = false; // mientras suena un clip o hay una pantalla a pantalla completa
 
       function sonar(alAire) {
         const mics = microfonos();
-        // Qué pistas de audio deben sonar: micrófono del dueño de cada cámara o pantalla al aire + audio de pantalla
         const deseadas = new Map();
         for (const id of alAire) {
           const base = id.replace(/#pantalla$/, '');
@@ -211,24 +519,46 @@
         for (const a of audios.values()) a.el.muted = silenciarCamaras || MONITOR;
       }
 
-      // Recurso de producción a pantalla completa: imagen (con duración opcional) o video (una vez, con audio)
-      let recursoActual = null;
+      // Recurso a pantalla completa: clip de video (una vez o en bucle), imagen o pantalla prediseñada
+      let recursoActual = null, temporizador = null;
       function mostrarRecurso(r) {
-        const cont = document.getElementById('recurso');
-        const escenario = document.getElementById('escenario');
+        const cont = $('recurso');
+        const escenario = $('escenario');
         const clave = r ? (r.id + ':' + r.inicio + ':' + (r.formato || 'completa')) : null;
         if (clave === recursoActual) return;
         recursoActual = clave;
-        cont.innerHTML = ''; silenciarCamaras = false;
-        const terminar = () => { cont.classList.add('oculto'); cont.innerHTML = ''; escenario.classList.remove('mitad'); silenciarCamaras = false; sonar(ultimoAlAire); };
+        clearInterval(temporizador); temporizador = null;
+        const terminar = () => { ver(cont, false); setTimeout(() => { if (recursoActual === clave || !recursoActual) cont.innerHTML = ''; }, 500); escenario.classList.remove('mitad'); silenciarCamaras = false; sonar(ultimoAlAire); };
         if (!r) { terminar(); return; }
+        cont.innerHTML = '';
         escenario.classList.toggle('mitad', r.formato === 'mitad');
         const desfase = r.inicio ? Math.max(0, (Date.now() - r.inicio) / 1000) : 0;
-        if (r.tipo === 'video') {
-          if (r.duracion && desfase > r.duracion + 2) { terminar(); return; }
-          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR;
-          v.onloadedmetadata = () => { if (desfase > 1 && desfase < v.duration) v.currentTime = desfase; };
-          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); terminar(); };
+        if (r.tipo === 'pantalla') {
+          if (r.duracion && desfase > r.duracion + 1) { terminar(); return; }
+          const base = PANTALLAS[r.preset] || PANTALLAS.pronto, p = plantillaActual || {};
+          const titulo = (r.texto || '').trim() || base.t;
+          const sub = r.preset === 'pronto' ? (p.titulo || '') : base.s;
+          const el = document.createElement('div'); el.className = 'pantalla-p';
+          el.innerHTML = (p.logo_url ? '<div class="pl"><img src="' + esc(p.logo_url) + '" alt=""></div>' : '')
+            + (r.preset === 'temporizador' ? '<div class="anillo"><div class="pc">' + Math.ceil(r.duracion || 10) + '</div></div>' : '<div class="pt">' + esc(titulo) + '</div>')
+            + (r.preset === 'temporizador' ? (titulo ? '<div class="ps">' + esc(titulo) + '</div>' : '') : (sub ? '<div class="ps">' + esc(sub) + '</div>' : ''))
+            + (r.duracion && r.preset !== 'temporizador' ? '<div class="pc" style="font-size:64px"></div>' : '') + '<div class="ondas"></div>';
+          cont.appendChild(el);
+          if (r.duracion) {
+            const pc = el.querySelector('.pc');
+            const tick = () => {
+              const resta = r.duracion - (Date.now() - r.inicio) / 1000;
+              if (resta <= 0) { if (recursoActual === clave) { recursoActual = null; terminar(); } clearInterval(temporizador); return; }
+              if (pc) pc.textContent = r.preset === 'temporizador' ? Math.ceil(resta) : reloj2(resta);
+            };
+            tick(); temporizador = setInterval(tick, 250);
+          }
+          silenciarCamaras = true; sonar(ultimoAlAire);
+        } else if (r.tipo === 'video') {
+          if (r.duracion && desfase > r.duracion + 2 && !r.bucle) { terminar(); return; }
+          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR; v.loop = !!r.bucle;
+          v.onloadedmetadata = () => { if (desfase > 1 && isFinite(v.duration)) v.currentTime = r.bucle ? desfase % v.duration : Math.min(desfase, v.duration); };
+          v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); recursoActual = null; terminar(); };
           v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); terminar(); };
           cont.appendChild(v); silenciarCamaras = true; sonar(ultimoAlAire);
           v.play && v.play().catch((e) => console.log('escena: play falló ' + (e && e.message)));
@@ -238,31 +568,38 @@
           cont.appendChild(img);
           if (r.duracion) setTimeout(() => { if (recursoActual === clave) terminar(); }, Math.max(0, r.duracion - desfase) * 1000);
         }
-        cont.classList.remove('oculto');
+        ver(cont, true);
         empezar(); // con una intro al aire la transmisión arranca aunque aún no haya cámara
-        console.log('escena: recurso al aire ' + r.tipo + ' ' + r.nombre + ' (' + (r.formato || 'completa') + ')');
+        console.log('escena: recurso al aire ' + r.tipo + ' ' + (r.nombre || r.preset) + ' (' + (r.formato || 'completa') + ')');
       }
       let ultimoAlAire = [];
 
       function leerMetadata() {
         let m = {};
         try { m = JSON.parse(room.metadata || '{}'); } catch (e) { m = {}; }
-        pintar(m);
         const e = m.escena || {};
+        escenaActual = { nombres: (e.nombres && typeof e.nombres === 'object') ? e.nombres : {}, rotulo_de: e.rotulo_de || null, rotulo_auto: !!e.rotulo_auto };
+        pintar(m);
         escena = {
           layout: CUPOS[e.layout] ? e.layout : 'solo',
           principal: e.principal || PRINCIPAL,
           visibles: Array.isArray(e.visibles) ? e.visibles : [],
-          recurso: e.recurso && e.recurso.url ? e.recurso : null,
+          recurso: e.recurso && (e.recurso.url || e.recurso.tipo === 'pantalla') ? e.recurso : null,
+          vacio: !!e.vacio,
         };
-        escenaActual = { nombres: (e.nombres && typeof e.nombres === 'object') ? e.nombres : {}, rotulo_de: e.rotulo_de || null, rotulo_auto: !!e.rotulo_auto };
-        pintarRotulo();
+        pintarBanner(e.banner || null);
+        pintarComentario(e.comentario || null);
+        widgets = e.widgets || {}; pintarWidgets();
+        volumenes(e);
+        sonar1(e.sonido || null);
+        pintarMusica(e.musica || null);
         componer();
       }
 
       // Cámara (pista de vídeo) de cada participante conectado que publica; la pantalla compartida entra como id#pantalla
       function camarasDisponibles() {
         const out = new Map();
+        for (const [id, nombre] of FALSAS) out.set(id, { falsa: true, track: id, nombre, pantalla: id.endsWith('#pantalla') });
         for (const p of room.remoteParticipants.values()) {
           for (const pub of p.videoTrackPublications.values()) {
             if (!pub.track || pub.isMuted) continue;
@@ -276,6 +613,7 @@
       // Quién sale al aire y en qué orden: principal primero, luego los "visibles" elegidos,
       // y si el director no eligió a nadie, el resto de cámaras conectadas (orden de llegada)
       function ordenAlAire(camaras) {
+        if (escena.vacio) return []; // el director dejó el escenario vacío
         const cupos = CUPOS[escena.layout];
         const lista = [];
         const meter = (id) => { if (camaras.has(id) && !lista.includes(id) && lista.length < cupos) lista.push(id); };
@@ -290,28 +628,42 @@
       function componer() {
         const camaras = camarasDisponibles();
         const alAire = ordenAlAire(camaras);
-        lienzo.className = escena.layout;
+        const rects = rectangulos(escena.layout, alAire.length);
+        const nombresVisibles = plantillaActual.mostrar_nombres !== false && !['solo', 'cine'].includes(escena.layout) && alAire.length > 1;
         for (const [id, c] of celdas) {
-          if (!alAire.includes(id)) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); celdas.delete(id); }
+          if (!alAire.includes(id)) { try { c.track.detach && c.track.detach(c.video); } catch (e) {} c.el.remove(); celdas.delete(id); }
         }
         alAire.forEach((id, i) => {
           const cam = camaras.get(id);
           let c = celdas.get(id);
           if (!c || c.track !== cam.track) {
-            if (c) { try { c.track.detach(c.video); } catch (e) {} c.el.remove(); }
+            if (c) { try { c.track.detach && c.track.detach(c.video); } catch (e) {} c.el.remove(); }
             const el = document.createElement('div'); el.className = 'celda' + (cam.pantalla ? ' pantalla' : '');
-            const video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.muted = true;
-            cam.track.attach(video); el.appendChild(video);
-            const n = document.createElement('span'); n.className = 'nombre'; n.textContent = cam.nombre; el.appendChild(n);
+            let video = document.createElement('video'); video.autoplay = true; video.playsInline = true; video.muted = true;
+            if (cam.falsa) { video = document.createElement('div'); video.style.cssText = 'width:100%;height:100%;background:linear-gradient(135deg,hsl(' + (celdas.size * 67 + 200) + ',45%,42%),hsl(' + (celdas.size * 67 + 240) + ',40%,22%))'; }
+            else cam.track.attach(video);
+            el.appendChild(video);
+            const n = document.createElement('span'); n.className = 'nombre'; el.appendChild(n);
             c = { el, video, track: cam.track }; celdas.set(id, c);
+            const r0 = rects[i];
+            Object.assign(el.style, { left: r0.x + 'px', top: r0.y + 'px', width: r0.w + 'px', height: r0.h + 'px' });
+            lienzo.appendChild(el);
           }
-          c.el.querySelector('.nombre').classList.toggle('oculto', escena.layout === 'solo');
-          if (lienzo.children[i] !== c.el) lienzo.insertBefore(c.el, lienzo.children[i] || null);
+          const r = rects[i];
+          Object.assign(c.el.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px', borderRadius: r.radio + 'px', zIndex: r.chica ? 2 : 1,
+            boxShadow: r.borde ? '0 0 0 3px #fff, 0 8px 20px rgba(0,0,0,.4)' : (r.radio ? '0 6px 18px rgba(0,0,0,.3)' : 'none') });
+          c.el.classList.toggle('chica', !!r.chica);
+          c.el.classList.toggle('contener', !!r.contener);
+          const pr = persona(id.replace(/#pantalla$/, ''));
+          const etiqueta = c.el.querySelector('.nombre');
+          etiqueta.textContent = id.endsWith('#pantalla') ? cam.nombre : ((pr && pr.nombre) || cam.nombre);
+          etiqueta.classList.toggle('nada', !nombresVisibles);
         });
         ultimoAlAire = alAire;
         sonar(alAire);
         mostrarRecurso(escena.recurso || null);
-        espera.classList.toggle('oculto', alAire.length > 0);
+        espera.classList.toggle('nada', alAire.length > 0 || escena.vacio);
+        if (escena.vacio) empezar();
         console.log('escena: ' + escena.layout + ' · cámaras ' + JSON.stringify(Array.from(camaras.keys())) + ' · al aire ' + JSON.stringify(alAire) + ' · con audio ' + JSON.stringify(Array.from(audios.keys())) + ' · participantes ' + room.remoteParticipants.size);
         if (alAire.length > 0) empezar();
       }
@@ -326,13 +678,13 @@
       room.on(RoomEvent.ParticipantConnected, componer);
       room.on(RoomEvent.ParticipantDisconnected, componer);
       room.on(RoomEvent.RoomMetadataChanged, leerMetadata);
-      // Si se cae la conexión antes de haber empezado, se reintenta en vez de cerrar el egress
       // Quién habla (para el rótulo automático): el más activo de los que están al aire
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         const alAire = ultimoAlAire.map((id) => id.replace(/#pantalla$/, ''));
         const s = speakers.find((sp) => !sp.isLocal && alAire.includes(sp.identity));
         if (s && s.identity !== hablando) { hablando = s.identity; pintarRotulo(); }
       });
+      // Si se cae la conexión antes de haber empezado, se reintenta en vez de cerrar el egress
       room.on(RoomEvent.Disconnected, (motivo) => {
         console.log('desconectado', motivo);
         if (grabando) { console.log('END_RECORDING'); } else { conectar(); }
@@ -352,11 +704,18 @@
           setTimeout(conectar, 3000);
         }
       }
+      // Vista previa local sin sala (?demo=JSON con la metadata): para probar diseños
+      if (q.get('demo')) {
+        const meta = q.get('demo');
+        Object.defineProperty(room, 'metadata', { get: () => meta, configurable: true });
+        leerMetadata();
+        return;
+      }
       await conectar();
       // Si nadie publica en 20 s pero hay conexión, igual se empieza (pantalla de espera) para que Facebook reciba señal
       setTimeout(() => { if (room.state === 'connected') empezar(); }, 20000);
     }
-    main().catch((e) => { document.getElementById('espera').textContent = 'No se pudo conectar: ' + e.message; console.error(e); });
+    main().catch((e) => { $('espera').textContent = 'No se pudo conectar: ' + e.message; console.error(e); });
   </script>
 </body>
 </html>

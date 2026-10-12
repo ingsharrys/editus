@@ -45,6 +45,8 @@ class EnVivoWebController extends Controller
             'historial' => (clone $mias)->whereIn('estado', ['terminada', 'error', 'cancelada'])->limit(8)->get()->map(fn($t) => $t->paraApi() + ['fecha' => $t->created_at?->format('d/m/Y H:i')]),
             'programadas' => Schema::hasColumn('transmisiones_en_vivo', 'programada_en')
                 ? (clone $mias)->reorder()->where('estado', 'programada')->orderBy('programada_en')->limit(20)->get()->map(fn($t) => $t->paraApi())->values() : collect(),
+            'marcas' => Schema::hasTable('marcas_en_vivo') ? EstudioController::marcasDe((int) $user->id) : [],
+            'activos' => Schema::hasTable('activos_en_vivo') ? EstudioController::activosDe((int) $user->id) : [],
             'configurado' => $livekit->configurado(),
             'limites' => app(\App\Services\PlanService::class)->limites($user),
             'esCliente' => !app(\App\Services\PlanService::class)->sinLimites($user),
@@ -57,8 +59,9 @@ class EnVivoWebController extends Controller
             'page_ids' => ['nullable', 'array', 'max:10'], 'page_ids.*' => ['string'],
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
-            'plantilla' => ['nullable', 'array'],
+            'plantilla' => ['nullable', 'array'], 'marca_id' => ['nullable', 'integer'],
         ]);
+        $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $permitidas = $this->paginasPermitidas()->pluck('page_id')->map(fn($v) => (string) $v)->flip();
         foreach ((array) ($datos['page_ids'] ?? []) as $id) {
             if (!$permitidas->has((string) $id)) return response()->json(['success' => false, 'error' => 'Alguna de las páginas elegidas no está conectada a tu cuenta de editus.'], 422);
@@ -67,12 +70,13 @@ class EnVivoWebController extends Controller
         $planes = app(\App\Services\PlanService::class);
         $ids = MetaPage::whereIn('page_id', (array) ($datos['page_ids'] ?? []))->pluck('id')->all();
         if ($motivo = $planes->validarPaginas(Auth::user(), $ids)) return response()->json(['success' => false, 'error' => $motivo], 422);
-        if (!empty($datos['plantilla'])) $datos['plantilla'] = $this->plantillaDelPlan($datos['plantilla']);
+        if (!empty($datos['plantilla'])) $datos['plantilla'] = self::plantillaDelPlan($datos['plantilla']);
         $this->preferir();
         $r = $this->api->preparar(new Request($datos + ['usuario' => null]));
         $json = $r->getData(true);
         if (!empty($json['success']) && Schema::hasColumn('transmisiones_en_vivo', 'user_id')) {
-            TransmisionEnVivo::whereKey($json['transmision']['id'])->update(['user_id' => Auth::id()]);
+            TransmisionEnVivo::whereKey($json['transmision']['id'])->update(array_filter(['user_id' => Auth::id(),
+                'marca_id' => Schema::hasColumn('transmisiones_en_vivo', 'marca_id') ? ($datos['marca_id'] ?? null) : null]));
         }
         return $r;
     }
@@ -85,8 +89,9 @@ class EnVivoWebController extends Controller
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
-            'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'], 'marca_id' => ['nullable', 'integer'],
         ]);
+        $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $user = Auth::user();
         if (!app(\App\Services\PlanService::class)->limites($user)) return response()->json(['success' => false, 'error' => 'Necesitas un plan activo para transmitir.'], 403);
         $cuando = \Carbon\Carbon::createFromFormat('Y-m-d\TH:i', $datos['programada_en'], config('app.timezone'))->seconds(0);
@@ -100,11 +105,12 @@ class EnVivoWebController extends Controller
         $canales = collect((array) ($datos['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
         if ($canales->contains(null)) return response()->json(['success' => false, 'error' => 'Alguno de los canales de YouTube no está disponible.'], 422);
         if ($paginas->isEmpty() && $canales->isEmpty()) return response()->json(['success' => false, 'error' => 'Elige al menos una página de Facebook o un canal de YouTube.'], 422);
-        $plantilla = EnVivoController::normalizarPlantilla($this->plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
+        $plantilla = EnVivoController::normalizarPlantilla(self::plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
         $this->preferir();
         try {
             $miniatura = !empty($datos['miniatura']) ? app(\App\Services\MiniaturaService::class)->guardarBase64($datos['miniatura']) : null;
             $t = $programados->programar($user->id, ['miniatura' => $miniatura, 'programada_en' => $cuando] + $datos, $paginas, $canales, $plantilla);
+            if (!empty($datos['marca_id']) && Schema::hasColumn('transmisiones_en_vivo', 'marca_id')) $t->forceFill(['marca_id' => (int) $datos['marca_id']])->save();
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
@@ -137,6 +143,12 @@ class EnVivoWebController extends Controller
     public function escena(Request $request, TransmisionEnVivo $transmision): JsonResponse
     {
         $this->propia($transmision);
+        // Los archivos propios (clips, efectos, música) solo los usa quien los subió
+        foreach ([$request->input('activo_id'), $request->input('sonido.activo_id'), $request->input('musica.activo_id')] as $id) {
+            if ($id && !\App\Models\ActivoEnVivo::where('user_id', Auth::id())->whereKey((int) $id)->exists() && !Auth::user()->isAdmin()) {
+                return response()->json(['success' => false, 'error' => 'Ese archivo no es tuyo o ya no existe.'], 422);
+            }
+        }
         return $this->api->escena(new Request($request->all()), $transmision);
     }
 
@@ -144,7 +156,7 @@ class EnVivoWebController extends Controller
     {
         $this->propia($transmision);
         $datos = $request->all();
-        if (isset($datos['plantilla']) && is_array($datos['plantilla'])) $datos['plantilla'] = $this->plantillaDelPlan($datos['plantilla']);
+        if (isset($datos['plantilla']) && is_array($datos['plantilla'])) $datos['plantilla'] = self::plantillaDelPlan($datos['plantilla']);
         return $this->api->plantilla(new Request($datos), $transmision);
     }
 
@@ -196,12 +208,21 @@ class EnVivoWebController extends Controller
             ->orderBy('name')->get();
     }
 
-    /** El plan Básico no permite plantillas con logo: se quitan logo, logo en imagen y marco. */
-    private function plantillaDelPlan(array $p): array
+    /** La marca elegida (del usuario) pone logo, colores, tema y fondo; lo escrito en el formulario manda sobre ella. */
+    private function conMarca($marcaId, array $plantilla): array
+    {
+        if (!$marcaId || !Schema::hasTable('marcas_en_vivo')) return $plantilla;
+        $m = \App\Models\MarcaEnVivo::where('user_id', Auth::id())->find((int) $marcaId);
+        return $m ? array_merge($m->paraPlantilla(), array_filter($plantilla, fn($v) => $v !== null && $v !== '')) : $plantilla;
+    }
+
+    /** El plan Básico no permite plantillas con logo: se quitan logo, logo en imagen, marco y superposiciones en imagen. */
+    public static function plantillaDelPlan(array $p): array
     {
         $lim = app(\App\Services\PlanService::class)->limites(Auth::user());
         if ($lim && empty($lim['plantillas_logo'])) {
             $p['logo_texto'] = ''; $p['logo_url'] = ''; $p['marco_url'] = '';
+            if (($p['superposicion']['tipo'] ?? '') === 'imagen') $p['superposicion'] = null;
         }
         return $p;
     }

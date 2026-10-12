@@ -129,6 +129,29 @@ class YouTubeLiveService
         }
     }
 
+    /** Chat en vivo de la transmisión: id del chat (se pide una vez) y mensajes nuevos desde pageToken. */
+    public function chatId(YoutubeCanal $canal, string $broadcastId): ?string
+    {
+        $r = Http::timeout(20)->withToken($this->token($canal))->get(self::API . 'liveBroadcasts', ['part' => 'snippet', 'id' => $broadcastId]);
+        return data_get($r->json(), 'items.0.snippet.liveChatId') ?: null;
+    }
+
+    public function mensajesChat(YoutubeCanal $canal, string $chatId, ?string $pagina = null): array
+    {
+        $r = Http::timeout(20)->withToken($this->token($canal))->get(self::API . 'liveChat/messages', array_filter([
+            'liveChatId' => $chatId, 'part' => 'snippet,authorDetails', 'maxResults' => 200, 'pageToken' => $pagina,
+        ]));
+        if (!$r->ok()) throw new \RuntimeException($this->mensajeError($r->json(), $r->body()));
+        $lista = [];
+        foreach ((array) data_get($r->json(), 'items', []) as $m) {
+            $texto = (string) (data_get($m, 'snippet.displayMessage') ?: data_get($m, 'snippet.textMessageDetails.messageText', ''));
+            if (trim($texto) === '') continue;
+            $lista[] = ['id' => 'yt-' . data_get($m, 'id'), 'red' => 'youtube', 'nombre' => (string) data_get($m, 'authorDetails.displayName', ''),
+                'foto' => data_get($m, 'authorDetails.profileImageUrl'), 'texto' => $texto, 'fecha' => data_get($m, 'snippet.publishedAt')];
+        }
+        return ['mensajes' => $lista, 'siguiente' => data_get($r->json(), 'nextPageToken'), 'esperar_ms' => (int) data_get($r->json(), 'pollingIntervalMillis', 5000)];
+    }
+
     // ------------------------------------------------------------------
 
     /** Stream RTMP reutilizable del canal (se crea una sola vez). Devuelve id y URL rtmps completa. */

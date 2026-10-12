@@ -265,7 +265,7 @@ class EnVivoController extends Controller
     public function escena(Request $request, TransmisionEnVivo $transmision): JsonResponse
     {
         $datos = $request->validate([
-            'layout' => ['nullable', 'string', 'in:solo,dos,pip,cuadricula'],
+            'layout' => ['nullable', 'string', 'in:' . implode(',', self::LAYOUTS)],
             'principal' => ['nullable', 'string', 'max:80'],
             'visibles' => ['nullable', 'array', 'max:8'],
             'visibles.*' => ['string', 'max:80'],
@@ -282,7 +282,29 @@ class EnVivoController extends Controller
             'rotulo_de' => ['nullable', 'string', 'max:90'],
             'quitar_rotulo' => ['nullable', 'boolean'],
             'rotulo_auto' => ['nullable', 'boolean'],
+            // Estudio: banner, comentario destacado, widgets, pantallas, clips propios, efectos y música
+            'banner' => ['nullable', 'array'], 'banner.titulo' => ['nullable', 'string', 'max:60'], 'banner.texto' => ['nullable', 'string', 'max:300'], 'banner.cinta' => ['nullable', 'boolean'],
+            'quitar_banner' => ['nullable', 'boolean'],
+            'comentario' => ['nullable', 'array'], 'comentario.nombre' => ['nullable', 'string', 'max:80'], 'comentario.texto' => ['nullable', 'string', 'max:500'],
+            'comentario.foto' => ['nullable', 'string', 'max:800'], 'comentario.red' => ['nullable', 'in:facebook,youtube'],
+            'quitar_comentario' => ['nullable', 'boolean'],
+            'widgets' => ['nullable', 'array'], 'widgets.reloj' => ['nullable', 'boolean'], 'widgets.cuenta' => ['nullable', 'array'],
+            'widgets.cuenta.segundos' => ['nullable', 'integer', 'min:1', 'max:36000'], 'widgets.cuenta.texto' => ['nullable', 'string', 'max:60'],
+            'pantalla' => ['nullable', 'array'], 'pantalla.preset' => ['required_with:pantalla', 'in:' . implode(',', self::PANTALLAS)],
+            'pantalla.texto' => ['nullable', 'string', 'max:120'], 'pantalla.duracion' => ['nullable', 'integer', 'min:0', 'max:3600'],
+            'activo_id' => ['nullable', 'integer'], 'bucle' => ['nullable', 'boolean'],
+            'sonido' => ['nullable', 'array'], 'sonido.preset' => ['nullable', 'in:' . implode(',', self::EFECTOS)], 'sonido.activo_id' => ['nullable', 'integer'],
+            'musica' => ['nullable', 'array'], 'musica.preset' => ['nullable', 'in:' . implode(',', self::MUSICAS)], 'musica.activo_id' => ['nullable', 'integer'], 'musica.bucle' => ['nullable', 'boolean'],
+            'quitar_musica' => ['nullable', 'boolean'],
+            'vol_sonidos' => ['nullable', 'numeric', 'min:0', 'max:1'], 'vol_musica' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'vacio' => ['nullable', 'boolean'],
         ]);
+        $ahora = (int) now()->getTimestampMs();
+        $activo = function ($id, array $tipos) {
+            $a = $id && Schema::hasTable('activos_en_vivo') ? \App\Models\ActivoEnVivo::whereIn('tipo', $tipos)->find((int) $id) : null;
+            if ($id && !$a) throw \Illuminate\Validation\ValidationException::withMessages(['activo_id' => 'Ese archivo ya no existe.']);
+            return $a;
+        };
         $escena = ($transmision->escena ?? []) + self::escenaInicial();
         // Personas por cámara (una cámara puede enfocar a varias; "activa" es la que está en cuadro)
         // y qué rótulo se muestra (uno fijo o el de quien habla)
@@ -319,6 +341,57 @@ class EnVivoController extends Controller
             if (!$r) return response()->json(['success' => false, 'error' => 'Recurso no encontrado'], 422);
             $escena['recurso'] = $r->paraEscena($datos['formato'] ?? 'completa');
         }
+        // Pantalla prediseñada (pronto, volvemos enseguida, gracias, temporizador) o clip / imagen propios
+        if (!empty($datos['pantalla']['preset'])) {
+            $pr = $datos['pantalla'];
+            $dur = (int) ($pr['duracion'] ?? 0) ?: ($pr['preset'] === 'temporizador' ? 10 : null);
+            $escena['recurso'] = ['id' => 'pantalla-' . $pr['preset'], 'tipo' => 'pantalla', 'preset' => $pr['preset'], 'nombre' => $pr['preset'],
+                'texto' => Str::limit(trim((string) ($pr['texto'] ?? '')), 120, ''), 'duracion' => $dur, 'formato' => 'completa', 'inicio' => $ahora];
+        } elseif (!empty($datos['activo_id'])) {
+            $a = $activo($datos['activo_id'], ['clip', 'fondo', 'superposicion', 'logo']);
+            $escena['recurso'] = ['id' => 'activo-' . $a->id, 'tipo' => $a->esVideo() ? 'video' : 'imagen', 'nombre' => $a->nombre, 'url' => $a->url(),
+                'duracion' => $a->duracion, 'bucle' => (bool) ($datos['bucle'] ?? false), 'formato' => $datos['formato'] ?? 'completa', 'inicio' => $ahora];
+        } elseif (!empty($datos['recurso_id']) && array_key_exists('bucle', $datos)) {
+            $escena['recurso']['bucle'] = (bool) $datos['bucle'];
+        }
+        // Banner (fijo o cinta que corre) y comentario destacado
+        if (!empty($datos['quitar_banner'])) unset($escena['banner']);
+        elseif (!empty($datos['banner']) && trim((string) ($datos['banner']['texto'] ?? '')) !== '') {
+            $escena['banner'] = ['titulo' => Str::limit(trim((string) ($datos['banner']['titulo'] ?? '')), 60, ''), 'texto' => Str::limit(trim((string) $datos['banner']['texto']), 300, ''),
+                'cinta' => (bool) ($datos['banner']['cinta'] ?? false)];
+        }
+        if (!empty($datos['quitar_comentario'])) unset($escena['comentario']);
+        elseif (!empty($datos['comentario']) && trim((string) ($datos['comentario']['texto'] ?? '')) !== '') {
+            $c = $datos['comentario'];
+            $escena['comentario'] = ['nombre' => Str::limit(trim((string) ($c['nombre'] ?? '')), 80, ''), 'texto' => Str::limit(trim((string) $c['texto']), 500, ''),
+                'foto' => self::url($c['foto'] ?? ''), 'red' => $c['red'] ?? null];
+        }
+        // Widgets: reloj y cuenta regresiva (la escena calcula el tiempo restante con "fin")
+        if (array_key_exists('widgets', $datos) && is_array($datos['widgets'])) {
+            $w = (array) ($escena['widgets'] ?? []);
+            if (array_key_exists('reloj', $datos['widgets'])) $w['reloj'] = (bool) $datos['widgets']['reloj'];
+            if (array_key_exists('cuenta', $datos['widgets'])) {
+                $cu = $datos['widgets']['cuenta'];
+                if (is_array($cu) && !empty($cu['segundos'])) $w['cuenta'] = ['fin' => $ahora + (int) $cu['segundos'] * 1000, 'texto' => Str::limit(trim((string) ($cu['texto'] ?? '')), 60, '')];
+                else unset($w['cuenta']);
+            }
+            $escena['widgets'] = (object) $w;
+        }
+        // Efecto de sonido (suena una vez) y música de fondo
+        if (!empty($datos['sonido']['preset']) || !empty($datos['sonido']['activo_id'])) {
+            $a = $activo($datos['sonido']['activo_id'] ?? null, ['sonido']);
+            $escena['sonido'] = $a ? ['id' => 'activo-' . $a->id, 'url' => $a->url(), 'inicio' => $ahora] : ['id' => $datos['sonido']['preset'], 'preset' => $datos['sonido']['preset'], 'inicio' => $ahora];
+        }
+        if (!empty($datos['quitar_musica'])) unset($escena['musica']);
+        elseif (!empty($datos['musica']['preset']) || !empty($datos['musica']['activo_id'])) {
+            $a = $activo($datos['musica']['activo_id'] ?? null, ['musica']);
+            $escena['musica'] = ($a ? ['id' => 'activo-' . $a->id, 'nombre' => $a->nombre, 'url' => $a->url()] : ['id' => $datos['musica']['preset'], 'nombre' => $datos['musica']['preset'], 'preset' => $datos['musica']['preset']])
+                + ['bucle' => (bool) ($datos['musica']['bucle'] ?? true), 'inicio' => $ahora];
+        }
+        // Escenario vacío: nadie en cámara (se ve el fondo con la marca)
+        if (array_key_exists('vacio', $datos) && $datos['vacio'] !== null) $escena['vacio'] = (bool) $datos['vacio'];
+        foreach (['vol_sonidos', 'vol_musica'] as $k) if (array_key_exists($k, $datos) && $datos[$k] !== null) $escena[$k] = round((float) $datos[$k], 2);
+
         $transmision->escena = $escena;
         $transmision->save();
         if (in_array($transmision->estado, ['sala', 'en_vivo'], true)) {
@@ -582,6 +655,47 @@ class EnVivoController extends Controller
             'logo_url' => preg_match('#^https?://#i', trim((string) ($p['logo_url'] ?? ''))) ? Str::limit(trim((string) $p['logo_url']), 500, '') : '',
             // Marco: PNG con transparencia (1920×1080) que va sobre el video
             'marco_url' => preg_match('#^https?://#i', trim((string) ($p['marco_url'] ?? ''))) ? Str::limit(trim((string) $p['marco_url']), 500, '') : '',
+            // Marca del estudio: tema y fuente de los textos, logo a la izquierda o derecha, fondo,
+            // superposición, desvanecer al mostrar/ocultar y nombres sobre las cámaras
+            'tema' => in_array($p['tema'] ?? '', self::TEMAS, true) ? $p['tema'] : 'clasico',
+            'fuente' => in_array($p['fuente'] ?? '', self::FUENTES, true) ? $p['fuente'] : 'inter',
+            'logo_pos' => ($p['logo_pos'] ?? '') === 'der' ? 'der' : 'izq',
+            'desvanecer' => !array_key_exists('desvanecer', $p) || (bool) $p['desvanecer'],
+            'mostrar_nombres' => !array_key_exists('mostrar_nombres', $p) || (bool) $p['mostrar_nombres'],
+            'fondo' => self::normalizarFondo($p['fondo'] ?? null),
+            'superposicion' => self::normalizarSuperposicion($p['superposicion'] ?? null),
         ];
+    }
+
+    public const TEMAS = ['clasico', 'burbuja', 'minimal', 'bloque'];
+    public const FUENTES = ['inter', 'montserrat', 'oswald', 'poppins', 'slab', 'playfair'];
+    public const LAYOUTS = ['solo', 'dos', 'pip', 'cuadricula', 'lider', 'lateral', 'barra', 'cine'];
+    public const FONDOS = ['noche', 'olas-azules', 'montanas-negras', 'olas-moradas', 'cielo-cian', 'olas-cian', 'azul-rosa', 'morado-fucsia', 'cian-verde', 'estudio', 'blanco'];
+    public const SUPERPOSICIONES = ['suscribete', 'bienvenidos', 'preguntas', 'ultima', 'logro', 'redes'];
+    public const PANTALLAS = ['pronto', 'enseguida', 'gracias', 'temporizador'];
+    public const EFECTOS = ['aplausos', 'redoble', 'gong', 'campana', 'latido', 'rebote', 'fanfarria', 'transicion', 'alerta', 'risas'];
+    public const MUSICAS = ['ambiente', 'noticias', 'lofi', 'tension', 'celebracion'];
+
+    private static function url($v): string
+    {
+        $v = trim((string) $v);
+        return preg_match('#^https?://#i', $v) ? Str::limit($v, 500, '') : '';
+    }
+
+    public static function normalizarFondo($f): array
+    {
+        $f = is_array($f) ? $f : [];
+        $tipo = $f['tipo'] ?? 'preset';
+        if ($tipo === 'imagen' && ($u = self::url($f['valor'] ?? ''))) return ['tipo' => 'imagen', 'valor' => $u];
+        if ($tipo === 'color' && preg_match('/^#[0-9A-Fa-f]{6}$/', (string) ($f['valor'] ?? ''))) return ['tipo' => 'color', 'valor' => strtoupper($f['valor'])];
+        return ['tipo' => 'preset', 'valor' => in_array($f['valor'] ?? '', self::FONDOS, true) ? $f['valor'] : 'noche'];
+    }
+
+    public static function normalizarSuperposicion($s): ?array
+    {
+        if (!is_array($s)) return null;
+        $texto = Str::limit(trim((string) ($s['texto'] ?? '')), 80, '');
+        if (($s['tipo'] ?? '') === 'imagen') return ($u = self::url($s['valor'] ?? '')) ? ['tipo' => 'imagen', 'valor' => $u] : null;
+        return in_array($s['valor'] ?? '', self::SUPERPOSICIONES, true) ? ['tipo' => 'preset', 'valor' => $s['valor'], 'texto' => $texto] : null;
     }
 }

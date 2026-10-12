@@ -120,6 +120,25 @@ class FacebookLiveService
             . ($pregrabado ? '' : "\n\nAquí mismo, en esta página. ¡Te esperamos!");
     }
 
+    /** Comentarios del en vivo (los más recientes primero). Sin permiso de leer usuarios, llegan sin nombre. */
+    public function comentarios(MetaPage $page, string $liveId): array
+    {
+        $token = $this->tokens->forPage($page->page_id);
+        if (!$token) throw new \RuntimeException('La página no tiene un token activo en editus');
+        $r = Http::timeout(20)->get(SocialPhotoPublisher::graph("{$liveId}/comments"), [
+            'fields' => 'id,message,created_time,from{name,picture.type(small){url}}', 'order' => 'reverse_chronological', 'limit' => 50,
+            'filter' => 'stream', 'live_filter' => 'no_filter', 'access_token' => $token,
+        ]);
+        if (!$r->ok()) throw new \RuntimeException((string) (data_get($r->json(), 'error.message') ?: 'Facebook no entregó los comentarios'));
+        $lista = [];
+        foreach ((array) data_get($r->json(), 'data', []) as $c) {
+            if (trim((string) ($c['message'] ?? '')) === '') continue;
+            $lista[] = ['id' => 'fb-' . $c['id'], 'red' => 'facebook', 'nombre' => (string) data_get($c, 'from.name', 'Usuario de Facebook'),
+                'foto' => data_get($c, 'from.picture.data.url'), 'texto' => (string) $c['message'], 'fecha' => $c['created_time'] ?? null];
+        }
+        return $lista;
+    }
+
     /** Cancela un en vivo programado que aún no salió (el anuncio desaparece de la página). */
     public function cancelarProgramado(MetaPage $page, string $liveId): void
     {
