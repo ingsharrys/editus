@@ -75,7 +75,7 @@ class MetaPostController extends Controller
 
         // Solo si falló y no tiene fb_post_id
         if ($post->status !== 'fail' || $post->fb_post_id) {
-            return back()->with('warn', 'Este item no está en estado fallido o ya tiene publicación.');
+            return back()->with('warn', __('Este item no está en estado fallido o ya tiene publicación.'));
         }
 
         // Cargar relación para sacar el page_id
@@ -87,7 +87,7 @@ class MetaPostController extends Controller
             $pageId = explode('_', $post->fb_post_id)[0] ?? null;
         }
         if (!$pageId) {
-            return back()->with('error', 'No se pudo determinar la página de destino.');
+            return back()->with('error', __('No se pudo determinar la página de destino.'));
         }
 
         $type = $post->type; // 'photo' | 'video' | 'text'
@@ -101,7 +101,7 @@ class MetaPostController extends Controller
                 $urls = array_values(array_filter((array) ($pj['photo_urls'] ?? $pj)));
             }
             if (empty($urls)) {
-                return back()->with('error', 'No hay photo_urls guardadas para reintentar.');
+                return back()->with('error', __('No hay photo_urls guardadas para reintentar.'));
             }
 
             // Marcar en cola y limpiar error
@@ -117,7 +117,7 @@ class MetaPostController extends Controller
                 'cleanup_abs' => (array) ($lm['cleanup_abs'] ?? []),
             ])->onQueue('default');
 
-            return back()->with('ok', 'Reintento de fotos encolado.');
+            return back()->with('ok', __('Reintento de fotos encolado.'));
         }
 
         if ($type === 'video') {
@@ -127,17 +127,17 @@ class MetaPostController extends Controller
             $cleanupAbs = $lm['cleanup_abs'] ?? null;
 
             if (!$publicUrl) {
-                return back()->with('error', 'No hay public_url guardada para reintentar el video.');
+                return back()->with('error', __('No hay public_url guardada para reintentar el video.'));
             }
 
             // Preflight opcional (si ya se limpió el tmp, evitar reintentos inútiles)
             try {
                 $head = Http::timeout(10)->withOptions(['allow_redirects' => true])->send('HEAD', $publicUrl);
                 if (!$head->successful()) {
-                    return back()->with('error', 'El video temporal ya no es accesible (re-subir archivo).');
+                    return back()->with('error', __('El video temporal ya no es accesible (re-subir archivo).'));
                 }
             } catch (\Throwable $e) {
-                return back()->with('error', 'No se pudo acceder al video temporal (re-subir archivo).');
+                return back()->with('error', __('No se pudo acceder al video temporal (re-subir archivo).'));
             }
 
             $post->update(['status' => 'queued', 'error' => null]);
@@ -151,11 +151,11 @@ class MetaPostController extends Controller
                 'cleanup_abs' => $cleanupAbs,
             ])->onQueue('default');
 
-            return back()->with('ok', 'Reintento de video encolado.');
+            return back()->with('ok', __('Reintento de video encolado.'));
         }
 
         // (Opcional) soporte para texto si lo deseas
-        return back()->with('warn', 'Este tipo de publicación no admite reintento automático.');
+        return back()->with('warn', __('Este tipo de publicación no admite reintento automático.'));
     }
 
 
@@ -172,7 +172,7 @@ class MetaPostController extends Controller
             ->get();
 
         if ($posts->isEmpty()) {
-            return back()->with('warn', 'No hay fallidos para reintentar en este lote.');
+            return back()->with('warn', __('No hay fallidos para reintentar en este lote.'));
         }
 
         $countQueued = 0;
@@ -283,7 +283,7 @@ class MetaPostController extends Controller
             ]);
         }
 
-        return back()->with('ok', "Se encolaron $countQueued reintentos.");
+        return back()->with('ok', __('Se encolaron :n reintentos.', ['n' => $countQueued]));
     }
 
 
@@ -299,7 +299,7 @@ class MetaPostController extends Controller
             ->exists();
 
         if (!$exists) {
-            return response()->json(['ok' => false, 'error' => 'Batch no encontrado o sin permisos.'], 404);
+            return response()->json(['ok' => false, 'error' => __('Batch no encontrado o sin permisos.')], 404);
         }
 
         // Calcular universo a procesar (posts exitosos con fb_post_id)
@@ -368,11 +368,11 @@ class MetaPostController extends Controller
 
         $state = Cache::get($key);
         if (!$state) {
-            return response()->json(['ok' => false, 'error' => 'No hay sesión de métricas inicializada.'], 400);
+            return response()->json(['ok' => false, 'error' => __('No hay sesión de métricas inicializada.')], 400);
         }
 
         if (!$isAdmin && (int) ($state['scope_user'] ?? 0) !== (int) $user->id) {
-            return response()->json(['ok' => false, 'error' => 'Sin permisos para continuar este batch.'], 403);
+            return response()->json(['ok' => false, 'error' => __('Sin permisos para continuar este batch.')], 403);
         }
 
         if (!empty($state['finished'])) {

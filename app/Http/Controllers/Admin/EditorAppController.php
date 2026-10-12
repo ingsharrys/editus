@@ -84,7 +84,7 @@ class EditorAppController extends Controller
         // El medio de cada página define las páginas de las campañas
         app(\App\Services\CampanasService::class)->sincronizarTodas();
 
-        return redirect()->route('editor-app.index', ['tab' => 'paginas'])->with('success', 'Páginas de la app actualizadas.');
+        return redirect()->route('editor-app.index', ['tab' => 'paginas'])->with('success', __('Páginas de la app actualizadas.'));
     }
 
     // ---------------------------------------------- Plantillas de imagen (pantalla propia)
@@ -101,14 +101,14 @@ class EditorAppController extends Controller
         $plantilla = new PlantillaEditor();
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$plantilla->nombre}» creada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', __('Plantilla «:nombre» creada.', ['nombre' => $plantilla->nombre]));
     }
 
     public function plantillaUpdate(Request $request, PlantillaEditor $plantilla): RedirectResponse
     {
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$plantilla->nombre}» guardada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', __('Plantilla «:nombre» guardada.', ['nombre' => $plantilla->nombre]));
     }
 
     public function plantillaDestroy(PlantillaEditor $plantilla): RedirectResponse
@@ -119,7 +119,7 @@ class EditorAppController extends Controller
         $nombre = $plantilla->nombre;
         $plantilla->delete();
 
-        return redirect()->route('editor-app.plantillas.index')->with('success', "Plantilla «{$nombre}» eliminada.");
+        return redirect()->route('editor-app.plantillas.index')->with('success', __('Plantilla «:nombre» eliminada.', ['nombre' => $nombre]));
     }
 
     // ---------------------------------------------- Recursos para las transmisiones en vivo
@@ -134,21 +134,21 @@ class EditorAppController extends Controller
             'duracion' => ['nullable', 'integer', 'min:1', 'max:600'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:999'],
         ], [
-            'archivo.mimes' => 'Sube un video MP4 o WebM, o una imagen PNG, JPG o WEBP.',
-            'archivo.max' => 'El archivo no puede superar 200 MB.',
+            'archivo.mimes' => __('Sube un video MP4 o WebM, o una imagen PNG, JPG o WEBP.'),
+            'archivo.max' => __('El archivo no puede superar 200 MB.'),
         ]);
         $ext = strtolower($request->file('archivo')->getClientOriginalExtension());
         $tipo = in_array($ext, ['mp4', 'webm'], true) ? 'video' : 'imagen';
         $uso = $datos['uso'] ?? 'auto';
         if ($uso === 'auto') $uso = 'publicidad';
-        if ($uso === 'plantilla' && $ext !== 'png') return back()->withErrors(['archivo' => 'La plantilla de video debe ser un PNG con transparencia (1920×1080).'])->withInput();
-        if ($uso === 'intro' && $tipo !== 'video') return back()->withErrors(['archivo' => 'La intro debe ser un video.'])->withInput();
+        if ($uso === 'plantilla' && $ext !== 'png') return back()->withErrors(['archivo' => __('La plantilla de video debe ser un PNG con transparencia (1920×1080).')])->withInput();
+        if ($uso === 'intro' && $tipo !== 'video') return back()->withErrors(['archivo' => __('La intro debe ser un video.')])->withInput();
         $ruta = $request->file('archivo')->store('en-vivo/recursos', 'public');
         RecursoEnVivo::create([
             'tipo' => $tipo, 'uso' => $uso, 'nombre' => $datos['nombre'], 'archivo' => $ruta,
             'duracion' => $datos['duracion'] ?? null, 'orden' => $datos['orden'] ?? 0, 'activo' => true,
         ]);
-        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', "Recurso «{$datos['nombre']}» subido.");
+        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', __('Recurso «:nombre» subido.', ['nombre' => $datos['nombre']]));
     }
 
     public function recursoDestroy(RecursoEnVivo $recurso): RedirectResponse
@@ -156,7 +156,7 @@ class EditorAppController extends Controller
         Storage::disk('public')->delete($recurso->archivo);
         $nombre = $recurso->nombre;
         $recurso->delete();
-        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', "Recurso «{$nombre}» eliminado.");
+        return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', __('Recurso «:nombre» eliminado.', ['nombre' => $nombre]));
     }
 
     private function guardarPlantilla(Request $request, PlantillaEditor $plantilla): void
@@ -177,10 +177,10 @@ class EditorAppController extends Controller
             'activa' => ['nullable', 'boolean'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:999'],
         ], [
-            'logo.mimes' => 'El logo debe ser PNG (con fondo transparente) o WEBP.',
-            'color_titulo.regex' => 'El color del título debe ser HEX (#RRGGBB).',
-            'color_logo.regex' => 'El color del logo debe ser HEX (#RRGGBB).',
-            'color_etiqueta.regex' => 'El color de la etiqueta debe ser HEX (#RRGGBB).',
+            'logo.mimes' => __('El logo debe ser PNG (con fondo transparente) o WEBP.'),
+            'color_titulo.regex' => __('El color del título debe ser HEX (#RRGGBB).'),
+            'color_logo.regex' => __('El color del logo debe ser HEX (#RRGGBB).'),
+            'color_etiqueta.regex' => __('El color de la etiqueta debe ser HEX (#RRGGBB).'),
         ]);
 
         $plantilla->fill([

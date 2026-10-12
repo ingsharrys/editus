@@ -101,7 +101,7 @@ class EstudioController extends Controller
         $request->validate([
             'tipo' => ['required', 'string'], 'archivo' => ['required', 'file'],
             'nombre' => ['nullable', 'string', 'max:120'], 'duracion' => ['nullable', 'integer', 'min:0', 'max:86400'],
-        ], ['archivo.uploaded' => 'El archivo no se pudo subir (puede superar el límite del servidor).']);
+        ], ['archivo.uploaded' => __('El archivo no se pudo subir (puede superar el límite del servidor).')]);
         try {
             $a = $this->estudio->subirActivo($this->dueno(), $request->file('archivo'), (string) $request->input('tipo'), $request->input('nombre'), $request->integer('duracion') ?: null);
         } catch (\RuntimeException $e) {

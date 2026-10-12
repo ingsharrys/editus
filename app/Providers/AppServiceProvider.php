@@ -23,8 +23,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Fechas relativas en español («hace 17 minutos») en todo el panel
-        \Carbon\Carbon::setLocale('es');
-        //
+        // Español por defecto (también en consola, colas y tareas programadas, aunque el .env diga APP_LOCALE=en);
+        // en la web el middleware Idioma lo cambia a inglés si toca
+        $defecto = (string) config('region.idioma_defecto', 'es');
+        $this->app->setLocale($defecto);
+        \Carbon\Carbon::setLocale($defecto);
+        // Textos en inglés por módulo: lang/en.json (general) + lang/modulos/<módulo>/en.json
+        foreach (glob(lang_path('modulos/*'), GLOB_ONLYDIR) ?: [] as $carpeta) {
+            $this->app['translator']->addJsonPath($carpeta);
+        }
     }
 }

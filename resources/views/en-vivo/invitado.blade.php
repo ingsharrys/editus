@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="{{ app()->getLocale() }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Enviar mi cámara · {{ $transmision->titulo }}</title>
+<title>{{ __('Enviar mi cámara') }} · {{ $transmision->titulo }}</title>
 {{--
   Página del invitado: cualquier persona con el enlace envía su cámara y micrófono
   a la transmisión desde el navegador (celular o computador), sin instalar nada.
@@ -64,67 +64,67 @@
 <main>
   <h1>{{ $transmision->titulo }}</h1>
   @if ($modo === 'pantalla')
-    <p class="sub">Vas a compartir la pantalla de este computador con la transmisión. El director decide cuándo sale al aire.</p>
+    <p class="sub">{{ __('Vas a compartir la pantalla de este computador con la transmisión. El director decide cuándo sale al aire.') }}</p>
   @else
-    <p class="sub">Vas a enviar tu cámara a esta transmisión. El director decide cuándo sales al aire.</p>
+    <p class="sub">{{ __('Vas a enviar tu cámara a esta transmisión. El director decide cuándo sales al aire.') }}</p>
   @endif
 
   @if (!$activa && !empty($programada))
-    <div class="aviso" style="margin:0 0 14px;background:#1e3a8a;color:#e0e7ff">📅 Programada para el <strong>{{ $programada->translatedFormat('l j \d\e F \a \l\a\s g:i a') }}</strong>: vuelve a este enlace unos minutos antes: cuando el director abra el estudio podrás enviar tu cámara. Mientras tanto puedes probar tu cámara aquí.</div>
+    <div class="aviso" style="margin:0 0 14px;background:#1e3a8a;color:#e0e7ff">📅 {!! __('Programada para el <strong>:fecha</strong>: vuelve a este enlace unos minutos antes: cuando el director abra el estudio podrás enviar tu cámara. Mientras tanto puedes probar tu cámara aquí.', ['fecha' => e($programada->translatedFormat(app()->getLocale() === 'en' ? 'l, F j \a\t g:i a' : 'l j \d\e F \a \l\a\s g:i a'))]) !!}</div>
   @endif
   <div id="pestanas" class="pestanas oculto">
-    <button type="button" data-vista="camara" class="on">{{ $modo === 'pantalla' ? 'Mi pantalla' : 'Mi cámara' }}</button>
-    <button type="button" data-vista="transmision">Transmisión</button>
+    <button type="button" data-vista="camara" class="on">{{ $modo === 'pantalla' ? __('Mi pantalla') : __('Mi cámara') }}</button>
+    <button type="button" data-vista="transmision">{{ __('Transmisión') }}</button>
   </div>
   <div class="marco">
     <video id="previa" autoplay playsinline muted></video>
-    <iframe id="monitor" class="oculto" allow="autoplay" title="La transmisión"></iframe>
-    <span id="estado" class="estado">VISTA PREVIA</span>
+    <iframe id="monitor" class="oculto" allow="autoplay" title="{{ __('La transmisión') }}"></iframe>
+    <span id="estado" class="estado">{{ __('VISTA PREVIA') }}</span>
   </div>
 
   <div id="paso1">
-    <label for="nombre">{{ $modo === 'pantalla' ? 'Nombre de esta pantalla' : 'Tu nombre (se ve en pantalla)' }}</label>
-    <input id="nombre" maxlength="40" placeholder="{{ $modo === 'pantalla' ? 'Ej: Presentación, Computador de control' : 'Ej: Carlos, Reportero en Pitalito' }}" value="{{ $invitacion['nombre'] ?? '' }}">
+    <label for="nombre">{{ $modo === 'pantalla' ? __('Nombre de esta pantalla') : __('Tu nombre (se ve en pantalla)') }}</label>
+    <input id="nombre" maxlength="40" placeholder="{{ $modo === 'pantalla' ? __('Ej: Presentación, Computador de control') : __('Ej: Carlos, Reportero en Pitalito') }}" value="{{ $invitacion['nombre'] ?? '' }}">
     <div class="fila">
       @if ($modo === 'pantalla')
-        <button id="unirse" class="primario" type="button">Compartir mi pantalla</button>
+        <button id="unirse" class="primario" type="button">{{ __('Compartir mi pantalla') }}</button>
       @else
-        <button id="voltear" type="button">Voltear cámara</button>
-        <button id="unirse" class="primario" type="button">Enviar mi cámara</button>
+        <button id="voltear" type="button">{{ __('Voltear cámara') }}</button>
+        <button id="unirse" class="primario" type="button">{{ __('Enviar mi cámara') }}</button>
       @endif
     </div>
     @if ($modo === 'pantalla')
-      <div id="aviso-pantalla" class="aviso oculto">Este enlace es para compartir pantalla desde un computador (Chrome, Edge o Firefox). En un celular el navegador no lo permite.</div>
+      <div id="aviso-pantalla" class="aviso oculto">{{ __('Este enlace es para compartir pantalla desde un computador (Chrome, Edge o Firefox). En un celular el navegador no lo permite.') }}</div>
     @endif
   </div>
   <div id="paso2" class="oculto">
     <div class="fila">
-      <button id="mic" type="button">Silenciar micrófono</button>
-      @if ($modo !== 'pantalla')<button id="voltear2" type="button">Voltear cámara</button>@endif
-      <button id="pantalla" type="button" class="oculto">Compartir pantalla</button>
-      <button id="salir" type="button">Salir</button>
+      <button id="mic" type="button">{{ __('Silenciar micrófono') }}</button>
+      @if ($modo !== 'pantalla')<button id="voltear2" type="button">{{ __('Voltear cámara') }}</button>@endif
+      <button id="pantalla" type="button" class="oculto">{{ __('Compartir pantalla') }}</button>
+      <button id="salir" type="button">{{ __('Salir') }}</button>
     </div>
     <div class="sala">
-      <h2>🎧 Escuchar</h2>
+      <h2>🎧 {{ __('Escuchar') }}</h2>
       <div class="modos">
-        <button type="button" data-oir="sala" class="on">La sala en directo</button>
-        <button type="button" data-oir="transmision">La transmisión</button>
-        <button type="button" data-oir="nada">Silencio</button>
+        <button type="button" data-oir="sala" class="on">{{ __('La sala en directo') }}</button>
+        <button type="button" data-oir="transmision">{{ __('La transmisión') }}</button>
+        <button type="button" data-oir="nada">{{ __('Silencio') }}</button>
       </div>
-      <div id="oir-nota" class="nota">Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.</div>
+      <div id="oir-nota" class="nota">{{ __('Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.') }}</div>
       <div id="personas" class="personas"></div>
       <div id="audios" class="oculto"></div>
     </div>
     <div class="chat">
-      <h2>💬 Chat privado con el estudio</h2>
-      <div id="chat-lista" class="lista"><div class="vacio">Solo lo ven el director y los invitados. No sale al aire.</div></div>
-      <form id="chat-form"><input id="chat-texto" maxlength="500" placeholder="Escribe un mensaje…" autocomplete="off"><button type="submit">Enviar</button></form>
+      <h2>💬 {{ __('Chat privado con el estudio') }}</h2>
+      <div id="chat-lista" class="lista"><div class="vacio">{{ __('Solo lo ven el director y los invitados. No sale al aire.') }}</div></div>
+      <form id="chat-form"><input id="chat-texto" maxlength="500" placeholder="{{ __('Escribe un mensaje…') }}" autocomplete="off"><button type="submit">{{ __('Enviar') }}</button></form>
     </div>
   </div>
 
   <div id="aviso" class="aviso {{ $activa ? 'oculto' : '' }}">
-    @if (!$activa && !empty($programada)) Aún no empieza: vuelve a la hora programada.
-    @elseif (!$activa) La transmisión todavía no está en vivo. Deja esta página abierta y vuelve a intentar cuando el director la inicie. @endif
+    @if (!$activa && !empty($programada)) {{ __('Aún no empieza: vuelve a la hora programada.') }}
+    @elseif (!$activa) {{ __('La transmisión todavía no está en vivo. Deja esta página abierta y vuelve a intentar cuando el director la inicie.') }} @endif
   </div>
 </main>
 
@@ -133,6 +133,33 @@
   const CODIGO = @json($codigo);
   const MODO = @json($modo);
   const TOKEN_URL = @json(route('en-vivo.invitado.token', $codigo));
+  const TX = @js([
+    'noCamara' => __('No se pudo abrir la cámara'),
+    'errorCamara' => __('No se pudo abrir la cámara: :error. Revisa los permisos del navegador.'),
+    'errorCambiar' => __('No se pudo cambiar de cámara: :error'),
+    'conectando' => __('Conectando…'),
+    'noEntrar' => __('No se pudo entrar'),
+    'desconectado' => __('DESCONECTADO'),
+    'teDesconectaron' => __('Te desconectaron de la transmisión.'),
+    'enviarCamara' => __('Enviar mi cámara'),
+    'tocaSala' => __('Toca «La sala en directo» para activar el sonido.'),
+    'estudio' => __('Estudio'),
+    'dejarPantalla' => __('Dejar de compartir pantalla'),
+    'compartirPantalla' => __('Compartir pantalla'),
+    'enEspera' => __('CONECTADO · EN ESPERA'),
+    'alAire' => __('● AL AIRE'),
+    'errorPantalla' => __('No se pudo compartir la pantalla: :error'),
+    'silenciarMic' => __('Silenciar micrófono'),
+    'activarMic' => __('Activar micrófono'),
+    'tu' => __('Tú'),
+    'invitado' => __('Invitado'),
+    'errorMensaje' => __('No se pudo enviar el mensaje: :error'),
+    'notaSala' => __('Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.'),
+    'notaTransmision' => __('Oyes lo que sale al aire, con música y efectos, unos segundos después (no te oyes a ti). Usa audífonos.'),
+    'notaNada' => __('No oyes a nadie. Los demás sí te siguen oyendo.'),
+    'deEstudio' => __(':nombre (estudio)'),
+  ]);
+  const tx = (k, v) => String(TX[k]).replace(/:(\w+)/g, (m, n) => (v && n in v) ? v[n] : m);
   const previa = document.getElementById('previa');
   const aviso = document.getElementById('aviso');
   const estado = document.getElementById('estado');
@@ -170,7 +197,7 @@
     for (const video of intentos) {
       try { return { stream: await navigator.mediaDevices.getUserMedia({ video, audio: true }), eleccion: c }; } catch (e) { ultimo = e; }
     }
-    throw ultimo || new Error('No se pudo abrir la cámara');
+    throw ultimo || new Error(TX.noCamara);
   }
   let eleccion = { facingMode: 'user' };
 
@@ -180,7 +207,7 @@
       const r = await abrirCamara(frontal);
       local = r.stream; eleccion = r.eleccion;
       previa.srcObject = local; previa.classList.toggle('trasera', !frontal);
-    } catch (e) { mostrar('No se pudo abrir la cámara: ' + e.message + '. Revisa los permisos del navegador.', true); }
+    } catch (e) { mostrar(tx('errorCamara', { error: e.message }), true); }
   }
 
   async function voltear() {
@@ -201,7 +228,7 @@
       previa.classList.toggle('trasera', !frontal);
     } catch (e) {
       frontal = !frontal;
-      mostrar('No se pudo cambiar de cámara: ' + e.message, true);
+      mostrar(tx('errorCambiar', { error: e.message }), true);
     }
   }
   const btnVoltear = document.getElementById('voltear');
@@ -210,17 +237,17 @@
   if (btnVoltear2) btnVoltear2.onclick = voltear;
 
   document.getElementById('unirse').onclick = async () => {
-    const btn = document.getElementById('unirse'); btn.disabled = true; btn.textContent = 'Conectando…';
+    const btn = document.getElementById('unirse'); btn.disabled = true; btn.textContent = TX.conectando;
     try {
       const r = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify({ nombre: document.getElementById('nombre').value }) });
       const j = await r.json();
-      if (!j.success) throw new Error(j.error || 'No se pudo entrar');
+      if (!j.success) throw new Error(j.error || TX.noEntrar);
       const { Room, RoomEvent, Track } = LivekitClient;
       if (local) local.getTracks().forEach(t => t.stop());
       // Entra con la misma cámara de la vista previa (frontal o trasera)
       const captura = eleccion.deviceId ? { deviceId: eleccion.deviceId } : { facingMode: frontal ? 'user' : 'environment' };
       room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { ...captura, resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
-      room.on(RoomEvent.Disconnected, () => { verVista('camara'); document.getElementById('pestanas').classList.add('oculto'); document.getElementById('monitor').removeAttribute('src'); document.getElementById('audios').innerHTML = ''; estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
+      room.on(RoomEvent.Disconnected, () => { verVista('camara'); document.getElementById('pestanas').classList.add('oculto'); document.getElementById('monitor').removeAttribute('src'); document.getElementById('audios').innerHTML = ''; estado.textContent = TX.desconectado; estado.classList.remove('aire'); mostrar(TX.teDesconectaron); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = TX.enviarCamara; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
       // Audio de los demás (director e invitados) para escucharlos en directo
       room.on(RoomEvent.TrackSubscribed, (track, pub, p) => { if (track.kind === 'audio' && esPersona(p)) { const el = track.attach(); el.dataset.de = p.identity; document.getElementById('audios').appendChild(el); aplicarAudio(); } pintarPersonas(); });
@@ -228,11 +255,11 @@
       room.on(RoomEvent.ParticipantConnected, pintarPersonas);
       room.on(RoomEvent.ParticipantDisconnected, pintarPersonas);
       room.on(RoomEvent.ActiveSpeakersChanged, (lista) => { hablan = new Set(lista.map(x => x.identity)); pintarPersonas(); });
-      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) mostrar('Toca «La sala en directo» para activar el sonido.'); });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) mostrar(TX.tocaSala); });
       monitorUrl = j.monitor ? j.monitor + (j.monitor.includes('?') ? '&' : '?') + 'yo=' + encodeURIComponent(j.identity || '') : null;
       room.on(RoomEvent.DataReceived, (payload, participante, tipo, tema) => {
         if (tema !== 'chat') return;
-        try { const m = JSON.parse(new TextDecoder().decode(payload)); agregarMensaje(m.nombre || (participante && participante.name) || 'Estudio', m.texto, false); } catch (e) {}
+        try { const m = JSON.parse(new TextDecoder().decode(payload)); agregarMensaje(m.nombre || (participante && participante.name) || TX.estudio, m.texto, false); } catch (e) {}
       });
       await room.connect(j.url, j.token);
       if (MODO === 'pantalla') {
@@ -240,7 +267,7 @@
         try { await room.localParticipant.setMicrophoneEnabled(true); } catch (e) { /* sin micrófono */ }
         const sc = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
         if (sc && sc.track) { previa.classList.add('trasera'); sc.track.attach(previa); }
-        pantallaActiva = true; btnPantalla.textContent = 'Dejar de compartir pantalla';
+        pantallaActiva = true; btnPantalla.textContent = TX.dejarPantalla;
       } else {
         await room.localParticipant.enableCameraAndMicrophone();
         const cam = room.localParticipant.getTrackPublication(Track.Source.Camera);
@@ -249,11 +276,11 @@
       document.getElementById('paso1').classList.add('oculto'); document.getElementById('paso2').classList.remove('oculto');
       document.getElementById('pestanas').classList.toggle('oculto', !monitorUrl);
       aviso.classList.add('oculto');
-      estado.textContent = 'CONECTADO · EN ESPERA';
+      estado.textContent = TX.enEspera;
       room.startAudio().catch(() => {});
       alAire(); pintarPersonas(); aplicarAudio();
     } catch (e) {
-      mostrar(e.message, true); btn.disabled = false; btn.textContent = 'Enviar mi cámara';
+      mostrar(e.message, true); btn.disabled = false; btn.textContent = TX.enviarCamara;
     }
   };
 
@@ -264,7 +291,7 @@
     const e = m.escena || {}; const yo = room.localParticipant.identity;
     const ids = [yo, yo + '#pantalla'];
     const sale = !e.vacio && (ids.includes(e.principal) || (Array.isArray(e.visibles) && e.visibles.some((v) => ids.includes(v))));
-    estado.textContent = sale ? '● AL AIRE' : 'CONECTADO · EN ESPERA';
+    estado.textContent = sale ? TX.alAire : TX.enEspera;
     estado.classList.toggle('aire', sale);
   }
 
@@ -277,18 +304,18 @@
     try {
       pantallaActiva = !pantallaActiva;
       await room.localParticipant.setScreenShareEnabled(pantallaActiva, { audio: true, resolution: { width: 1920, height: 1080, frameRate: 15 } });
-      btnPantalla.textContent = pantallaActiva ? 'Dejar de compartir pantalla' : 'Compartir pantalla';
-    } catch (e) { pantallaActiva = false; btnPantalla.textContent = 'Compartir pantalla'; if (e && e.name !== 'NotAllowedError') mostrar('No se pudo compartir la pantalla: ' + e.message, true); }
+      btnPantalla.textContent = pantallaActiva ? TX.dejarPantalla : TX.compartirPantalla;
+    } catch (e) { pantallaActiva = false; btnPantalla.textContent = TX.compartirPantalla; if (e && e.name !== 'NotAllowedError') mostrar(tx('errorPantalla', { error: e.message }), true); }
   };
   if (typeof LivekitClient !== 'undefined') {
     // Si el usuario detiene la captura desde el navegador, el botón vuelve a su estado
-    document.addEventListener('visibilitychange', () => { if (room && pantallaActiva && !room.localParticipant.isScreenShareEnabled) { pantallaActiva = false; btnPantalla.textContent = 'Compartir pantalla'; } });
+    document.addEventListener('visibilitychange', () => { if (room && pantallaActiva && !room.localParticipant.isScreenShareEnabled) { pantallaActiva = false; btnPantalla.textContent = TX.compartirPantalla; } });
   }
 
   document.getElementById('mic').onclick = async () => {
     if (!room) return; micActivo = !micActivo;
     await room.localParticipant.setMicrophoneEnabled(micActivo);
-    document.getElementById('mic').textContent = micActivo ? 'Silenciar micrófono' : 'Activar micrófono';
+    document.getElementById('mic').textContent = micActivo ? TX.silenciarMic : TX.activarMic;
   };
   // Chat privado (mensajes de datos de la sala; la escena no los muestra)
   const chatLista = document.getElementById('chat-lista');
@@ -296,7 +323,7 @@
     if (!texto) return;
     const vacio = chatLista.querySelector('.vacio'); if (vacio) vacio.remove();
     const d = document.createElement('div'); d.className = 'msg' + (mio ? ' mio' : '');
-    const b = document.createElement('b'); b.textContent = (mio ? 'Tú' : nombre) + ': ';
+    const b = document.createElement('b'); b.textContent = (mio ? TX.tu : nombre) + ': ';
     d.appendChild(b); d.appendChild(document.createTextNode(texto));
     chatLista.appendChild(d); chatLista.scrollTop = chatLista.scrollHeight;
     if (!mio && navigator.vibrate) navigator.vibrate(60);
@@ -305,11 +332,11 @@
     ev.preventDefault();
     const inp = document.getElementById('chat-texto'), texto = inp.value.trim();
     if (!texto || !room) return;
-    const nombre = document.getElementById('nombre').value || 'Invitado';
+    const nombre = document.getElementById('nombre').value || TX.invitado;
     try {
       await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ nombre, texto })), { reliable: true, topic: 'chat' });
       agregarMensaje(nombre, texto, true); inp.value = '';
-    } catch (e) { mostrar('No se pudo enviar el mensaje: ' + e.message, true); }
+    } catch (e) { mostrar(tx('errorMensaje', { error: e.message }), true); }
   };
 
   // ─── Pestañas: mi cámara / la transmisión (lo que ve la audiencia) ───
@@ -332,9 +359,9 @@
 
   // ─── Escuchar: la sala en directo, la transmisión (con música y efectos) o nada ───
   const NOTAS = {
-    sala: 'Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.',
-    transmision: 'Oyes lo que sale al aire, con música y efectos, unos segundos después (no te oyes a ti). Usa audífonos.',
-    nada: 'No oyes a nadie. Los demás sí te siguen oyendo.',
+    sala: TX.notaSala,
+    transmision: TX.notaTransmision,
+    nada: TX.notaNada,
   };
   function aplicarAudio() {
     document.querySelectorAll('#audios audio').forEach(a => { a.muted = oir !== 'sala'; if (oir === 'sala') a.play && a.play().catch(() => {}); });
@@ -354,7 +381,7 @@
     lista.forEach(p => {
       const d = document.createElement('span'); d.className = 'persona' + (hablan.has(p.identity) ? ' habla' : '');
       const i = document.createElement('i'); d.appendChild(i);
-      d.appendChild(document.createTextNode(p.isLocal ? 'Tú' : (p.identity === 'camara-principal' ? (p.name || 'Estudio') + ' (estudio)' : (p.name || 'Invitado'))));
+      d.appendChild(document.createTextNode(p.isLocal ? TX.tu : (p.identity === 'camara-principal' ? tx('deEstudio', { nombre: p.name || TX.estudio }) : (p.name || TX.invitado))));
       cont.appendChild(d);
     });
   }

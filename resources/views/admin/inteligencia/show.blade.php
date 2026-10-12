@@ -4,7 +4,7 @@
     $r = $tablero['resumen'];
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $dias = \App\Services\Inteligencia\AnalisisService::DIAS;
-    $tabs = ['panorama' => 'Panorama', 'emociones' => 'Emociones', 'comportamiento' => 'Comportamiento', 'tendencias' => 'Tendencias y pronóstico', 'contenido' => 'Temas', 'audiencia' => 'Audiencia', 'diagnostico' => '✦ Diagnóstico IA', 'consultor' => '✦ Consultor', 'radar' => '🌐 Radar web', 'publicaciones' => 'Publicaciones', 'informes' => 'Informes', 'config' => 'Configuración'];
+    $tabs = ['panorama' => __('Panorama'), 'emociones' => __('Emociones'), 'comportamiento' => __('Comportamiento'), 'tendencias' => __('Tendencias y pronóstico'), 'contenido' => __('Temas'), 'audiencia' => __('Audiencia'), 'diagnostico' => '✦ ' . __('Diagnóstico IA'), 'consultor' => '✦ ' . __('Consultor'), 'radar' => '🌐 ' . __('Radar web'), 'publicaciones' => __('Publicaciones'), 'informes' => __('Informes'), 'config' => __('Configuración')];
     $urlTab = fn($t) => route('inteligencia.show', [$campana, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'tab' => $t, 'enfoque' => $enfoque]);
     $urlEnfoque = fn($e) => route('inteligencia.show', [$campana, 'desde' => $desde->toDateString(), 'hasta' => $hasta->toDateString(), 'tab' => $tab, 'enfoque' => $e]);
     $av = $avanzado;
@@ -14,21 +14,21 @@
 @section('content')
 <div class="max-w-7xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     <div class="mt-8 lg:mt-10 mb-5">
-        <a href="{{ route('inteligencia.index') }}" class="text-sm text-indigo-700 hover:underline">← Inteligencia de audiencia</a>
+        <a href="{{ route('inteligencia.index') }}" class="text-sm text-indigo-700 hover:underline">← {{ __('Inteligencia de audiencia') }}</a>
         <div class="flex flex-wrap items-end justify-between gap-4 mt-1">
             <div class="min-w-0">
-                <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600">Campaña {{ $campana->activa ? '' : '· pausada' }}</div>
+                <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-600">{{ __('Campaña') }} {{ $campana->activa ? '' : '· ' . __('pausada') }}</div>
                 <h1 class="text-2xl sm:text-3xl font-bold text-[#00024f] tracking-tight">{{ $campana->nombre }}</h1>
-                <p class="text-sm text-gray-500 mt-1">{{ $campana->territorio ?: 'Sin territorio' }} · {{ $campana->paginas->count() }} página(s) · {{ $campana->temas->count() }} tema(s) · {{ $desde->format('d/m/Y') }} a {{ $hasta->format('d/m/Y') }}
-                    @if ($ultimaRecoleccion) · datos actualizados {{ \Carbon\Carbon::parse($ultimaRecoleccion)->diffForHumans() }} @else · <span class="text-amber-700">sin datos todavía</span> @endif</p>
+                <p class="text-sm text-gray-500 mt-1">{{ $campana->territorio ?: __('Sin territorio') }} · {{ __(':n página(s)', ['n' => $campana->paginas->count()]) }} · {{ __(':n tema(s)', ['n' => $campana->temas->count()]) }} · {{ __(':desde a :hasta', ['desde' => $desde->format('d/m/Y'), 'hasta' => $hasta->format('d/m/Y')]) }}
+                    @if ($ultimaRecoleccion) · {{ __('datos actualizados :tiempo', ['tiempo' => \Carbon\Carbon::parse($ultimaRecoleccion)->diffForHumans()]) }} @else · <span class="text-amber-700">{{ __('sin datos todavía') }}</span> @endif</p>
             </div>
             <form method="GET" action="{{ route('inteligencia.show', $campana) }}" class="flex flex-wrap items-end gap-2 text-sm">
                 <input type="hidden" name="tab" value="{{ $tab }}"><input type="hidden" name="enfoque" value="{{ $enfoque }}">
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Desde</label><input type="date" name="desde" value="{{ $desde->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Hasta</label><input type="date" name="hasta" value="{{ $hasta->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
-                <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 font-semibold shadow-sm">Ver</button>
+                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Desde') }}</label><input type="date" name="desde" value="{{ $desde->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Hasta') }}</label><input type="date" name="hasta" value="{{ $hasta->toDateString() }}" class="h-9 rounded-lg border-gray-200 text-sm shadow-sm"></div>
+                <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 font-semibold shadow-sm">{{ __('Ver') }}</button>
                 <div class="flex gap-1">
-                    @foreach ([7 => '7 días', 30 => '30 días', 90 => '90 días'] as $n => $et)
+                    @foreach ([7 => __('7 días'), 30 => __('30 días'), 90 => __('90 días')] as $n => $et)
                         <a href="{{ route('inteligencia.show', [$campana, 'desde' => now()->subDays($n - 1)->toDateString(), 'hasta' => now()->toDateString(), 'tab' => $tab, 'enfoque' => $enfoque]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 hover:bg-gray-50">{{ $et }}</a>
                     @endforeach
                 </div>
@@ -42,17 +42,17 @@
 
     {{-- Acciones --}}
     <div class="flex flex-wrap gap-2 mb-5 text-sm">
-        <button type="button" data-recolectar="7" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 7 días</button>
-        <button type="button" data-recolectar="30" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ Recolectar 30 días</button>
-        <button type="button" id="btn-analizar" class="h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 shadow-sm hover:bg-indigo-100 disabled:opacity-50" @disabled(!$iaLista)>✦ Clasificar y leer comentarios</button>
-        <form method="POST" action="{{ route('inteligencia.informes.generar', $campana) }}">@csrf<input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><button class="h-9 rounded-lg bg-[#00024f] text-white px-3 shadow-sm hover:opacity-90" @disabled(!$iaLista)>✦ Redactar informe del periodo</button></form>
-        @unless ($iaLista)<span class="self-center text-xs text-amber-700">IA no configurada (ANTHROPIC_API_KEY)</span>@endunless
+        <button type="button" data-recolectar="7" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ {{ __('Recolectar 7 días') }}</button>
+        <button type="button" data-recolectar="30" class="h-9 rounded-lg border border-gray-200 bg-white px-3 text-gray-700 shadow-sm hover:bg-gray-50">⟳ {{ __('Recolectar 30 días') }}</button>
+        <button type="button" id="btn-analizar" class="h-9 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-3 shadow-sm hover:bg-indigo-100 disabled:opacity-50" @disabled(!$iaLista)>✦ {{ __('Clasificar y leer comentarios') }}</button>
+        <form method="POST" action="{{ route('inteligencia.informes.generar', $campana) }}">@csrf<input type="hidden" name="desde" value="{{ $desde->toDateString() }}"><input type="hidden" name="hasta" value="{{ $hasta->toDateString() }}"><button class="h-9 rounded-lg bg-[#00024f] text-white px-3 shadow-sm hover:opacity-90" @disabled(!$iaLista)>✦ {{ __('Redactar informe del periodo') }}</button></form>
+        @unless ($iaLista)<span class="self-center text-xs text-amber-700">{{ __('IA no configurada (ANTHROPIC_API_KEY)') }}</span>@endunless
     </div>
 
     {{-- Avance de procesos largos (recolectar, clasificar, radar): se hacen por pasos cortos --}}
     <div id="proc-panel" class="hidden rounded-2xl border border-gray-200 bg-white shadow-sm px-4 py-4 mb-5">
         <div class="flex items-center justify-between gap-3 mb-2">
-            <div class="text-sm font-semibold text-gray-800" id="proc-titulo">Trabajando…</div>
+            <div class="text-sm font-semibold text-gray-800" id="proc-titulo">{{ __('Trabajando…') }}</div>
             <div class="text-xs text-gray-500 whitespace-nowrap" id="proc-contador"></div>
         </div>
         <div class="h-2 w-full rounded-full bg-gray-100 overflow-hidden"><div id="proc-barra" class="h-2 rounded-full bg-[#00024f] transition-all" style="width: 0%"></div></div>
@@ -60,8 +60,8 @@
         <div id="proc-log" class="mt-3 max-h-56 overflow-auto divide-y divide-gray-100 text-xs"></div>
         <div id="proc-reconectar" class="hidden mt-4"></div>
         <div class="flex justify-end gap-2 mt-3">
-            <button type="button" id="proc-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">Detener</button>
-            <button type="button" id="proc-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Ver los resultados</button>
+            <button type="button" id="proc-detener" class="h-9 rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700">{{ __('Detener') }}</button>
+            <button type="button" id="proc-recargar" class="hidden h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Ver los resultados') }}</button>
         </div>
     </div>
 
@@ -80,45 +80,45 @@
 
         <div class="grid lg:grid-cols-3 gap-6">
             <div class="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Alcance e interacciones por día</h3>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Alcance e interacciones por día') }}</h3>
                 <div class="h-64"><canvas id="gSerie"></canvas></div>
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Temas que más conectan</h3>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Temas que más conectan') }}</h3>
                 @forelse (array_slice($tablero['por_tema'], 0, 6) as $t)
                     <div class="flex items-center justify-between py-1.5 border-b border-gray-100 text-sm">
-                        <span class="flex items-center gap-2"><i class="inline-block w-2.5 h-2.5 rounded-full" style="background: {{ $t['color'] ?? '#94a3b8' }}"></i>{{ $t['nombre'] }} <span class="text-gray-400 text-xs">({{ $t['n'] }})</span></span>
+                        <span class="flex items-center gap-2"><i class="inline-block w-2.5 h-2.5 rounded-full" style="background: {{ $t['color'] ?? '#94a3b8' }}"></i>{{ $t['nombre'] === 'Sin tema' ? __('Sin tema') : $t['nombre'] }} <span class="text-gray-400 text-xs">({{ $t['n'] }})</span></span>
                         <span class="font-semibold">{{ $t['tasa'] !== null ? $t['tasa'] . '%' : '—' }}</span>
                     </div>
                 @empty
-                    <p class="text-sm text-gray-500">Sin publicaciones clasificadas. Recolecta y clasifica.</p>
+                    <p class="text-sm text-gray-500">{{ __('Sin publicaciones clasificadas. Recolecta y clasifica.') }}</p>
                 @endforelse
-                <p class="text-[11px] text-gray-400 mt-2">Tasa de interacción promedio por publicación.</p>
+                <p class="text-[11px] text-gray-400 mt-2">{{ __('Tasa de interacción promedio por publicación.') }}</p>
             </div>
         </div>
 
         <div class="grid lg:grid-cols-2 gap-6 mt-6">
             <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Por página</h3>
-                <div class="overflow-x-auto"><table class="w-full text-sm min-w-[520px]"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">Página</th><th class="text-right">Publ.</th><th class="text-right">Alcance</th><th class="text-right">Interac.</th><th class="text-right">Tasa</th><th class="text-right">Seguidores</th></tr></thead><tbody>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Por página') }}</h3>
+                <div class="overflow-x-auto"><table class="w-full text-sm min-w-[520px]"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">{{ __('Página') }}</th><th class="text-right">{{ __('Publ.') }}</th><th class="text-right">{{ __('Alcance') }}</th><th class="text-right">{{ __('Interac.') }}</th><th class="text-right">{{ __('Tasa') }}</th><th class="text-right">{{ __('Seguidores') }}</th></tr></thead><tbody>
                 @foreach ($tablero['por_pagina'] as $p)
                     <tr class="border-t border-gray-100"><td class="py-1.5">{{ $p['nombre'] }}</td><td class="text-right">{{ $p['n'] }}</td><td class="text-right">{{ $fmt($p['alcance']) }}</td><td class="text-right">{{ $fmt($p['interacciones']) }}</td><td class="text-right">{{ $p['tasa'] !== null ? $p['tasa'] . '%' : '—' }}</td><td class="text-right">{{ $p['seguidores_facebook'] !== null ? $fmt($p['seguidores_facebook']) : '—' }}@if ($p['seguidores_instagram'] !== null) <span class="text-pink-600 text-xs">+{{ $fmt($p['seguidores_instagram']) }} IG</span>@endif</td></tr>
                 @endforeach
                 </tbody></table></div>
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Por formato</h3>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Por formato') }}</h3>
                 <div class="h-64"><canvas id="gFormato"></canvas></div>
             </div>
         </div>
 
         <div class="rounded-2xl border border-gray-200 bg-white p-5 mt-6">
-            <h3 class="font-bold text-gray-800 mb-2">Publicaciones con más interacción</h3>
-            <div class="overflow-x-auto"><table class="w-full text-sm min-w-[600px]"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">Publicación</th><th class="text-left">Tema</th><th class="text-right">Alcance</th><th class="text-right">Interac.</th><th class="text-right">Tasa</th></tr></thead><tbody>
+            <h3 class="font-bold text-gray-800 mb-2">{{ __('Publicaciones con más interacción') }}</h3>
+            <div class="overflow-x-auto"><table class="w-full text-sm min-w-[600px]"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">{{ __('Publicación') }}</th><th class="text-left">{{ __('Tema') }}</th><th class="text-right">{{ __('Alcance') }}</th><th class="text-right">{{ __('Interac.') }}</th><th class="text-right">{{ __('Tasa') }}</th></tr></thead><tbody>
             @forelse ($tablero['mejores'] as $m)
-                <tr class="border-t border-gray-100"><td class="py-1.5"><a href="{{ $m['permalink'] }}" target="_blank" class="text-indigo-700 hover:underline">{{ $m['texto'] ?: '(sin texto)' }}</a><div class="text-[11px] text-gray-400">{{ ucfirst($m['red']) }} · {{ $m['tipo'] }} · {{ $m['fecha'] }}</div></td><td>{{ $m['tema'] ?? '—' }}</td><td class="text-right">{{ $fmt($m['alcance']) }}</td><td class="text-right">{{ $fmt($m['interacciones']) }}</td><td class="text-right">{{ $m['tasa'] !== null ? $m['tasa'] . '%' : '—' }}</td></tr>
+                <tr class="border-t border-gray-100"><td class="py-1.5"><a href="{{ $m['permalink'] }}" target="_blank" class="text-indigo-700 hover:underline">{{ $m['texto'] ?: __('(sin texto)') }}</a><div class="text-[11px] text-gray-400">{{ ucfirst($m['red']) }} · {{ __($m['tipo']) }} · {{ $m['fecha'] }}</div></td><td>{{ ($m['tema'] ?? null) === 'Sin tema' ? __('Sin tema') : ($m['tema'] ?? '—') }}</td><td class="text-right">{{ $fmt($m['alcance']) }}</td><td class="text-right">{{ $fmt($m['interacciones']) }}</td><td class="text-right">{{ $m['tasa'] !== null ? $m['tasa'] . '%' : '—' }}</td></tr>
             @empty
-                <tr><td colspan="5" class="py-3 text-gray-500">Sin publicaciones en el periodo.</td></tr>
+                <tr><td colspan="5" class="py-3 text-gray-500">{{ __('Sin publicaciones en el periodo.') }}</td></tr>
             @endforelse
             </tbody></table></div>
         </div>
@@ -128,37 +128,37 @@
     @if ($tab === 'contenido')
         <div class="grid lg:grid-cols-3 gap-6">
             <div class="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-                <h3 class="font-bold text-gray-800 mb-2">Rendimiento por tema</h3>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Rendimiento por tema') }}</h3>
                 <canvas id="gTemas" height="{{ max(120, 28 * count($tablero['por_tema'])) }}"></canvas>
-                <table class="w-full text-sm mt-4"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">Tema</th><th class="text-right">Publ.</th><th class="text-right">Alcance prom.</th><th class="text-right">Interac. prom.</th><th class="text-right">Tasa</th><th class="text-left pl-3">Mejor formato</th></tr></thead><tbody>
+                <table class="w-full text-sm mt-4"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">{{ __('Tema') }}</th><th class="text-right">{{ __('Publ.') }}</th><th class="text-right">{{ __('Alcance prom.') }}</th><th class="text-right">{{ __('Interac. prom.') }}</th><th class="text-right">{{ __('Tasa') }}</th><th class="text-left pl-3">{{ __('Mejor formato') }}</th></tr></thead><tbody>
                 @forelse ($tablero['por_tema'] as $t)
-                    <tr class="border-t border-gray-100"><td class="py-1.5"><i class="inline-block w-2.5 h-2.5 rounded-full mr-1" style="background: {{ $t['color'] ?? '#94a3b8' }}"></i>{{ $t['nombre'] }}</td><td class="text-right">{{ $t['n'] }}</td><td class="text-right">{{ $fmt($t['alcance_prom']) }}</td><td class="text-right">{{ $fmt($t['interacciones_prom']) }}</td><td class="text-right font-semibold">{{ $t['tasa'] !== null ? $t['tasa'] . '%' : '—' }}</td><td class="pl-3">{{ $t['mejor_formato'] ?? '—' }}</td></tr>
+                    <tr class="border-t border-gray-100"><td class="py-1.5"><i class="inline-block w-2.5 h-2.5 rounded-full mr-1" style="background: {{ $t['color'] ?? '#94a3b8' }}"></i>{{ $t['nombre'] === 'Sin tema' ? __('Sin tema') : $t['nombre'] }}</td><td class="text-right">{{ $t['n'] }}</td><td class="text-right">{{ $fmt($t['alcance_prom']) }}</td><td class="text-right">{{ $fmt($t['interacciones_prom']) }}</td><td class="text-right font-semibold">{{ $t['tasa'] !== null ? $t['tasa'] . '%' : '—' }}</td><td class="pl-3">{{ isset($t['mejor_formato']) ? __($t['mejor_formato']) : '—' }}</td></tr>
                 @empty
-                    <tr><td colspan="6" class="py-3 text-gray-500">Sin datos. Recolecta y luego clasifica con la IA.</td></tr>
+                    <tr><td colspan="6" class="py-3 text-gray-500">{{ __('Sin datos. Recolecta y luego clasifica con la IA.') }}</td></tr>
                 @endforelse
                 </tbody></table>
-                @if ($tablero['sin_tema'])<p class="text-xs text-amber-700 mt-2">{{ $tablero['sin_tema'] }} publicaciones sin tema en el periodo: usa "Clasificar" o corrígelas en la pestaña Publicaciones.</p>@endif
+                @if ($tablero['sin_tema'])<p class="text-xs text-amber-700 mt-2">{{ __(':n publicaciones sin tema en el periodo: usa "Clasificar" o corrígelas en la pestaña Publicaciones.', ['n' => $tablero['sin_tema']]) }}</p>@endif
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5" id="temas">
-                <h3 class="font-bold text-gray-800 mb-2">Temas de la campaña</h3>
-                <p class="text-xs text-gray-500 mb-3">La IA clasifica cada publicación en uno de estos temas. La descripción y las palabras clave la ayudan a decidir.</p>
+                <h3 class="font-bold text-gray-800 mb-2">{{ __('Temas de la campaña') }}</h3>
+                <p class="text-xs text-gray-500 mb-3">{{ __('La IA clasifica cada publicación en uno de estos temas. La descripción y las palabras clave la ayudan a decidir.') }}</p>
                 @foreach ($campana->temas as $t)
                     <details class="border-t border-gray-100 py-2">
                         <summary class="cursor-pointer text-sm flex items-center gap-2"><i class="inline-block w-2.5 h-2.5 rounded-full" style="background: {{ $t->color }}"></i><span class="font-semibold">{{ $t->nombre }}</span></summary>
                         <form method="POST" action="{{ route('inteligencia.temas.update', [$campana, $t]) }}" class="mt-2 space-y-2 text-sm">@csrf @method('PUT')
                             <input name="nombre" value="{{ $t->nombre }}" maxlength="80" required class="w-full rounded-lg border-gray-300 text-sm">
-                            <input name="descripcion" value="{{ $t->descripcion }}" maxlength="500" placeholder="Descripción (qué entra en este tema)" class="w-full rounded-lg border-gray-300 text-sm">
-                            <input name="palabras_clave" value="{{ implode(', ', (array) $t->palabras_clave) }}" maxlength="500" placeholder="Palabras clave, separadas por coma" class="w-full rounded-lg border-gray-300 text-sm">
-                            <div class="flex items-center gap-2"><input type="color" name="color" value="{{ $t->color ?: '#2563eb' }}" class="h-8 w-10 rounded border-gray-300"><button class="rounded-lg bg-gray-800 text-white px-3 py-1.5 text-xs">Guardar</button></div>
+                            <input name="descripcion" value="{{ $t->descripcion }}" maxlength="500" placeholder="{{ __('Descripción (qué entra en este tema)') }}" class="w-full rounded-lg border-gray-300 text-sm">
+                            <input name="palabras_clave" value="{{ implode(', ', (array) $t->palabras_clave) }}" maxlength="500" placeholder="{{ __('Palabras clave, separadas por coma') }}" class="w-full rounded-lg border-gray-300 text-sm">
+                            <div class="flex items-center gap-2"><input type="color" name="color" value="{{ $t->color ?: '#2563eb' }}" class="h-8 w-10 rounded border-gray-300"><button class="rounded-lg bg-gray-800 text-white px-3 py-1.5 text-xs">{{ __('Guardar') }}</button></div>
                         </form>
-                        <form method="POST" action="{{ route('inteligencia.temas.destroy', [$campana, $t]) }}" onsubmit="return confirm('¿Eliminar el tema? Sus publicaciones quedarán sin tema.')" class="mt-1">@csrf @method('DELETE')<button class="text-xs text-red-600">Eliminar</button></form>
+                        <form method="POST" action="{{ route('inteligencia.temas.destroy', [$campana, $t]) }}" onsubmit="return confirm(@js(__('¿Eliminar el tema? Sus publicaciones quedarán sin tema.')))" class="mt-1">@csrf @method('DELETE')<button class="text-xs text-red-600">{{ __('Eliminar') }}</button></form>
                     </details>
                 @endforeach
                 <form method="POST" action="{{ route('inteligencia.temas.store', $campana) }}" class="mt-3 space-y-2 text-sm border-t border-gray-200 pt-3">@csrf
-                    <input name="nombre" maxlength="80" required placeholder="Nuevo tema" class="w-full rounded-lg border-gray-300 text-sm">
-                    <input name="descripcion" maxlength="500" placeholder="Descripción (opcional)" class="w-full rounded-lg border-gray-300 text-sm">
-                    <input name="palabras_clave" maxlength="500" placeholder="Palabras clave (opcional)" class="w-full rounded-lg border-gray-300 text-sm">
-                    <button class="rounded-lg bg-[#00024f] text-white px-3 py-1.5 text-xs">Agregar tema</button>
+                    <input name="nombre" maxlength="80" required placeholder="{{ __('Nuevo tema') }}" class="w-full rounded-lg border-gray-300 text-sm">
+                    <input name="descripcion" maxlength="500" placeholder="{{ __('Descripción (opcional)') }}" class="w-full rounded-lg border-gray-300 text-sm">
+                    <input name="palabras_clave" maxlength="500" placeholder="{{ __('Palabras clave (opcional)') }}" class="w-full rounded-lg border-gray-300 text-sm">
+                    <button class="rounded-lg bg-[#00024f] text-white px-3 py-1.5 text-xs">{{ __('Agregar tema') }}</button>
                 </form>
             </div>
         </div>
@@ -168,24 +168,24 @@
     @if ($tab === 'audiencia')
         @php $d = $tablero['demografia']; @endphp
         @if (!$d['fuentes'])
-            <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm mb-4">Todavía no hay demografía. Pulsa «Recolectar 7 días» para traerla. Facebook entrega ciudades y países de los seguidores, pero desde 2024 Meta ya no entrega edad ni género de páginas; Instagram sí los entrega (cuentas con 100 o más seguidores).</div>
+            <div class="rounded-lg border border-amber-200 bg-amber-50 text-amber-900 p-3 text-sm mb-4">{{ __('Todavía no hay demografía. Pulsa «Recolectar 7 días» para traerla. Facebook entrega ciudades y países de los seguidores, pero desde 2024 Meta ya no entrega edad ni género de páginas; Instagram sí los entrega (cuentas con 100 o más seguidores).') }}</div>
         @elseif (!array_filter($d['genero']))
-            <div class="rounded-lg border border-sky-200 bg-sky-50 text-sky-900 p-3 text-sm mb-4">Edad y género: Meta dejó de entregarlos para páginas de Facebook. Se muestran cuando las páginas tienen Instagram conectado con 100 o más seguidores.</div>
+            <div class="rounded-lg border border-sky-200 bg-sky-50 text-sky-900 p-3 text-sm mb-4">{{ __('Edad y género: Meta dejó de entregarlos para páginas de Facebook. Se muestran cuando las páginas tienen Instagram conectado con 100 o más seguidores.') }}</div>
         @endif
         <div class="grid lg:grid-cols-3 gap-6">
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">Edad y género</h3><canvas id="gEdad" height="220"></canvas>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">{{ __('Edad y género') }}</h3><canvas id="gEdad" height="220"></canvas>
                 @php $tg = max(1, array_sum($d['genero'])); @endphp
-                <p class="text-xs text-gray-500 mt-2">Mujeres {{ round(100 * $d['genero']['F'] / $tg) }}% · Hombres {{ round(100 * $d['genero']['M'] / $tg) }}%{{ $d['genero']['U'] ? ' · Sin dato ' . round(100 * $d['genero']['U'] / $tg) . '%' : '' }}</p></div>
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">Ciudades</h3>
+                <p class="text-xs text-gray-500 mt-2">{{ __('Mujeres :n%', ['n' => round(100 * $d['genero']['F'] / $tg)]) }} · {{ __('Hombres :n%', ['n' => round(100 * $d['genero']['M'] / $tg)]) }}{{ $d['genero']['U'] ? ' · ' . __('Sin dato :n%', ['n' => round(100 * $d['genero']['U'] / $tg)]) : '' }}</p></div>
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">{{ __('Ciudades') }}</h3>
                 @php $tc = max(1, array_sum($d['ciudades'])); @endphp
                 @forelse ($d['ciudades'] as $c => $v)
                     <div class="text-sm py-1"><div class="flex justify-between"><span>{{ $c }}</span><span class="text-gray-500">{{ $fmt($v) }} · {{ round(100 * $v / $tc) }}%</span></div><div class="h-1.5 bg-gray-100 rounded"><div class="h-1.5 rounded bg-[#00024f]" style="width: {{ round(100 * $v / max(1, max($d['ciudades']))) }}%"></div></div></div>
-                @empty <p class="text-sm text-gray-500">Sin datos.</p> @endforelse
+                @empty <p class="text-sm text-gray-500">{{ __('Sin datos.') }}</p> @endforelse
             </div>
-            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">Países</h3>
-                @forelse ($d['paises'] as $c => $v)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $c }}</span><span class="text-gray-500">{{ $fmt($v) }}</span></div>@empty <p class="text-sm text-gray-500">Sin datos.</p> @endforelse
-                <h3 class="font-bold text-gray-800 mt-5 mb-2">Por red</h3>
-                @foreach ($tablero['por_red'] as $red => $x)<div class="text-sm py-1 border-b border-gray-100 flex justify-between"><span>{{ ucfirst($red) }} <span class="text-gray-400 text-xs">({{ $x['n'] }} publ.)</span></span><span>alcance {{ $fmt($x['alcance']) }} · tasa {{ $x['tasa'] !== null ? $x['tasa'] . '%' : '—' }}</span></div>@endforeach
+            <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0"><h3 class="font-bold text-gray-800 mb-2">{{ __('Países') }}</h3>
+                @forelse ($d['paises'] as $c => $v)<div class="flex justify-between text-sm py-1 border-b border-gray-100"><span>{{ $c }}</span><span class="text-gray-500">{{ $fmt($v) }}</span></div>@empty <p class="text-sm text-gray-500">{{ __('Sin datos.') }}</p> @endforelse
+                <h3 class="font-bold text-gray-800 mt-5 mb-2">{{ __('Por red') }}</h3>
+                @foreach ($tablero['por_red'] as $red => $x)<div class="text-sm py-1 border-b border-gray-100 flex justify-between"><span>{{ ucfirst($red) }} <span class="text-gray-400 text-xs">({{ __(':n publ.', ['n' => $x['n']]) }})</span></span><span>{{ __('alcance :n', ['n' => $fmt($x['alcance'])]) }} · {{ __('tasa :n', ['n' => $x['tasa'] !== null ? $x['tasa'] . '%' : '—']) }}</span></div>@endforeach
             </div>
         </div>
     @endif
@@ -223,17 +223,17 @@
     {{-- ====================================================== PUBLICACIONES --}}
     @if ($tab === 'publicaciones')
         <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-            <h3 class="font-bold text-gray-800 mb-2">Publicaciones del periodo</h3>
-            <p class="text-xs text-gray-500 mb-3">Corrige el tema cuando la IA se equivoque: la corrección se guarda como manual y la IA no la vuelve a tocar.</p>
-            <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">Publicación</th><th class="text-left">Tema</th><th class="text-right">Alcance</th><th class="text-right">Interac.</th><th class="text-right">Coment.</th></tr></thead><tbody>
+            <h3 class="font-bold text-gray-800 mb-2">{{ __('Publicaciones del periodo') }}</h3>
+            <p class="text-xs text-gray-500 mb-3">{{ __('Corrige el tema cuando la IA se equivoque: la corrección se guarda como manual y la IA no la vuelve a tocar.') }}</p>
+            <table class="w-full text-sm"><thead class="text-gray-500 text-xs"><tr><th class="text-left py-1">{{ __('Publicación') }}</th><th class="text-left">{{ __('Tema') }}</th><th class="text-right">{{ __('Alcance') }}</th><th class="text-right">{{ __('Interac.') }}</th><th class="text-right">{{ __('Coment.') }}</th></tr></thead><tbody>
             @forelse ($publicaciones as $p)
                 <tr class="border-t border-gray-100 align-top">
-                    <td class="py-2"><a href="{{ $p->permalink }}" target="_blank" class="text-indigo-700 hover:underline">{{ \Illuminate\Support\Str::limit(trim((string) $p->texto), 120, '…') ?: '(sin texto)' }}</a><div class="text-[11px] text-gray-400">{{ $p->page?->name }} · {{ ucfirst($p->red) }} · {{ $p->tipo }} · {{ $p->publicado_en->format('d/m/Y H:i') }}</div></td>
-                    <td class="py-2"><form method="POST" action="{{ route('inteligencia.publicacion.tema', [$campana, $p]) }}" class="flex items-center gap-1">@csrf<select name="tema_id" onchange="this.form.submit()" class="rounded-lg border-gray-300 text-xs py-1"><option value="">Sin tema</option>@foreach ($campana->temas as $t)<option value="{{ $t->id }}" @selected($p->tema_id === $t->id)>{{ $t->nombre }}</option>@endforeach</select>@if ($p->tema_fuente === 'ia')<span title="Asignado por la IA ({{ $p->tema_confianza }}% de confianza)" class="text-[10px] text-indigo-600">IA {{ $p->tema_confianza }}%</span>@elseif ($p->tema_fuente === 'manual')<span class="text-[10px] text-gray-500">manual</span>@endif</form></td>
+                    <td class="py-2"><a href="{{ $p->permalink }}" target="_blank" class="text-indigo-700 hover:underline">{{ \Illuminate\Support\Str::limit(trim((string) $p->texto), 120, '…') ?: __('(sin texto)') }}</a><div class="text-[11px] text-gray-400">{{ $p->page?->name }} · {{ ucfirst($p->red) }} · {{ __($p->tipo) }} · {{ $p->publicado_en->format('d/m/Y H:i') }}</div></td>
+                    <td class="py-2"><form method="POST" action="{{ route('inteligencia.publicacion.tema', [$campana, $p]) }}" class="flex items-center gap-1">@csrf<select name="tema_id" onchange="this.form.submit()" class="rounded-lg border-gray-300 text-xs py-1"><option value="">{{ __('Sin tema') }}</option>@foreach ($campana->temas as $t)<option value="{{ $t->id }}" @selected($p->tema_id === $t->id)>{{ $t->nombre }}</option>@endforeach</select>@if ($p->tema_fuente === 'ia')<span title="{{ __('Asignado por la IA (:n% de confianza)', ['n' => $p->tema_confianza]) }}" class="text-[10px] text-indigo-600">{{ __('IA :n%', ['n' => $p->tema_confianza]) }}</span>@elseif ($p->tema_fuente === 'manual')<span class="text-[10px] text-gray-500">{{ __('manual') }}</span>@endif</form></td>
                     <td class="py-2 text-right">{{ $p->alcance !== null ? $fmt($p->alcance) : '—' }}</td><td class="py-2 text-right">{{ $p->interacciones !== null ? $fmt($p->interacciones) : '—' }}</td><td class="py-2 text-right">{{ $p->comentarios !== null ? $fmt($p->comentarios) : '—' }}</td>
                 </tr>
             @empty
-                <tr><td colspan="5" class="py-3 text-gray-500">Sin publicaciones en el periodo. Pulsa "Recolectar datos".</td></tr>
+                <tr><td colspan="5" class="py-3 text-gray-500">{{ __('Sin publicaciones en el periodo. Pulsa "Recolectar datos".') }}</td></tr>
             @endforelse
             </tbody></table>
             <div class="mt-3">{{ $publicaciones->appends(['tab' => 'publicaciones'])->links() }}</div>
@@ -243,12 +243,12 @@
     {{-- =========================================================== INFORMES --}}
     @if ($tab === 'informes')
         <div class="rounded-2xl border border-gray-200 bg-white p-5 min-w-0">
-            <h3 class="font-bold text-gray-800 mb-2">Informes</h3>
-            <p class="text-xs text-gray-500 mb-3">Cada lunes se redacta el informe de la semana anterior. También puedes pedir uno del periodo elegido con "Redactar informe del periodo".</p>
+            <h3 class="font-bold text-gray-800 mb-2">{{ __('Informes') }}</h3>
+            <p class="text-xs text-gray-500 mb-3">{{ __('Cada lunes se redacta el informe de la semana anterior. También puedes pedir uno del periodo elegido con "Redactar informe del periodo".') }}</p>
             @forelse ($informes as $i)
-                <a href="{{ route('inteligencia.informe', [$campana, $i]) }}" class="flex justify-between py-2 border-b border-gray-100 text-sm hover:bg-gray-50"><span>Del {{ $i->desde->format('d/m/Y') }} al {{ $i->hasta->format('d/m/Y') }}</span><span class="text-gray-400">{{ $i->created_at->format('d/m/Y H:i') }}</span></a>
+                <a href="{{ route('inteligencia.informe', [$campana, $i]) }}" class="flex justify-between py-2 border-b border-gray-100 text-sm hover:bg-gray-50"><span>{{ __('Del :desde al :hasta', ['desde' => $i->desde->format('d/m/Y'), 'hasta' => $i->hasta->format('d/m/Y')]) }}</span><span class="text-gray-400">{{ $i->created_at->format('d/m/Y H:i') }}</span></a>
             @empty
-                <p class="text-sm text-gray-500">Todavía no hay informes.</p>
+                <p class="text-sm text-gray-500">{{ __('Todavía no hay informes.') }}</p>
             @endforelse
         </div>
     @endif
@@ -258,30 +258,30 @@
         @php $cp = $campana->campaign; $porOrigen = $campana->paginas->groupBy(fn($p) => $p->pivot->origen ?? 'manual'); @endphp
         <div class="grid lg:grid-cols-[minmax(0,1fr)_20rem] gap-5 items-start">
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm text-sm">
-                <h3 class="text-base font-bold text-gray-900 mb-3">Datos de la campaña</h3>
+                <h3 class="text-base font-bold text-gray-900 mb-3">{{ __('Datos de la campaña') }}</h3>
                 <dl class="grid sm:grid-cols-2 gap-x-6 gap-y-3">
-                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Tipo</dt><dd class="text-gray-800">{{ $cp?->is_system ? 'Sistema' : (\App\Services\CampanasService::TIPOS[$cp?->tipo] ?? '—') }}</dd></div>
-                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Estado</dt><dd class="text-gray-800">{{ $campana->activa ? 'Activa' : 'Inactiva' }}</dd></div>
-                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Territorio</dt><dd class="text-gray-800">{{ $campana->territorio ?: '—' }}</dd></div>
-                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Fechas</dt><dd class="text-gray-800">{{ $campana->desde ? $campana->desde->format('d/m/Y') . ($campana->hasta ? ' a ' . $campana->hasta->format('d/m/Y') : '') : '—' }}</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Medios</dt><dd class="flex flex-wrap gap-1.5 mt-1">@forelse ($cp?->nombresMedios() ?? [] as $m)<span class="rounded-md bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">{{ $m }}</span>@empty<span class="text-gray-500">—</span>@endforelse</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contexto que lee la IA</dt><dd class="text-gray-700 whitespace-pre-line mt-1">{{ $campana->descripcion ?: '—' }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Tipo') }}</dt><dd class="text-gray-800">{{ $cp?->is_system ? __('Sistema') : (isset(\App\Services\CampanasService::TIPOS[$cp?->tipo]) ? __(\App\Services\CampanasService::TIPOS[$cp?->tipo]) : '—') }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Estado') }}</dt><dd class="text-gray-800">{{ $campana->activa ? __('Activa') : __('Inactiva') }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Territorio') }}</dt><dd class="text-gray-800">{{ $campana->territorio ?: '—' }}</dd></div>
+                    <div><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Fechas') }}</dt><dd class="text-gray-800">{{ $campana->desde ? ($campana->hasta ? __(':desde a :hasta', ['desde' => $campana->desde->format('d/m/Y'), 'hasta' => $campana->hasta->format('d/m/Y')]) : $campana->desde->format('d/m/Y')) : '—' }}</dd></div>
+                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Medios') }}</dt><dd class="flex flex-wrap gap-1.5 mt-1">@forelse ($cp?->nombresMedios() ?? [] as $m)<span class="rounded-md bg-gray-100 text-gray-700 px-2 py-0.5 text-xs">{{ $m }}</span>@empty<span class="text-gray-500">—</span>@endforelse</dd></div>
+                    <div class="sm:col-span-2"><dt class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{{ __('Contexto que lee la IA') }}</dt><dd class="text-gray-700 whitespace-pre-line mt-1">{{ $campana->descripcion ?: '—' }}</dd></div>
                 </dl>
                 <div class="mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center gap-2">
                     @if ($cp && !$cp->is_system)
-                        <a href="{{ route('campaigns.edit', $cp) }}" class="h-9 inline-flex items-center rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">Editar en Campañas</a>
+                        <a href="{{ route('campaigns.edit', $cp) }}" class="h-9 inline-flex items-center rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Editar en Campañas') }}</a>
                     @elseif ($cp?->is_system)
-                        <span class="text-xs text-gray-500">La campaña de sistema no se edita. Su análisis con IA se hace solo cuando lo pidas.</span>
+                        <span class="text-xs text-gray-500">{{ __('La campaña de sistema no se edita. Su análisis con IA se hace solo cuando lo pidas.') }}</span>
                     @endif
-                    <a href="{{ route('campaigns.index') }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700 hover:bg-gray-50">Ver campañas</a>
+                    <a href="{{ route('campaigns.index') }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 text-sm text-gray-700 hover:bg-gray-50">{{ __('Ver campañas') }}</a>
                 </div>
             </div>
             <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm text-sm">
-                <h3 class="text-base font-bold text-gray-900 mb-1">Páginas analizadas</h3>
-                <p class="text-xs text-gray-500 mb-3">{{ $campana->paginas->count() }} página(s): las de sus medios y las agregadas a mano en la campaña.</p>
+                <h3 class="text-base font-bold text-gray-900 mb-1">{{ __('Páginas analizadas') }}</h3>
+                <p class="text-xs text-gray-500 mb-3">{{ __(':n página(s): las de sus medios y las agregadas a mano en la campaña.', ['n' => $campana->paginas->count()]) }}</p>
                 <div class="max-h-96 overflow-y-auto divide-y divide-gray-100">
                     @foreach ($campana->paginas->sortBy('name') as $p)
-                        <div class="flex items-center justify-between gap-2 py-1.5"><span class="truncate">{{ $p->name }}</span><span class="text-[11px] text-gray-400 shrink-0">{{ ($p->pivot->origen ?? 'manual') === 'medio' ? ($p->medio_slug ?: 'medio') : 'manual' }}</span></div>
+                        <div class="flex items-center justify-between gap-2 py-1.5"><span class="truncate">{{ $p->name }}</span><span class="text-[11px] text-gray-400 shrink-0">{{ ($p->pivot->origen ?? 'manual') === 'medio' ? ($p->medio_slug ?: __('medio')) : __('manual') }}</span></div>
                     @endforeach
                 </div>
             </div>
@@ -293,31 +293,55 @@
 <script>
 (function () {
   const T = @json($tablero);
+  const L = @js([
+    'alcancePagina' => __('Alcance de página'), 'interPubs' => __('Interacciones de publicaciones'), 'publicaciones' => __('Publicaciones'),
+    'alcanceProm' => __('Alcance promedio'), 'interProm' => __('Interacciones promedio'), 'tasaPct' => __('Tasa de interacción %'),
+    'mujeres' => __('Mujeres'), 'hombres' => __('Hombres'), 'sinTema' => __('Sin tema'),
+    'tipos' => collect(\App\Services\Inteligencia\AnalisisService::TIPOS)->mapWithKeys(fn($n) => [$n => __($n)]),
+    'reconectarTitulo' => __('Páginas cuya conexión con Facebook hay que arreglar'), 'nPaginas' => __(':n página(s)'),
+    'deteniendo' => __('Deteniendo al terminar el paso actual…'),
+    'sinConexion' => __('Se perdió la conexión con el servidor. Vuelve a pulsar el botón: continúa donde iba.'),
+    'preparandoRec' => __('Preparando la recolección…'), 'noIniciaRec' => __('No se pudo iniciar la recolección.'),
+    'recolectando' => __('Recolectando :n página(s), :dias días hacia atrás…'), 'errorRec' => __('Error en la recolección.'),
+    'listoRec' => __('Listo: :n página(s) recolectadas.'), 'listoRecAvisos' => __('Listo: :n página(s) recolectadas, :e con avisos.'),
+    'detenidoRec' => __('Detenido en :n página(s). Lo recolectado ya quedó guardado.'),
+    'clasificando' => __('Clasificando publicaciones por tema con la IA…'), 'error' => __('Error.'),
+    'nPublicaciones' => __(':hecho / :total publicaciones'), 'leyendo' => __('Leyendo comentarios y emociones…'),
+    'lecturas' => __(':n lecturas · :f sin leer'),
+    'listoAnalisis' => __('Listo: :c publicaciones clasificadas y :l lecturas de comentarios.'),
+    'listoAnalisisFallidas' => __('Listo: :c publicaciones clasificadas y :l lecturas de comentarios (:f publicaciones sin leer: mira el motivo abajo).'),
+    'detenidoAnalisis' => __('Detenido. Lo clasificado hasta aquí ya quedó guardado; vuelve a pulsar para continuar.'),
+    'preparandoRadar' => __('Preparando la investigación en la web…'), 'noIniciaRadar' => __('No se pudo iniciar la investigación.'),
+    'investigando' => __('Investigando en la web: :frentes…'), 'listoRadar' => __('Listo: investigación terminada.'),
+    'radarErrores' => __('La investigación terminó con errores.'),
+    'detenidoRadar' => __('Detenido. Lo investigado quedó guardado; puedes iniciar otra investigación cuando quieras.'),
+  ]);
+  const f = (s, o) => String(s).replace(/:(\w+)/g, (m, k) => (o && k in o ? o[k] : m));
   const fmt = (n) => new Intl.NumberFormat('es-CO').format(n);
   const g = (id) => document.getElementById(id);
   const fijo = { responsive: true, maintainAspectRatio: false };
   if (g('gSerie')) new Chart(g('gSerie'), { type: 'line', data: { labels: T.serie.map(d => d.fecha.slice(5)), datasets: [
-    { label: 'Alcance de página', data: T.serie.map(d => d.alcance_pagina), borderColor: '#00024f', backgroundColor: 'rgba(0,2,79,.08)', fill: true, tension: .3, yAxisID: 'y' },
-    { label: 'Interacciones de publicaciones', data: T.serie.map(d => d.interacciones), borderColor: '#dc2626', tension: .3, yAxisID: 'y1' },
-    { label: 'Publicaciones', data: T.serie.map(d => d.publicaciones), type: 'bar', backgroundColor: 'rgba(148,163,184,.4)', yAxisID: 'y2' } ] },
+    { label: L.alcancePagina, data: T.serie.map(d => d.alcance_pagina), borderColor: '#00024f', backgroundColor: 'rgba(0,2,79,.08)', fill: true, tension: .3, yAxisID: 'y' },
+    { label: L.interPubs, data: T.serie.map(d => d.interacciones), borderColor: '#dc2626', tension: .3, yAxisID: 'y1' },
+    { label: L.publicaciones, data: T.serie.map(d => d.publicaciones), type: 'bar', backgroundColor: 'rgba(148,163,184,.4)', yAxisID: 'y2' } ] },
     options: { ...fijo, interaction: { mode: 'index', intersect: false }, scales: { y: { position: 'left', ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } }, y2: { display: false } } } });
-  if (g('gFormato')) new Chart(g('gFormato'), { type: 'bar', data: { labels: T.por_formato.map(f => f.nombre + ' (' + f.n + ')'), datasets: [
-    { label: 'Alcance promedio', data: T.por_formato.map(f => f.alcance_prom), backgroundColor: 'rgba(0,2,79,.75)' },
-    { label: 'Interacciones promedio', data: T.por_formato.map(f => f.interacciones_prom), backgroundColor: 'rgba(220,38,38,.7)', yAxisID: 'y1' } ] },
+  if (g('gFormato')) new Chart(g('gFormato'), { type: 'bar', data: { labels: T.por_formato.map(x => (L.tipos[x.nombre] || x.nombre) + ' (' + x.n + ')'), datasets: [
+    { label: L.alcanceProm, data: T.por_formato.map(f => f.alcance_prom), backgroundColor: 'rgba(0,2,79,.75)' },
+    { label: L.interProm, data: T.por_formato.map(f => f.interacciones_prom), backgroundColor: 'rgba(220,38,38,.7)', yAxisID: 'y1' } ] },
     options: { ...fijo, scales: { y: { ticks: { callback: fmt } }, y1: { position: 'right', grid: { drawOnChartArea: false } } } } });
-  if (g('gTemas')) new Chart(g('gTemas'), { type: 'bar', data: { labels: T.por_tema.map(t => t.nombre + ' (' + t.n + ')'), datasets: [
-    { label: 'Tasa de interacción %', data: T.por_tema.map(t => t.tasa), backgroundColor: T.por_tema.map(t => t.color || '#94a3b8') } ] },
+  if (g('gTemas')) new Chart(g('gTemas'), { type: 'bar', data: { labels: T.por_tema.map(t => (t.nombre === 'Sin tema' ? L.sinTema : t.nombre) + ' (' + t.n + ')'), datasets: [
+    { label: L.tasaPct, data: T.por_tema.map(t => t.tasa), backgroundColor: T.por_tema.map(t => t.color || '#94a3b8') } ] },
     options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } } });
   if (g('gEdad')) { const d = T.demografia.edad_genero; const edades = Object.keys(d);
     new Chart(g('gEdad'), { type: 'bar', data: { labels: edades, datasets: [
-      { label: 'Mujeres', data: edades.map(e => d[e].F || 0), backgroundColor: 'rgba(219,39,119,.75)' },
-      { label: 'Hombres', data: edades.map(e => d[e].M || 0), backgroundColor: 'rgba(37,99,235,.75)' } ] },
+      { label: L.mujeres, data: edades.map(e => d[e].F || 0), backgroundColor: 'rgba(219,39,119,.75)' },
+      { label: L.hombres, data: edades.map(e => d[e].M || 0), backgroundColor: 'rgba(37,99,235,.75)' } ] },
       options: { scales: { x: { stacked: true }, y: { stacked: true, ticks: { callback: fmt } } } } }); }
   // ------------------------------------------------ procesos por pasos
   const csrf = document.querySelector('meta[name="csrf-token"]').content;
   const post = async (url, body) => { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf }, body: JSON.stringify(body || {}) }); return r.json(); };
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const htmlReconectar = (grupos) => !grupos || !grupos.length ? '' : '<div class="text-sm font-bold text-gray-900 mb-2">Páginas cuya conexión con Facebook hay que arreglar</div>' + grupos.map(gr => '<div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 mb-2"><div class="text-sm font-semibold text-rose-800">' + escR(gr.titulo) + ' · ' + gr.paginas.length + ' página(s)</div><div class="text-xs text-gray-700 mt-1">' + escR(gr.texto) + '</div><div class="mt-2 flex flex-wrap gap-1">' + gr.paginas.map(p => '<span class="rounded-md bg-white border border-rose-100 px-2 py-0.5 text-[11px] text-gray-700">' + escR(p.pagina) + (p.quien ? ' <span class="text-gray-400">· ' + escR(p.quien) + '</span>' : '') + '</span>').join('') + '</div></div>').join('');
+  const htmlReconectar = (grupos) => !grupos || !grupos.length ? '' : '<div class="text-sm font-bold text-gray-900 mb-2">' + escR(L.reconectarTitulo) + '</div>' + grupos.map(gr => '<div class="rounded-xl border border-rose-200 bg-rose-50/60 p-3 mb-2"><div class="text-sm font-semibold text-rose-800">' + escR(gr.titulo) + ' · ' + escR(f(L.nPaginas, { n: gr.paginas.length })) + '</div><div class="text-xs text-gray-700 mt-1">' + escR(gr.texto) + '</div><div class="mt-2 flex flex-wrap gap-1">' + gr.paginas.map(p => '<span class="rounded-md bg-white border border-rose-100 px-2 py-0.5 text-[11px] text-gray-700">' + escR(p.pagina) + (p.quien ? ' <span class="text-gray-400">· ' + escR(p.quien) + '</span>' : '') + '</span>').join('') + '</div></div>').join('');
   const escR = (t) => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let detener = false, ocupado = false, destino = null;
   const panel = {
@@ -328,68 +352,68 @@
     aviso(t) { if (!t) return; g('proc-aviso').textContent = t; g('proc-aviso').classList.remove('hidden'); },
     cerrar(url) { ocupado = false; destino = url || null; g('proc-detener').classList.add('hidden'); g('proc-recargar').classList.remove('hidden'); },
   };
-  g('proc-detener').addEventListener('click', () => { detener = true; panel.titulo('Deteniendo al terminar el paso actual…'); });
+  g('proc-detener').addEventListener('click', () => { detener = true; panel.titulo(L.deteniendo); });
   g('proc-recargar').addEventListener('click', () => { destino ? (location.href = destino) : location.reload(); });
-  const conexion = { success: false, error: 'Se perdió la conexión con el servidor. Vuelve a pulsar el botón: continúa donde iba.' };
+  const conexion = { success: false, error: L.sinConexion };
 
   document.querySelectorAll('[data-recolectar]').forEach(b => b.addEventListener('click', async () => {
     if (ocupado) return;
-    const dias = b.dataset.recolectar; panel.abrir('Preparando la recolección…');
+    const dias = b.dataset.recolectar; panel.abrir(L.preparandoRec);
     let ini; try { ini = await post(@json(route('inteligencia.general.recolectar.iniciar')), { dias, campana: @json($campana->id) }); } catch (e) { ini = null; }
-    if (!ini || !ini.success) { panel.titulo('No se pudo iniciar la recolección.'); return panel.cerrar(); }
-    panel.titulo('Recolectando ' + ini.total + ' página(s), ' + ini.dias + ' días hacia atrás…'); panel.avance(0, ini.total);
+    if (!ini || !ini.success) { panel.titulo(L.noIniciaRec); return panel.cerrar(); }
+    panel.titulo(f(L.recolectando, { n: ini.total, dias: ini.dias })); panel.avance(0, ini.total);
     let hecho = 0, errores = 0;
     while (!detener) {
       let d; try { d = await post(@json(route('inteligencia.general.recolectar.paso'))); } catch (e) { d = conexion; }
-      if (!d.success) { panel.titulo(d.error || 'Error en la recolección.'); break; }
+      if (!d.success) { panel.titulo(d.error || L.errorRec); break; }
       if (d.linea) { panel.linea(d.linea.ok, d.linea.pagina + ' — ' + d.linea.detalle); (d.linea.avisos || []).forEach(a => panel.aviso('⚠ ' + a)); }
       hecho = d.hecho; errores = d.errores; panel.avance(hecho, d.total);
-      if (d.terminado) { panel.titulo('Listo: ' + hecho + ' página(s) recolectadas' + (errores ? ', ' + errores + ' con avisos' : '') + '.'); const rc = htmlReconectar(d.reconectar); if (rc) { g('proc-reconectar').innerHTML = rc; g('proc-reconectar').classList.remove('hidden'); } break; }
+      if (d.terminado) { panel.titulo(f(errores ? L.listoRecAvisos : L.listoRec, { n: hecho, e: errores })); const rc = htmlReconectar(d.reconectar); if (rc) { g('proc-reconectar').innerHTML = rc; g('proc-reconectar').classList.remove('hidden'); } break; }
     }
-    if (detener) panel.titulo('Detenido en ' + hecho + ' página(s). Lo recolectado ya quedó guardado.');
+    if (detener) panel.titulo(f(L.detenidoRec, { n: hecho }));
     panel.cerrar();
   }));
 
   const ba = g('btn-analizar');
   if (ba) ba.addEventListener('click', async () => {
     if (ocupado) return;
-    panel.abrir('Clasificando publicaciones por tema con la IA…');
+    panel.abrir(L.clasificando);
     let inicio = true, total = null;
     while (!detener) {
       let d; try { d = await post(@json(route('inteligencia.analizar.paso', $campana)), { inicio }); } catch (e) { d = conexion; }
       inicio = false;
-      if (!d.success) { panel.titulo(d.error || 'Error.'); break; }
+      if (!d.success) { panel.titulo(d.error || L.error); break; }
       if (d.fase === 'clasificar') {
         if (total === null) total = d.clasificadas + d.pendientes;
-        panel.titulo('Clasificando publicaciones por tema con la IA…'); panel.avance(d.clasificadas, total, d.clasificadas + ' / ' + total + ' publicaciones');
+        panel.titulo(L.clasificando); panel.avance(d.clasificadas, total, f(L.nPublicaciones, { hecho: d.clasificadas, total: total }));
         if (d.linea) panel.linea(d.linea.ok, d.linea.texto);
       } else if (d.fase === 'comentarios') {
-        panel.titulo('Leyendo comentarios y emociones…'); panel.avance(1, 1, d.lecturas + ' lecturas · ' + d.fallidas + ' sin leer');
+        panel.titulo(L.leyendo); panel.avance(1, 1, f(L.lecturas, { n: d.lecturas, f: d.fallidas }));
         (d.lineas || []).forEach(l => panel.linea(l.ok, l.texto));
       }
-      if (d.terminado) { panel.avance(1, 1, ''); panel.titulo('Listo: ' + (d.clasificadas || 0) + ' publicaciones clasificadas y ' + (d.lecturas || 0) + ' lecturas de comentarios' + (d.fallidas ? ' (' + d.fallidas + ' publicaciones sin leer: mira el motivo abajo)' : '') + '.'); panel.aviso(d.aviso); break; }
+      if (d.terminado) { panel.avance(1, 1, ''); panel.titulo(f(d.fallidas ? L.listoAnalisisFallidas : L.listoAnalisis, { c: d.clasificadas || 0, l: d.lecturas || 0, f: d.fallidas })); panel.aviso(d.aviso); break; }
     }
-    if (detener) panel.titulo('Detenido. Lo clasificado hasta aquí ya quedó guardado; vuelve a pulsar para continuar.');
+    if (detener) panel.titulo(L.detenidoAnalisis);
     panel.cerrar();
   });
 
   const br = g('radar-boton');
   if (br) br.addEventListener('click', async () => {
     if (ocupado) return;
-    panel.abrir('Preparando la investigación en la web…');
+    panel.abrir(L.preparandoRadar);
     let ini; try { ini = await post(@json(route('inteligencia.radar.iniciar', $campana)), { enfoque: (g('radar-enfoque') || {}).value || '' }); } catch (e) { ini = { success: false }; }
-    if (!ini.success) { panel.titulo(ini.error || 'No se pudo iniciar la investigación.'); return panel.cerrar(); }
-    panel.titulo('Investigando en la web: ' + ini.frentes.join(', ') + '…'); panel.avance(0, ini.total);
+    if (!ini.success) { panel.titulo(ini.error || L.noIniciaRadar); return panel.cerrar(); }
+    panel.titulo(f(L.investigando, { frentes: ini.frentes.join(', ') })); panel.avance(0, ini.total);
     const base = @json(url('/admin/inteligencia/' . $campana->id . '/radar')) + '/' + ini.id + '/paso';
     let url = null;
     while (!detener) {
       let d; try { d = await post(base); } catch (e) { d = conexion; }
-      if (!d.success) { panel.titulo(d.error || 'Error.'); break; }
+      if (!d.success) { panel.titulo(d.error || L.error); break; }
       if (d.linea) panel.linea(d.linea.ok, d.linea.frente + ' — ' + d.linea.detalle);
       panel.avance(d.hecho, d.total); url = d.url;
-      if (d.terminado) { panel.titulo(d.estado === 'listo' ? 'Listo: investigación terminada.' : (d.error || 'La investigación terminó con errores.')); break; }
+      if (d.terminado) { panel.titulo(d.estado === 'listo' ? L.listoRadar : (d.error || L.radarErrores)); break; }
     }
-    if (detener) panel.titulo('Detenido. Lo investigado quedó guardado; puedes iniciar otra investigación cuando quieras.');
+    if (detener) panel.titulo(L.detenidoRadar);
     panel.cerrar(url);
   });
 

@@ -59,7 +59,7 @@ class MyPostsController extends Controller
         // Guardias de ventana/ronda válida
         if (!in_array($round, [1, 2], true) || !$post->metrics_next_round || $post->metrics_next_round !== $round) {
             return back()
-                ->withErrors(['metrics' => 'No puedes editar métricas ahora. ' . $post->metrics_state_message])
+                ->withErrors(['metrics' => __('No puedes editar métricas ahora. :motivo', ['motivo' => $post->metrics_state_message])])
                 ->withInput();
         }
 
@@ -96,7 +96,7 @@ class MyPostsController extends Controller
             'interacciones' => $data['interacciones'] ?? $metric->interacciones,
         ])->save();
 
-        return back()->with('ok', "¡Métrica de la ronda {$round} guardada!");
+        return back()->with('ok', __('¡Métrica de la ronda :ronda guardada!', ['ronda' => $round]));
     }
 
 

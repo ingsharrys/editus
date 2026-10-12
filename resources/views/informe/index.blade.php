@@ -8,11 +8,11 @@
     
             <div class="text-[#00024f]">
                 <h1 class="text-3xl font-bold">
-                    Informe general
+                    {{ __('Informe general') }}
                 </h1>
     
                 <p class="mt-1 text-sm">
-                    Analiza el rendimiento de tus publicaciones y páginas sincronizadas.
+                    {{ __('Analiza el rendimiento de tus publicaciones y páginas sincronizadas.') }}
                 </p>
             </div>
     
@@ -34,7 +34,7 @@
                     <input type="text"
                            name="q"
                            value="{{ $q }}"
-                           placeholder="Buscar por título o contenido..."
+                           placeholder="{{ __('Buscar por título o contenido...') }}"
                            class="h-12 w-full rounded-2xl border border-gray-200
                                   bg-gray-50/70 pl-11 pr-4 text-sm
                                   focus:border-indigo-500
@@ -54,7 +54,7 @@
                                focus:ring-4 focus:ring-indigo-100
                                outline-none transition">
     
-                        <option value="">Todas las páginas</option>
+                        <option value="">{{ __('Todas las páginas') }}</option>
     
                         @foreach ($pages as $p)
                             <option value="{{ $p->id }}"
@@ -75,7 +75,7 @@
                            text-white text-sm font-medium
                            hover:bg-indigo-700 shadow-sm transition">
     
-                    Filtrar
+                    {{ __('Filtrar') }}
     
                 </button>
     
@@ -88,7 +88,7 @@
                               bg-white text-sm text-gray-700
                               hover:bg-gray-50 transition">
     
-                        Limpiar
+                        {{ __('Limpiar') }}
     
                     </a>
     
@@ -112,7 +112,7 @@
 
             <div>
                 <p class="text-sm text-gray-500">
-                    Total publicaciones
+                    {{ __('Total publicaciones') }}
                 </p>
 
                 <h3 class="mt-2 text-xl md:text-3xl font-bold text-gray-800">
@@ -137,7 +137,7 @@
 
             <div>
                 <p class="text-sm text-gray-500">
-                    Alcance total
+                    {{ __('Alcance total') }}
                 </p>
 
                 <h3 class="mt-2 text-xl md:text-3xl font-bold text-gray-800">
@@ -162,7 +162,7 @@
 
             <div>
                 <p class="text-sm text-gray-500">
-                    Visualizaciones
+                    {{ __('Visualizaciones') }}
                 </p>
 
                 <h3 class="mt-2 text-xl md:text-3xl font-bold text-gray-800">
@@ -187,7 +187,7 @@
 
             <div>
                 <p class="text-sm text-gray-500">
-                    Interacciones
+                    {{ __('Interacciones') }}
                 </p>
 
                 <h3 class="mt-2 text-xl md:text-3xl font-bold text-gray-800">
@@ -216,11 +216,11 @@
                 </div>
         
                 <h3 class="text-lg font-semibold text-gray-800">
-                    No hay informes disponibles
+                    {{ __('No hay informes disponibles') }}
                 </h3>
         
                 <p class="mt-1 text-sm text-gray-500">
-                    Intenta cambiar los filtros o publicar nuevo contenido.
+                    {{ __('Intenta cambiar los filtros o publicar nuevo contenido.') }}
                 </p>
         
             </div>
@@ -250,7 +250,7 @@
                             <h3 class="mt-2 text-[15px] font-semibold
                                        text-gray-800 line-clamp-2">
         
-                                {{ $g->message_sample ?: '— Sin contenido —' }}
+                                {{ $g->message_sample ?: '— ' . __('Sin contenido') . ' —' }}
         
                             </h3>
         
@@ -268,7 +268,7 @@
                             </div>
         
                             <div class="mt-1 text-[11px] text-gray-500">
-                                Alcance
+                                {{ __('Alcance') }}
                             </div>
         
                         </div>
@@ -280,7 +280,7 @@
                             </div>
         
                             <div class="mt-1 text-[11px] text-gray-500">
-                                Vistas
+                                {{ __('Vistas') }}
                             </div>
         
                         </div>
@@ -292,7 +292,7 @@
                             </div>
         
                             <div class="mt-1 text-[11px] text-gray-500">
-                                Interacciones
+                                {{ __('Interacciones') }}
                             </div>
         
                         </div>
@@ -303,7 +303,7 @@
                     <div class="mt-5 flex items-center justify-between">
         
                         <span class="text-xs text-gray-500">
-                            {{ $g->posts_count }} páginas
+                            {{ __(':n páginas', ['n' => $g->posts_count]) }}
                         </span>
         
                         <div class="flex items-center gap-3">
@@ -314,7 +314,7 @@
                                    target="_blank"
                                    class="text-sm text-gray-500 hover:text-gray-700 transition">
         
-                                    Ver FB
+                                    {{ __('Ver FB') }}
         
                                 </a>
         
@@ -325,7 +325,7 @@
                                       text-sm font-medium text-indigo-600
                                       hover:text-indigo-700 transition">
         
-                                Ver detalle →
+                                {{ __('Ver detalle') }} →
         
                             </a>
         

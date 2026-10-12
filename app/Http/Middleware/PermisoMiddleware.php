@@ -12,10 +12,10 @@ class PermisoMiddleware
     public function handle(Request $request, Closure $next, string $permisos): Response
     {
         $user = $request->user();
-        if (!$user) abort(403, 'No autorizado.');
+        if (!$user) abort(403, __('No autorizado.'));
         foreach (explode('|', $permisos) as $p) {
             if ($user->tienePermiso(trim($p))) return $next($request);
         }
-        abort(403, 'Tu rol no tiene permiso para este módulo. Pídele acceso a un administrador.');
+        abort(403, __('Tu rol no tiene permiso para este módulo. Pídele acceso a un administrador.'));
     }
 }

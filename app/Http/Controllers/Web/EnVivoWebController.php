@@ -64,7 +64,7 @@ class EnVivoWebController extends Controller
         $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $permitidas = $this->paginasPermitidas()->pluck('page_id')->map(fn($v) => (string) $v)->flip();
         foreach ((array) ($datos['page_ids'] ?? []) as $id) {
-            if (!$permitidas->has((string) $id)) return response()->json(['success' => false, 'error' => 'Alguna de las páginas elegidas no está conectada a tu cuenta de editus.'], 422);
+            if (!$permitidas->has((string) $id)) return response()->json(['success' => false, 'error' => __('Alguna de las páginas elegidas no está conectada a tu cuenta de editus.')], 422);
         }
         // Plan del cliente: páginas del plan y, en el Básico, sin logo ni marco
         $planes = app(\App\Services\PlanService::class);
@@ -93,18 +93,18 @@ class EnVivoWebController extends Controller
         ]);
         $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $user = Auth::user();
-        if (!app(\App\Services\PlanService::class)->limites($user)) return response()->json(['success' => false, 'error' => 'Necesitas un plan activo para transmitir.'], 403);
+        if (!app(\App\Services\PlanService::class)->limites($user)) return response()->json(['success' => false, 'error' => __('Necesitas un plan activo para transmitir.')], 403);
         $cuando = \Carbon\Carbon::createFromFormat('Y-m-d\TH:i', $datos['programada_en'], config('app.timezone'))->seconds(0);
-        if ($cuando->lt(now()->addMinutes(10))) return response()->json(['success' => false, 'error' => 'Programa el en vivo al menos 10 minutos en el futuro (o usa «Abrir el estudio» para salir ahora).'], 422);
-        if ($cuando->gt(now()->addDays(365))) return response()->json(['success' => false, 'error' => 'Se puede programar hasta con un año de anticipación.'], 422);
+        if ($cuando->lt(now()->addMinutes(10))) return response()->json(['success' => false, 'error' => __('Programa el en vivo al menos 10 minutos en el futuro (o usa «Abrir el estudio» para salir ahora).')], 422);
+        if ($cuando->gt(now()->addDays(365))) return response()->json(['success' => false, 'error' => __('Se puede programar hasta con un año de anticipación.')], 422);
         $permitidas = $this->paginasPermitidas()->keyBy(fn($p) => (string) $p->page_id);
         $paginas = collect((array) ($datos['page_ids'] ?? []))->map(fn($id) => $permitidas->get((string) $id));
-        if ($paginas->contains(null)) return response()->json(['success' => false, 'error' => 'Alguna de las páginas elegidas no está conectada a tu cuenta de editus.'], 422);
+        if ($paginas->contains(null)) return response()->json(['success' => false, 'error' => __('Alguna de las páginas elegidas no está conectada a tu cuenta de editus.')], 422);
         if ($motivo = app(\App\Services\PlanService::class)->validarPaginas($user, $paginas->pluck('id')->all())) return response()->json(['success' => false, 'error' => $motivo], 422);
         $canalesOk = $cuentas->canalesDe(null)->keyBy('id');
         $canales = collect((array) ($datos['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
-        if ($canales->contains(null)) return response()->json(['success' => false, 'error' => 'Alguno de los canales de YouTube no está disponible.'], 422);
-        if ($paginas->isEmpty() && $canales->isEmpty()) return response()->json(['success' => false, 'error' => 'Elige al menos una página de Facebook o un canal de YouTube.'], 422);
+        if ($canales->contains(null)) return response()->json(['success' => false, 'error' => __('Alguno de los canales de YouTube no está disponible.')], 422);
+        if ($paginas->isEmpty() && $canales->isEmpty()) return response()->json(['success' => false, 'error' => __('Elige al menos una página de Facebook o un canal de YouTube.')], 422);
         $plantilla = EnVivoController::normalizarPlantilla(self::plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
         $this->preferir();
         try {
@@ -146,7 +146,7 @@ class EnVivoWebController extends Controller
         // Los archivos propios (clips, efectos, música) solo los usa quien los subió
         foreach ([$request->input('activo_id'), $request->input('sonido.activo_id'), $request->input('musica.activo_id')] as $id) {
             if ($id && !\App\Models\ActivoEnVivo::where('user_id', Auth::id())->whereKey((int) $id)->exists() && !Auth::user()->isAdmin()) {
-                return response()->json(['success' => false, 'error' => 'Ese archivo no es tuyo o ya no existe.'], 422);
+                return response()->json(['success' => false, 'error' => __('Ese archivo no es tuyo o ya no existe.')], 422);
             }
         }
         return $this->api->escena(new Request($request->all()), $transmision);

@@ -147,9 +147,9 @@ class InformeController extends Controller
         $chartByPage = [
             'labels' => $byPage->keys()->values(),
             'datasets' => [
-                'Alcance' => $byPage->pluck('alcance')->values(),
-                'Visualizaciones' => $byPage->pluck('visualizaciones')->values(),
-                'Interacciones' => $byPage->pluck('interacciones')->values(),
+                __('Alcance') => $byPage->pluck('alcance')->values(),
+                __('Visualizaciones') => $byPage->pluck('visualizaciones')->values(),
+                __('Interacciones') => $byPage->pluck('interacciones')->values(),
             ],
         ];
 
@@ -163,9 +163,9 @@ class InformeController extends Controller
                 return $label . ' • ' . $short;
             })->values(),
             'datasets' => [
-                'Alcance' => $posts->map(fn($p) => (int) ($p->alcance ?? 0))->values(),
-                'Visualizaciones' => $posts->map(fn($p) => (int) ($p->visualizaciones ?? 0))->values(),
-                'Interacciones' => $posts->map(fn($p) => (int) ($p->interacciones ?? 0))->values(),
+                __('Alcance') => $posts->map(fn($p) => (int) ($p->alcance ?? 0))->values(),
+                __('Visualizaciones') => $posts->map(fn($p) => (int) ($p->visualizaciones ?? 0))->values(),
+                __('Interacciones') => $posts->map(fn($p) => (int) ($p->interacciones ?? 0))->values(),
             ],
         ];
 

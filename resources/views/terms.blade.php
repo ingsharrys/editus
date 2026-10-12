@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Editus | Términos y Condiciones</title>
+    <title>Editus | {{ __('Términos y Condiciones') }}</title>
     <link rel="icon" href="{{ asset('img/logo.jpg') }}" type="image/png">
 
     <!-- Fonts -->
@@ -12,7 +12,7 @@
 
     <!-- Tailwind CDN -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-    <meta name="description" content="Términos y Condiciones de uso de la plataforma Editus, desarrollada por Sharrys Tech.">
+    <meta name="description" content="{{ __('Términos y Condiciones de uso de la plataforma Editus, desarrollada por Sharrys Tech.') }}">
     <meta name="robots" content="index,follow">
   </head>
 
@@ -20,6 +20,10 @@
       <div class="max-w-5xl mx-auto px-6 py-12">
 
         <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+
+            @if (app()->getLocale() === 'en')
+            @include('legal.terms-en')
+            @else
 
             <!-- Encabezado -->
 
@@ -320,6 +324,8 @@
                 © {{ date('Y') }} Sharrys Tech · Editus · Todos los derechos reservados.
 
             </div>
+
+            @endif
 
         </div>
 

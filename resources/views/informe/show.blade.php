@@ -5,7 +5,7 @@
 
         {{-- Header --}}
         <div class="flex items-center justify-between mb-6 mt-10">
-            <h1 class="text-2xl text-white md:text-3xl font-bold">Detalle de publicación</h1>
+            <h1 class="text-2xl text-white md:text-3xl font-bold">{{ __('Detalle de publicación') }}</h1>
 
             @php
                 $pdfUrl = route('informe.pdf', $key);
@@ -14,9 +14,9 @@
             <div class="flex items-center gap-3">
                 <a href="{{ $pdfUrl }}" target="_blank"
                     class="text-sm px-3 py-2 rounded-lg border bg-white/90 hover:bg-white">
-                    Descargar PDF
+                    {{ __('Descargar PDF') }}
                 </a>
-                <a href="{{ route('informe.index') }}" class="text-sm underline text-white">← Volver</a>
+                <a href="{{ route('informe.index') }}" class="text-sm underline text-white">← {{ __('Volver') }}</a>
             </div>
         </div>
 
@@ -53,14 +53,14 @@
 
         <div class="rounded-2xl border bg-white p-6 shadow-sm mb-6">
             <div class="text-sm text-gray-500 mb-1">{{ $eff }}</div>
-            <h2 class="text-lg font-semibold mb-4">{{ $summary['message_sample'] ?: '— Sin texto —' }}</h2>
+            <h2 class="text-lg font-semibold mb-4">{{ $summary['message_sample'] ?: '— ' . __('Sin texto') . ' —' }}</h2>
 
             <div class="flex flex-wrap items-center gap-3 mb-4">
-                <label class="text-sm text-gray-600" for="metricSelect">Métrica</label>
+                <label class="text-sm text-gray-600" for="metricSelect">{{ __('Métrica') }}</label>
                 <select id="metricSelect" class="border rounded-lg px-3 py-2">
-                    <option value="alcance">Alcance</option>
-                    <option value="visualizaciones">Visualizaciones</option>
-                    <option value="interacciones">Interacciones</option>
+                    <option value="alcance">{{ __('Alcance') }}</option>
+                    <option value="visualizaciones">{{ __('Visualizaciones') }}</option>
+                    <option value="interacciones">{{ __('Interacciones') }}</option>
                 </select>
             </div>
 
@@ -71,34 +71,34 @@
             <div class="mt-4 text-sm" id="extremesBox" style="display:none">
                 <div class="flex flex-wrap items-center gap-4">
                     <div>
-                        <span class="text-gray-500">Mayor</span>:
+                        <span class="text-gray-500">{{ __('Mayor') }}</span>:
                         <strong id="maxName">—</strong>
                         (<span id="maxValue">0</span>)
                     </div>
                     <div>
-                        <span class="text-gray-500">Menor</span>:
+                        <span class="text-gray-500">{{ __('Menor') }}</span>:
                         <strong id="minName">—</strong>
                         (<span id="minValue">0</span>)
                     </div>
                 </div>
             </div>
             <div class="mt-4 text-sm text-gray-500" id="noDataBox" style="display:none">
-                No hay datos para graficar.
+                {{ __('No hay datos para graficar.') }}
             </div>
         </div>
 
         {{-- Desglose por página --}}
         <div class="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 class="text-lg font-semibold mb-4">Por página</h3>
+            <h3 class="text-lg font-semibold mb-4">{{ __('Por página') }}</h3>
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm">
                     <thead>
                         <tr class="text-left text-gray-500 border-b">
-                            <th class="py-2 pr-4">Página</th>
-                            <th class="py-2 pr-4 text-right">Alcance</th>
-                            <th class="py-2 pr-4 text-right">Visualizaciones</th>
-                            <th class="py-2 pr-4 text-right">Interacciones</th>
-                            <th class="py-2 pr-4 text-center">Enlace</th>
+                            <th class="py-2 pr-4">{{ __('Página') }}</th>
+                            <th class="py-2 pr-4 text-right">{{ __('Alcance') }}</th>
+                            <th class="py-2 pr-4 text-right">{{ __('Visualizaciones') }}</th>
+                            <th class="py-2 pr-4 text-right">{{ __('Interacciones') }}</th>
+                            <th class="py-2 pr-4 text-center">{{ __('Enlace') }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -153,14 +153,14 @@
                         @empty
                             <tr>
                                 <td colspan="5" class="py-3 pr-4 text-gray-500">
-                                    No hay datos.
+                                    {{ __('No hay datos.') }}
                                 </td>
                             </tr>
                         @endforelse
                     </tbody>
                     <tfoot>
                         <tr class="font-semibold">
-                            <td class="py-2 pr-4 text-right">Totales</td>
+                            <td class="py-2 pr-4 text-right">{{ __('Totales') }}</td>
                             <td class="py-2 pr-4 text-right">
                                 {{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}
                             </td>
@@ -210,7 +210,7 @@
                         onSuccess();
                     }
                 } catch (e) {
-                    alert('No se pudo copiar el enlace');
+                    alert(@js(__('No se pudo copiar el enlace')));
                 }
                 document.body.removeChild(textarea);
             }
@@ -227,7 +227,7 @@
                 }
 
                 if (label) {
-                    label.textContent = 'Copiado';
+                    label.textContent = @js(__('Copiado'));
                 }
 
                 btn.classList.remove('text-gray-500', 'hover:text-gray-700');

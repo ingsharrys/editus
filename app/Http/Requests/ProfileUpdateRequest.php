@@ -34,6 +34,6 @@ class ProfileUpdateRequest extends FormRequest
 
     public function attributes(): array
     {
-        return ['avatar' => 'foto de perfil', 'telefono' => 'teléfono'];
+        return ['avatar' => __('foto de perfil'), 'telefono' => __('teléfono')];
     }
 }

@@ -71,6 +71,16 @@ return [
         'events_secret' => env('WOMPI_EVENTS_SECRET', ''),
     ],
 
+    // Square: cobros fuera de Colombia, en dólares (enlaces de pago + webhook firmado)
+    'square' => [
+        'env' => env('SQUARE_ENV', 'sandbox'), // sandbox | production
+        'access_token' => env('SQUARE_ACCESS_TOKEN', ''),
+        'location_id' => env('SQUARE_LOCATION_ID', ''),
+        'webhook_signature_key' => env('SQUARE_WEBHOOK_SIGNATURE_KEY', ''),
+        'webhook_url' => env('SQUARE_WEBHOOK_URL'), // URL exacta registrada en Square (por defecto /webhooks/square)
+        'version' => env('SQUARE_VERSION'),         // opcional, p. ej. 2025-01-23
+    ],
+
     'facebook_login' => [
         'client_id' => env('FACEBOOK_LOGIN_CLIENT_ID'),
         'client_secret' => env('FACEBOOK_LOGIN_CLIENT_SECRET'),

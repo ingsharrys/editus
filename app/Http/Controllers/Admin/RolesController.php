@@ -35,28 +35,28 @@ class RolesController extends Controller
         $slug = $this->slugLibre($d['name']);
         Role::create(['name' => $d['name'], 'slug' => $slug, 'descripcion' => $d['descripcion'] ?? null, 'sistema' => false,
             'permisos' => $this->acceso->permisosPermitidos(Auth::user(), (array) ($d['permisos'] ?? []))]);
-        return redirect()->route('roles.index')->with('success', "Rol «{$d['name']}» creado.");
+        return redirect()->route('roles.index')->with('success', __('Rol «:nombre» creado.', ['nombre' => $d['name']]));
     }
 
     public function update(Request $request, Role $rol): RedirectResponse
     {
-        if ($rol->esAdmin()) return back()->withErrors(['rol' => 'El rol Administrador tiene todos los permisos y no se puede cambiar.']);
+        if ($rol->esAdmin()) return back()->withErrors(['rol' => __('El rol Administrador tiene todos los permisos y no se puede cambiar.')]);
         $actor = Auth::user();
         // Quien no es administrador no edita su propio rol ni roles con permisos que él no tiene
-        if (!$actor->isAdmin() && ((int) $actor->role_id === (int) $rol->id || !$this->acceso->puedeAsignar($actor, $rol))) abort(403, 'No puedes editar este rol.');
+        if (!$actor->isAdmin() && ((int) $actor->role_id === (int) $rol->id || !$this->acceso->puedeAsignar($actor, $rol))) abort(403, __('No puedes editar este rol.'));
         $d = $this->validar($request, $rol);
         $rol->fill(['name' => $d['name'], 'descripcion' => $d['descripcion'] ?? null, 'permisos' => $this->acceso->permisosPermitidos($actor, (array) ($d['permisos'] ?? []))])->save();
-        return redirect()->route('roles.index')->with('success', "Rol «{$rol->name}» actualizado.");
+        return redirect()->route('roles.index')->with('success', __('Rol «:nombre» actualizado.', ['nombre' => $rol->name]));
     }
 
     public function destroy(Role $rol): RedirectResponse
     {
-        if ($rol->sistema || in_array($rol->slug, ['admin', 'user'], true)) return back()->withErrors(['rol' => 'Los roles del sistema no se borran.']);
-        if ($rol->users()->exists()) return back()->withErrors(['rol' => "El rol «{$rol->name}» tiene usuarios: cámbialos de rol antes de borrarlo."]);
+        if ($rol->sistema || in_array($rol->slug, ['admin', 'user'], true)) return back()->withErrors(['rol' => __('Los roles del sistema no se borran.')]);
+        if ($rol->users()->exists()) return back()->withErrors(['rol' => __('El rol «:nombre» tiene usuarios: cámbialos de rol antes de borrarlo.', ['nombre' => $rol->name])]);
         abort_unless($this->acceso->puedeAsignar(Auth::user(), $rol), 403);
         $nombre = $rol->name;
         $rol->delete();
-        return back()->with('success', "Rol «{$nombre}» borrado.");
+        return back()->with('success', __('Rol «:nombre» borrado.', ['nombre' => $nombre]));
     }
 
     private function validar(Request $request, ?Role $rol = null): array
@@ -65,7 +65,7 @@ class RolesController extends Controller
             'name' => ['required', 'string', 'max:60', Rule::unique('roles', 'name')->ignore($rol?->id)],
             'descripcion' => ['nullable', 'string', 'max:255'],
             'permisos' => ['nullable', 'array'], 'permisos.*' => ['string', Rule::in(Role::claves())],
-        ], ['name.unique' => 'Ya existe un rol con ese nombre.']);
+        ], ['name.unique' => __('Ya existe un rol con ese nombre.')]);
     }
 
     private function slugLibre(string $nombre): string

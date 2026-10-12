@@ -5,25 +5,29 @@ namespace App\Http\Controllers;
 use App\Models\PagoSuscripcion;
 use App\Services\CobrosService;
 use App\Services\PlanService;
+use App\Services\RegionService;
 use App\Services\WompiService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
-/** «Mi suscripción»: planes, pago con Wompi, páginas del plan y licencia del plugin SharryStreem. */
+/**
+ * «Mi suscripción»: planes, pago (Wompi en COP desde Colombia, Square en USD desde el exterior),
+ * páginas del plan y licencia del plugin SharryStreem.
+ */
 class SuscripcionController extends Controller
 {
-    public function __construct(private PlanService $planes)
+    public function __construct(private PlanService $planes, private RegionService $region)
     {
     }
 
-    public function index(WompiService $wompi): View
+    public function index(Request $request, CobrosService $cobros): View
     {
         $user = Auth::user();
         $s = $this->planes->suscripcion($user);
+        $moneda = $this->region->moneda($request, $user);
         return view('suscripcion.index', [
             'user' => $user,
             'sinLimites' => $this->planes->sinLimites($user),
@@ -32,20 +36,27 @@ class SuscripcionController extends Controller
             'conectadas' => $this->planes->paginasConectadas($user),
             'permitidas' => $this->planes->paginasPermitidas($user)?->pluck('id')->map(fn($v) => (int) $v)->all() ?? [],
             'pagos' => PagoSuscripcion::where('user_id', $user->id)->latest()->limit(12)->get(),
-            'wompiListo' => $wompi->configurado(),
+            'moneda' => $moneda,
+            'pagosListos' => $cobros->disponible($moneda),
             'licenciaNueva' => session('licencia_nueva'),
         ]);
     }
 
-    /** Crea el pago pendiente y lleva al Web Checkout de Wompi. */
-    public function pagar(Request $request, WompiService $wompi, CobrosService $cobros): RedirectResponse
+    /** Crea el pago pendiente y lleva a la pasarela de la moneda del cliente (Wompi o Square). */
+    public function pagar(Request $request, CobrosService $cobros): RedirectResponse
     {
         $datos = $request->validate([
             'plan' => ['required', Rule::in(array_keys($this->planes->planes()))],
             'periodo' => ['required', Rule::in(PlanService::PERIODOS)],
         ]);
-        if (!$wompi->configurado()) return back()->with('error', 'Los pagos en línea aún no están configurados. Escríbenos para activar tu plan.');
-        return redirect()->away($cobros->iniciarPago(Auth::user(), $datos['plan'], $datos['periodo'], route('suscripcion.resultado')));
+        $moneda = $this->region->moneda($request, Auth::user());
+        if (!$cobros->disponible($moneda)) return back()->with('error', __('Los pagos en línea aún no están configurados. Escríbenos para activar tu plan.'));
+        try {
+            return redirect()->away($cobros->iniciarPago(Auth::user(), $datos['plan'], $datos['periodo'], route('suscripcion.resultado'), $moneda));
+        } catch (\Throwable $e) {
+            report($e);
+            return back()->with('error', __('No pudimos abrir el pago. Inténtalo de nuevo en unos minutos.'));
+        }
     }
 
     /** Retorno del checkout (?id=transacción): se verifica con la API de Wompi, nunca con lo que dice la URL. */
@@ -53,13 +64,26 @@ class SuscripcionController extends Controller
     {
         $id = (string) $request->query('id', '');
         $tx = $id !== '' ? $wompi->transaccion($id) : null;
-        if (!$tx) return redirect()->route('suscripcion.index')->with('error', 'No pudimos confirmar el pago con Wompi. Si se descontó el dinero, se activará en unos minutos.');
+        if (!$tx) return redirect()->route('suscripcion.index')->with('error', __('No pudimos confirmar el pago con Wompi. Si se descontó el dinero, se activará en unos minutos.'));
         $pago = $cobros->procesar($tx);
-        if (!$pago || (int) $pago->user_id !== (int) Auth::id()) return redirect()->route('suscripcion.index')->with('error', 'El pago no corresponde a tu cuenta.');
+        if (!$pago || (int) $pago->user_id !== (int) Auth::id()) return redirect()->route('suscripcion.index')->with('error', __('El pago no corresponde a tu cuenta.'));
+        return $this->mensajeResultado($pago, 'Wompi');
+    }
+
+    /** Retorno de Square (?ref=referencia de editus): se consulta la orden en la API de Square. */
+    public function resultadoSquare(Request $request, CobrosService $cobros): RedirectResponse
+    {
+        $pago = PagoSuscripcion::where('referencia', (string) $request->query('ref', ''))->where('pasarela', 'square')->first();
+        if (!$pago || (int) $pago->user_id !== (int) Auth::id()) return redirect()->route('suscripcion.index')->with('error', __('El pago no corresponde a tu cuenta.'));
+        return $this->mensajeResultado($cobros->procesarSquare($pago), 'Square');
+    }
+
+    private function mensajeResultado(PagoSuscripcion $pago, string $pasarela): RedirectResponse
+    {
         return match ($pago->estado) {
-            'APPROVED' => redirect()->route('suscripcion.index')->with('success', '¡Pago aprobado! Tu plan está activo.'),
-            'PENDING' => redirect()->route('suscripcion.index')->with('success', 'Tu pago está en proceso. Se activará apenas Wompi lo confirme.'),
-            default => redirect()->route('suscripcion.index')->with('error', 'El pago no fue aprobado (' . $pago->estado . '). Puedes intentarlo de nuevo.'),
+            'APPROVED' => redirect()->route('suscripcion.index')->with('success', __('¡Pago aprobado! Tu plan está activo.')),
+            'PENDING' => redirect()->route('suscripcion.index')->with('success', __('Tu pago está en proceso. Se activará apenas :pasarela lo confirme.', ['pasarela' => $pasarela])),
+            default => redirect()->route('suscripcion.index')->with('error', __('El pago no fue aprobado (:estado). Puedes intentarlo de nuevo.', ['estado' => $pago->estado])),
         };
     }
 
@@ -67,20 +91,20 @@ class SuscripcionController extends Controller
     {
         $datos = $request->validate(['paginas' => ['nullable', 'array'], 'paginas.*' => ['integer']]);
         $s = $this->planes->suscripcion(Auth::user());
-        if (!$s) return back()->with('error', 'Primero activa un plan.');
+        if (!$s) return back()->with('error', __('Primero activa un plan.'));
         $max = (int) ($s->config()['paginas'] ?? 0);
-        if (count($datos['paginas'] ?? []) > $max) return back()->with('error', "Tu plan permite {$max} página(s).");
+        if (count($datos['paginas'] ?? []) > $max) return back()->with('error', __('Tu plan permite :n página(s).', ['n' => $max]));
         $this->planes->elegirPaginas(Auth::user(), $datos['paginas'] ?? []);
-        return back()->with('success', 'Páginas del plan guardadas.');
+        return back()->with('success', __('Páginas del plan guardadas.'));
     }
 
     /** Nueva llave para el plugin (la anterior deja de funcionar y se desvinculan los sitios). */
     public function regenerarLicencia(): RedirectResponse
     {
         $s = $this->planes->suscripcion(Auth::user());
-        if (!$s || !$s->activa()) return back()->with('error', 'Necesitas un plan activo para tener licencia.');
+        if (!$s || !$s->activa()) return back()->with('error', __('Necesitas un plan activo para tener licencia.'));
         $this->planes->generarLicencia($s);
-        return back()->with('success', 'Nueva llave creada. Cópiala ahora: por seguridad no se vuelve a mostrar completa.');
+        return back()->with('success', __('Nueva llave creada. Cópiala ahora: por seguridad no se vuelve a mostrar completa.'));
     }
 
     public function liberarSitio(Request $request): RedirectResponse
@@ -88,6 +112,6 @@ class SuscripcionController extends Controller
         $sitio = (string) $request->validate(['sitio' => ['required', 'string', 'max:255']])['sitio'];
         $s = $this->planes->suscripcion(Auth::user());
         if ($s) $s->fill(['licencia_sitios' => array_values(array_filter((array) $s->licencia_sitios, fn($x) => ($x['url'] ?? '') !== $sitio))])->save();
-        return back()->with('success', 'Sitio desvinculado de la licencia.');
+        return back()->with('success', __('Sitio desvinculado de la licencia.'));
     }
 }

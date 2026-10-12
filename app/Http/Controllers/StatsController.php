@@ -68,14 +68,14 @@ class StatsController extends Controller
         // Datasets del gráfico según el filtro de red
         $datasets = [];
         if (in_array('facebook', $networkList, true)) {
-            $datasets[] = ['label' => 'Alcance Facebook', 'data' => $seriesOf('facebook', 'reach'), 'borderColor' => '#2563eb', 'backgroundColor' => 'rgba(37,99,235,.08)', 'fill' => true, 'tension' => .3, 'pointRadius' => 0];
-            $datasets[] = ['label' => 'Interacciones Facebook', 'data' => $seriesOf('facebook', 'engagements'), 'borderColor' => '#059669', 'tension' => .3, 'pointRadius' => 0];
+            $datasets[] = ['label' => __('Alcance Facebook'), 'data' => $seriesOf('facebook', 'reach'), 'borderColor' => '#2563eb', 'backgroundColor' => 'rgba(37,99,235,.08)', 'fill' => true, 'tension' => .3, 'pointRadius' => 0];
+            $datasets[] = ['label' => __('Interacciones Facebook'), 'data' => $seriesOf('facebook', 'engagements'), 'borderColor' => '#059669', 'tension' => .3, 'pointRadius' => 0];
             if ($network === 'facebook') {
-                $datasets[] = ['label' => 'Impresiones Facebook', 'data' => $seriesOf('facebook', 'impressions'), 'borderColor' => '#7c3aed', 'tension' => .3, 'pointRadius' => 0];
+                $datasets[] = ['label' => __('Impresiones Facebook'), 'data' => $seriesOf('facebook', 'impressions'), 'borderColor' => '#7c3aed', 'tension' => .3, 'pointRadius' => 0];
             }
         }
         if (in_array('instagram', $networkList, true)) {
-            $datasets[] = ['label' => 'Alcance Instagram', 'data' => $seriesOf('instagram', 'reach'), 'borderColor' => '#ec4899', 'backgroundColor' => 'rgba(236,72,153,.08)', 'fill' => $network === 'instagram', 'tension' => .3, 'pointRadius' => 0];
+            $datasets[] = ['label' => __('Alcance Instagram'), 'data' => $seriesOf('instagram', 'reach'), 'borderColor' => '#ec4899', 'backgroundColor' => 'rgba(236,72,153,.08)', 'fill' => $network === 'instagram', 'tension' => .3, 'pointRadius' => 0];
         }
 
         $chart = ['labels' => $labels->all(), 'datasets' => $datasets];
@@ -253,6 +253,6 @@ class StatsController extends Controller
 
         \Illuminate\Support\Facades\Artisan::queue('stats:collect', ['--days' => 7]);
 
-        return back()->with('success', 'Recolección de estadísticas iniciada. Los datos aparecerán en unos minutos.');
+        return back()->with('success', __('Recolección de estadísticas iniciada. Los datos aparecerán en unos minutos.'));
     }
 }

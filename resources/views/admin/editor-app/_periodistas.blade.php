@@ -7,7 +7,7 @@
 @php
     $todos = in_array('*', $seleccion, true);
     $conocidos = collect($periodistas)->map(fn($u) => strtolower($u['username']))->all();
-    $resumen = $todos ? 'Todos los periodistas' : (empty($seleccion) ? 'Nadie' : implode(', ', $seleccion));
+    $resumen = $todos ? __('Todos los periodistas') : (empty($seleccion) ? __('Nadie') : implode(', ', $seleccion));
     $tono = $todos ? 'text-gray-700' : (empty($seleccion) ? 'text-rose-600' : 'text-indigo-700');
 @endphp
 @if (!empty($periodistas))
@@ -21,7 +21,7 @@
             <input type="hidden" name="{{ $nombre }}[]" value="">
             <label class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-gray-50 font-semibold text-gray-800 cursor-pointer">
                 <input type="checkbox" name="{{ $nombre }}[]" value="*" class="todos h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200" {{ $todos ? 'checked' : '' }}>
-                Todos los periodistas
+                {{ __('Todos los periodistas') }}
             </label>
             <div class="border-t border-gray-100 my-1"></div>
             @foreach ($periodistas as $u)
@@ -36,12 +36,12 @@
                 @if ($x !== '*' && !in_array($x, $conocidos, true))
                     <label class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
                         <input type="checkbox" name="{{ $nombre }}[]" value="{{ $x }}" class="uno h-4 w-4 rounded border-gray-300 text-indigo-600" checked>
-                        <span class="flex-1 text-gray-500">{{ $x }}</span><span class="text-gray-400 text-[11px]">ya no existe</span>
+                        <span class="flex-1 text-gray-500">{{ $x }}</span><span class="text-gray-400 text-[11px]">{{ __('ya no existe') }}</span>
                     </label>
                 @endif
             @endforeach
         </div>
     </details>
 @else
-    <input type="text" name="{{ $nombre }}" value="{{ $todos ? '*' : implode(', ', $seleccion) }}" placeholder="* = todos · vacío = nadie" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm">
+    <input type="text" name="{{ $nombre }}" value="{{ $todos ? '*' : implode(', ', $seleccion) }}" placeholder="{{ __('* = todos · vacío = nadie') }}" class="w-full h-9 rounded-lg border-gray-200 text-sm shadow-sm">
 @endif

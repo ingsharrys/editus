@@ -17,6 +17,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'permiso' => \App\Http\Middleware\PermisoMiddleware::class,
             'editus.token' => \App\Http\Middleware\EditusApiToken::class,
         ]);
+        // Español o inglés según lo elegido, el perfil o el navegador
+        $middleware->appendToGroup('web', \App\Http\Middleware\Idioma::class);
         // Usuarios desactivados: se cierra su sesión; a los demás se les anota el último acceso
         $middleware->appendToGroup('web', \App\Http\Middleware\UsuarioActivo::class);
     })

@@ -33,6 +33,11 @@
   .nav-acciones .btn { height: 40px; padding: 0 16px; font-size: 14px; }
   .nav-ingresar { color: #fff; font-size: 14px; font-weight: 600; padding: 0 6px; }
   @media (max-width: 860px) { .nav-links { display: none; } .nav-ingresar { display: none; } }
+  .idioma { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.2); }
+  .idioma a { padding: 4px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: rgba(255,255,255,.8); }
+  .idioma a.activo { background: #fff; color: #00024f; }
+  .moneda { margin-top: 12px; font-size: 13px; color: #5b6083; }
+  .moneda a { font-weight: 700; text-decoration: underline; color: #183EEB; }
   /* Hero */
   .hero { background: radial-gradient(1200px 500px at 85% -10%, rgba(27,59,255,.45), transparent 60%), linear-gradient(180deg, var(--navy) 0%, var(--navy-2) 100%); color: #fff; padding: 72px 0 96px; position: relative; overflow: hidden; }
   .hero::before { content: ''; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 48px 48px; mask-image: linear-gradient(180deg, #000, transparent 85%); pointer-events: none; }

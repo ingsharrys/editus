@@ -10,7 +10,7 @@
                         · {{ $summary['message'] ?: '—' }}
                     </div>
                     <div class="text-xs text-gray-400">
-                        Por: {{ $summary['user']?->name ?? '—' }} ·
+                        {{ __('Por: :nombre', ['nombre' => $summary['user']?->name ?? '—']) }} ·
                         {{ \Carbon\Carbon::parse($summary['first_at'])->format('Y-m-d H:i') }}
                     </div>
                 </div>
@@ -33,14 +33,14 @@
 
         <div class="text-right">
             <a href="{{ route('meta.posts.index') }}" class="text-sm text-white hover:underline">
-                ← Volver al listado
+                ← {{ __('Volver al listado') }}
             </a>
         </div>
         @if ($summary['fails'] > 0)
             <form method="POST" action="{{ route('meta.posts.retryFails', $summary['batch']) }}" class="text-right mb-3">
                 @csrf
                 <button class="px-3 py-1.5 rounded bg-amber-600 text-white text-xs hover:bg-amber-700">
-                    Reintentar fallidos del lote
+                    {{ __('Reintentar fallidos del lote') }}
                 </button>
             </form>
         @endif
@@ -49,7 +49,7 @@
                 class="text-right mb-3 inline-block">
                 @csrf
                 <button class="px-3 py-1.5 rounded bg-amber-600 text-white text-xs hover:bg-amber-700">
-                    Reintentar fallidos del lote
+                    {{ __('Reintentar fallidos del lote') }}
                 </button>
             </form>
         @endif
@@ -57,15 +57,15 @@
         {{-- Botón obtener métricas (SYNC, sin colas) --}}
         <div class="text-right mb-3 inline-block ml-2">
             <button id="btnMetrics" class="px-3 py-1.5 rounded bg-blue-600 text-white text-xs hover:bg-blue-700">
-                Obtener métricas del lote
+                {{ __('Obtener métricas del lote') }}
             </button>
         </div>
 
         {{-- Barra de progreso --}}
         <div id="metricsPanel" class="hidden mt-2 rounded-xl border border-blue-200 bg-blue-50 p-3">
             <div class="flex items-center justify-between text-xs text-blue-900 mb-2">
-                <div><strong>Progreso métricas:</strong> <span id="metricsText">0 / 0</span></div>
-                <div><span id="metricsCounts">OK 0 · Vacíos 0 · Errores 0</span></div>
+                <div><strong>{{ __('Progreso métricas:') }}</strong> <span id="metricsText">0 / 0</span></div>
+                <div><span id="metricsCounts">{{ __('OK :ok · Vacíos :vacios · Errores :errores', ['ok' => 0, 'vacios' => 0, 'errores' => 0]) }}</span></div>
             </div>
             <div class="w-full bg-blue-100 rounded-full h-2">
                 <div id="metricsBar" class="bg-blue-600 h-2 rounded-full" style="width:0%"></div>
@@ -76,12 +76,12 @@
             <table class="min-w-full text-sm">
                 <thead class="bg-gray-50 text-gray-600">
                     <tr>
-                        <th class="px-3 py-2 text-left">Página</th>
-                        <th class="px-3 py-2 text-left">Estado</th>
+                        <th class="px-3 py-2 text-left">{{ __('Página') }}</th>
+                        <th class="px-3 py-2 text-left">{{ __('Estado') }}</th>
                         <th class="px-3 py-2 text-left">Permalink</th>
-                        <th class="px-3 py-2 text-left">Publicado</th>
-                        <th class="px-3 py-2 text-left">Acciones</th>
-                        <th class="px-3 py-2 text-left">Reintentar</th>
+                        <th class="px-3 py-2 text-left">{{ __('Publicado') }}</th>
+                        <th class="px-3 py-2 text-left">{{ __('Acciones') }}</th>
+                        <th class="px-3 py-2 text-left">{{ __('Reintentar') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -102,7 +102,7 @@
                                 <span
                                     class="px-2 py-1 rounded-full {{ $badge }}">{{ strtoupper($p->status) }}</span>
                                 @if ($p->error)
-                                    <div class="text-[11px] text-red-500 mt-1 truncate" title="{{ $p->error }}">Error:
+                                    <div class="text-[11px] text-red-500 mt-1 truncate" title="{{ $p->error }}">{{ __('Error:') }}
                                         {{ \Illuminate\Support\Str::limit($p->error, 80) }}</div>
                                 @endif
                             </td>
@@ -120,9 +120,9 @@
 
                                 @if ($link)
                                     <a href="{{ $link }}" target="_blank" rel="noopener"
-                                        class="text-indigo-600 hover:underline">Ver publicación</a>
+                                        class="text-indigo-600 hover:underline">{{ __('Ver publicación') }}</a>
                                     <button type="button" class="ml-2 text-xs text-gray-500 hover:text-gray-700"
-                                        onclick="navigator.clipboard.writeText('{{ $link }}')">Copiar</button>
+                                        onclick="navigator.clipboard.writeText('{{ $link }}')">{{ __('Copiar') }}</button>
                                 @else
                                     <span class="text-gray-400">—</span>
                                 @endif
@@ -134,7 +134,7 @@
                             <td class="px-3 py-2">
                                 @if ($link)
                                     <a href="{{ $link }}" target="_blank" rel="noopener"
-                                        class="inline-block px-2 py-1 rounded bg-indigo-600 text-white text-xs">Abrir</a>
+                                        class="inline-block px-2 py-1 rounded bg-indigo-600 text-white text-xs">{{ __('Abrir') }}</a>
                                 @else
                                     <span class="text-gray-400 text-xs">—</span>
                                 @endif
@@ -145,7 +145,7 @@
                                         @csrf
                                         <button
                                             class="inline-block px-2 py-1 rounded bg-amber-600 text-white text-xs hover:bg-amber-700">
-                                            Reintentar
+                                            {{ __('Reintentar') }}
                                         </button>
                                     </form>
                                 @else
@@ -169,6 +169,7 @@
             const text = document.getElementById('metricsText');
             const counts = document.getElementById('metricsCounts');
             const bar = document.getElementById('metricsBar');
+            const T_COUNTS = @js(__('OK :ok · Vacíos :vacios · Errores :errores'));
 
             const startUrl = "{{ route('meta.posts.metrics.startSync', $summary['batch']) }}";
             const stepUrl = "{{ route('meta.posts.metrics.step', $summary['batch']) }}";
@@ -181,7 +182,7 @@
                 const empty = state?.empty || 0;
                 const errs = state?.errors || 0;
                 text.textContent = `${done} / ${total}`;
-                counts.textContent = `OK ${ok} · Vacíos ${empty} · Errores ${errs}`;
+                counts.textContent = T_COUNTS.replace(':ok', ok).replace(':vacios', empty).replace(':errores', errs);
                 const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
                 bar.style.width = pct + '%';
             }
@@ -333,7 +334,7 @@
                 const j = res.body || {};
                 if (!res.httpOk || (!j.ok && !j.already_running)) {
                     // Si falla el inicio, sí mostramos alerta (caso raro)
-                    alert(j.error || 'No se pudo iniciar.');
+                    alert(j.error || @js(__('No se pudo iniciar.')));
                     btn.disabled = false;
                     btn.classList.remove('opacity-60', 'cursor-not-allowed');
                     return;

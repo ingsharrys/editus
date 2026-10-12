@@ -75,7 +75,7 @@ class InteligenciaController extends Controller
             $consulta = $consultor->consultar(trim($d['pregunta']), $paginas, $temas, $desde, $hasta, $ambito, $campana, auth()->id());
         } catch (\Throwable $e) {
             \Log::warning('[inteligencia] consultor', ['err' => $e->getMessage()]);
-            return response()->json(['success' => false, 'error' => 'No se pudo consultar a la IA: ' . ClaudeService::mensajeError($e)], 422);
+            return response()->json(['success' => false, 'error' => __('No se pudo consultar a la IA: :error', ['error' => __(ClaudeService::mensajeError($e))])], 422);
         }
         return response()->json(['success' => true, 'consulta' => $consulta->load('user', 'campana')->paraVista()]);
     }
@@ -115,7 +115,7 @@ class InteligenciaController extends Controller
     /** POST (JSON): diagnóstico estratégico con IA del alcance y periodo elegidos, según el enfoque. */
     public function diagnosticar(Request $request, DiagnosticoService $diagnostico, ClaudeService $ia): \Illuminate\Http\JsonResponse
     {
-        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => __('Falta ANTHROPIC_API_KEY en el .env de editus.')], 422);
         @set_time_limit(280);
         $d = $request->validate([
             'campana_id' => ['nullable', 'integer', 'exists:campanas,id'], 'enfoque' => ['required', 'in:' . implode(',', array_keys(Enfoque::NOMBRES))],
@@ -128,7 +128,7 @@ class InteligenciaController extends Controller
             $x = $diagnostico->generar($paginas, $temas, $desde, $hasta, $d['enfoque'], $ambito, $campana, auth()->id());
         } catch (\Throwable $e) {
             \Log::warning('[inteligencia] diagnostico', ['err' => $e->getMessage()]);
-            return response()->json(['success' => false, 'error' => 'No se pudo hacer el diagnóstico: ' . ClaudeService::mensajeError($e)], 422);
+            return response()->json(['success' => false, 'error' => __('No se pudo hacer el diagnóstico: :error', ['error' => __(ClaudeService::mensajeError($e))])], 422);
         }
         return response()->json(['success' => true, 'diagnostico' => $x->load('user')->paraVista()]);
     }
@@ -232,14 +232,14 @@ class InteligenciaController extends Controller
         @set_time_limit(170);
         $clave = $this->claveRecoleccion();
         $estado = \Illuminate\Support\Facades\Cache::get($clave);
-        if (!$estado) return response()->json(['success' => false, 'error' => 'No hay una recolección iniciada (o venció). Vuelve a pulsar "Recolectar ahora".'], 422);
+        if (!$estado) return response()->json(['success' => false, 'error' => __('No hay una recolección iniciada (o venció). Vuelve a pulsar "Recolectar ahora".')], 422);
         if ($estado['hecho'] >= $estado['total']) {
             \Illuminate\Support\Facades\Cache::forget($clave);
             return response()->json(['success' => true, 'terminado' => true, 'hecho' => $estado['hecho'], 'total' => $estado['total'], 'errores' => $estado['errores']]);
         }
         $id = $estado['ids'][$estado['hecho']];
         $p = MetaPage::find($id);
-        $linea = ['pagina' => $p?->name ?? "#{$id}", 'ok' => false, 'detalle' => 'La página ya no existe', 'avisos' => []];
+        $linea = ['pagina' => $p?->name ?? "#{$id}", 'ok' => false, 'detalle' => __('La página ya no existe'), 'avisos' => []];
         if ($p) {
             try {
                 $r = $recolector->recolectar($p, (int) $estado['dias']);
@@ -247,11 +247,11 @@ class InteligenciaController extends Controller
                 $linea = [
                     'pagina' => $p->name, 'ok' => !$r['errores'],
                     'detalle' => $d
-                        ? $d['titulo'] . ' (conectada por ' . ($d['quien'] ?? implode(', ', $r['conectada_por'] ?? [])) . ')'
-                        : sprintf('%s publicaciones · %s con métricas · FB %s días · IG %s días', $r['publicaciones'], $r['metricas'], $r['facebook'] ?? '—', $r['instagram'] ?? '—') . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : ''),
+                        ? __(':titulo (conectada por :quien)', ['titulo' => __($d['titulo']), 'quien' => $d['quien'] ?? implode(', ', $r['conectada_por'] ?? [])])
+                        : __(':publicaciones publicaciones · :metricas con métricas · FB :facebook días · IG :instagram días', ['publicaciones' => $r['publicaciones'], 'metricas' => $r['metricas'], 'facebook' => $r['facebook'] ?? '—', 'instagram' => $r['instagram'] ?? '—']) . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : ''),
                     'avisos' => $r['avisos'] ?? [],
                 ];
-                if ($d) $estado['reconectar'][] = ['pagina' => $p->name, 'tipo' => $d['tipo'], 'titulo' => $d['titulo'], 'texto' => $d['texto'], 'quien' => implode(', ', $r['conectada_por'] ?? []) ?: ($d['quien'] ?? '')];
+                if ($d) $estado['reconectar'][] = ['pagina' => $p->name, 'tipo' => $d['tipo'], 'titulo' => __($d['titulo']), 'texto' => __($d['texto']), 'quien' => implode(', ', $r['conectada_por'] ?? []) ?: ($d['quien'] ?? '')];
             } catch (\Throwable $e) {
                 $linea = ['pagina' => $p->name, 'ok' => false, 'detalle' => $e->getMessage(), 'avisos' => []];
             }
@@ -327,7 +327,7 @@ class InteligenciaController extends Controller
             'campana_id' => $campana->id, 'nombre' => $d['nombre'], 'descripcion' => $d['descripcion'] ?? null,
             'palabras_clave' => self::listaPalabras($d['palabras_clave'] ?? ''), 'color' => $d['color'] ?? self::COLORES[$n % count(self::COLORES)], 'orden' => $n,
         ]);
-        return back()->with('success', 'Tema agregado.')->withFragment('temas');
+        return back()->with('success', __('Tema agregado.'))->withFragment('temas');
     }
 
     public function temaUpdate(Request $request, Campana $campana, Tema $tema): RedirectResponse
@@ -335,14 +335,14 @@ class InteligenciaController extends Controller
         abort_unless($tema->campana_id === $campana->id, 404);
         $d = $request->validate(['nombre' => ['required', 'string', 'max:80'], 'descripcion' => ['nullable', 'string', 'max:500'], 'palabras_clave' => ['nullable', 'string', 'max:500'], 'color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/']]);
         $tema->update(['nombre' => $d['nombre'], 'descripcion' => $d['descripcion'] ?? null, 'palabras_clave' => self::listaPalabras($d['palabras_clave'] ?? ''), 'color' => $d['color'] ?? $tema->color]);
-        return back()->with('success', 'Tema actualizado.')->withFragment('temas');
+        return back()->with('success', __('Tema actualizado.'))->withFragment('temas');
     }
 
     public function temaDestroy(Campana $campana, Tema $tema): RedirectResponse
     {
         abort_unless($tema->campana_id === $campana->id, 404);
         $tema->delete();
-        return back()->with('success', 'Tema eliminado. Sus publicaciones quedaron sin tema.')->withFragment('temas');
+        return back()->with('success', __('Tema eliminado. Sus publicaciones quedaron sin tema.'))->withFragment('temas');
     }
 
     /** Corrección manual del tema de una publicación. */
@@ -350,9 +350,9 @@ class InteligenciaController extends Controller
     {
         $d = $request->validate(['tema_id' => ['nullable', 'integer']]);
         $temaId = $d['tema_id'] ? (int) $d['tema_id'] : null;
-        if ($temaId && !$campana->temas()->whereKey($temaId)->exists()) abort(422, 'Tema no válido');
+        if ($temaId && !$campana->temas()->whereKey($temaId)->exists()) abort(422, __('Tema no válido'));
         $publicacion->fill(['tema_id' => $temaId, 'tema_fuente' => 'manual', 'tema_confianza' => 100])->save();
-        return back()->with('success', 'Tema corregido.');
+        return back()->with('success', __('Tema corregido.'));
     }
 
     // --------------------------------------------------------------- acciones
@@ -365,22 +365,22 @@ class InteligenciaController extends Controller
         $lineas = [];
         foreach ($campana->paginas as $p) {
             $r = $recolector->recolectar($p, $dias);
-            $lineas[] = "{$p->name}: {$r['publicaciones']} publicaciones, {$r['metricas']} con métricas" . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : '');
+            $lineas[] = __(':pagina: :publicaciones publicaciones, :metricas con métricas', ['pagina' => $p->name, 'publicaciones' => $r['publicaciones'], 'metricas' => $r['metricas']]) . ($r['errores'] ? ' · ' . implode(' | ', $r['errores']) : '');
         }
-        return back()->with('success', 'Recolección terminada. ' . implode(' — ', $lineas));
+        return back()->with('success', __('Recolección terminada. :detalle', ['detalle' => implode(' — ', $lineas)]));
     }
 
     public function analizar(Campana $campana, ClasificadorService $clasificador, ComentariosService $comentarios, ClaudeService $ia): RedirectResponse
     {
-        if (!$ia->configurado()) return back()->with('error', 'Falta ANTHROPIC_API_KEY en el .env de editus.');
+        if (!$ia->configurado()) return back()->with('error', __('Falta ANTHROPIC_API_KEY en el .env de editus.'));
         @set_time_limit(280);
         try {
             $n = $clasificador->clasificarCampana($campana, 100);
             $m = $comentarios->analizarCampana($campana, 15);
         } catch (\Throwable $e) {
-            return back()->with('error', 'La IA falló: ' . ClaudeService::mensajeError($e));
+            return back()->with('error', __('La IA falló: :error', ['error' => __(ClaudeService::mensajeError($e))]));
         }
-        return back()->with('success', "{$n} publicaciones clasificadas y {$m} lecturas de comentarios.");
+        return back()->with('success', __(':n publicaciones clasificadas y :m lecturas de comentarios.', ['n' => $n, 'm' => $m]));
     }
 
     /**
@@ -389,7 +389,7 @@ class InteligenciaController extends Controller
      */
     public function analizarPaso(Request $request, Campana $campana, ClasificadorService $clasificador, ComentariosService $comentarios, ClaudeService $ia): \Illuminate\Http\JsonResponse
     {
-        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => __('Falta ANTHROPIC_API_KEY en el .env de editus.')], 422);
         @set_time_limit(170);
         $clave = 'inteligencia.analisis.' . auth()->id() . '.' . $campana->id;
         $estado = $request->boolean('inicio') ? null : \Illuminate\Support\Facades\Cache::get($clave);
@@ -403,11 +403,11 @@ class InteligenciaController extends Controller
             try {
                 $n = $clasificador->clasificarPorTiempo($campana, 45);
             } catch (\Throwable $e) {
-                return response()->json(['success' => false, 'error' => 'La IA falló al clasificar: ' . ClaudeService::mensajeError($e)]);
+                return response()->json(['success' => false, 'error' => __('La IA falló al clasificar: :error', ['error' => __(ClaudeService::mensajeError($e))])]);
             }
             $estado['clasificadas'] += $n;
             $guardar();
-            return response()->json(['success' => true, 'terminado' => false, 'fase' => 'clasificar', 'clasificadas' => $estado['clasificadas'], 'pendientes' => $clasificador->pendientes($campana), 'linea' => ['ok' => true, 'texto' => "{$n} publicaciones clasificadas"]]);
+            return response()->json(['success' => true, 'terminado' => false, 'fase' => 'clasificar', 'clasificadas' => $estado['clasificadas'], 'pendientes' => $clasificador->pendientes($campana), 'linea' => ['ok' => true, 'texto' => __(':n publicaciones clasificadas', ['n' => $n])]]);
         }
 
         // 2) Leer comentarios (3 publicaciones por paso)
@@ -415,8 +415,8 @@ class InteligenciaController extends Controller
         if ($lote->isEmpty()) {
             \Illuminate\Support\Facades\Cache::forget($clave);
             $conComentarios = $comentarios->conComentarios($campana);
-            $aviso = $sinTemas ? 'La campaña no tiene temas: agrégalos en la pestaña Temas para clasificar. ' : '';
-            if ($conComentarios === 0) $aviso .= 'No hay publicaciones con ' . ComentariosService::MINIMO . ' o más comentarios en los últimos 60 días: no hay comentarios para leer.';
+            $aviso = $sinTemas ? __('La campaña no tiene temas: agrégalos en la pestaña Temas para clasificar.') . ' ' : '';
+            if ($conComentarios === 0) $aviso .= __('No hay publicaciones con :n o más comentarios en los últimos 60 días: no hay comentarios para leer.', ['n' => ComentariosService::MINIMO]);
             return response()->json(['success' => true, 'terminado' => true, 'clasificadas' => $estado['clasificadas'], 'lecturas' => $estado['lecturas'], 'fallidas' => $estado['fallidas'], 'aviso' => trim($aviso) ?: null]);
         }
         $lineas = [];
@@ -425,10 +425,10 @@ class InteligenciaController extends Controller
             try {
                 $r = $comentarios->analizarDetalle($p, $campana);
             } catch (\Throwable $e) {
-                $r = ['ok' => false, 'motivo' => 'La IA falló: ' . ClaudeService::mensajeError($e)];
+                $r = ['ok' => false, 'motivo' => __('La IA falló: :error', ['error' => __(ClaudeService::mensajeError($e))])];
             }
             $r['ok'] ? $estado['lecturas']++ : $estado['fallidas']++;
-            $lineas[] = ['ok' => $r['ok'], 'texto' => ($p->page?->name ?? 'Página') . ' · ' . \Illuminate\Support\Str::limit(trim((string) $p->texto), 60) . ' — ' . $r['motivo']];
+            $lineas[] = ['ok' => $r['ok'], 'texto' => ($p->page?->name ?? __('Página')) . ' · ' . \Illuminate\Support\Str::limit(trim((string) $p->texto), 60) . ' — ' . $r['motivo']];
         }
         $guardar();
         return response()->json(['success' => true, 'terminado' => false, 'fase' => 'comentarios', 'clasificadas' => $estado['clasificadas'], 'lecturas' => $estado['lecturas'], 'fallidas' => $estado['fallidas'], 'lineas' => $lineas]);
@@ -438,7 +438,7 @@ class InteligenciaController extends Controller
 
     public function radarIniciar(Request $request, Campana $campana, RadarWebService $radar, ClaudeService $ia): \Illuminate\Http\JsonResponse
     {
-        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => 'Falta ANTHROPIC_API_KEY en el .env de editus.'], 422);
+        if (!$ia->configurado()) return response()->json(['success' => false, 'error' => __('Falta ANTHROPIC_API_KEY en el .env de editus.')], 422);
         $data = $request->validate(['enfoque' => ['nullable', 'string', 'max:300']]);
         $r = $radar->iniciar($campana, auth()->id(), (string) ($data['enfoque'] ?? ''));
         return response()->json(['success' => true, 'id' => $r->id, 'total' => $r->totalPasos(), 'frentes' => array_column($r->plan, 'nombre')]);
@@ -459,15 +459,15 @@ class InteligenciaController extends Controller
 
     public function informeGenerar(Request $request, Campana $campana, InformeService $informes, ClaudeService $ia): RedirectResponse
     {
-        if (!$ia->configurado()) return back()->with('error', 'Falta ANTHROPIC_API_KEY en el .env de editus.');
+        if (!$ia->configurado()) return back()->with('error', __('Falta ANTHROPIC_API_KEY en el .env de editus.'));
         @set_time_limit(280);
         [$desde, $hasta] = $this->rango($request, $campana);
         try {
             $i = $informes->generar($campana, $desde, $hasta);
         } catch (\Throwable $e) {
-            return back()->with('error', 'No se pudo redactar el informe: ' . ClaudeService::mensajeError($e));
+            return back()->with('error', __('No se pudo redactar el informe: :error', ['error' => __(ClaudeService::mensajeError($e))]));
         }
-        return redirect()->route('inteligencia.informe', [$campana, $i])->with('success', 'Informe listo.');
+        return redirect()->route('inteligencia.informe', [$campana, $i])->with('success', __('Informe listo.'));
     }
 
     public function informe(Campana $campana, InformeCampana $informe): View

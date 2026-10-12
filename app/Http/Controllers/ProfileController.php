@@ -74,7 +74,7 @@ class ProfileController extends Controller
         $user = $request->user();
 
         if ($user->isAdmin() && $acceso->adminsActivos() <= 1) {
-            return back()->withErrors(['password' => 'Eres el único administrador. Nombra a otro administrador antes de eliminar tu cuenta.'], 'userDeletion');
+            return back()->withErrors(['password' => __('Eres el único administrador. Nombra a otro administrador antes de eliminar tu cuenta.')], 'userDeletion');
         }
 
         Auth::logout();

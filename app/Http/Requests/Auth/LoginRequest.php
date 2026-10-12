@@ -52,7 +52,7 @@ class LoginRequest extends FormRequest
         // Usuario desactivado desde Usuarios: no entra
         if (Auth::user() && !Auth::user()->estaActivo()) {
             Auth::guard('web')->logout();
-            throw ValidationException::withMessages(['email' => 'Tu usuario está desactivado. Habla con un administrador.']);
+            throw ValidationException::withMessages(['email' => __('Tu usuario está desactivado. Habla con un administrador.')]);
         }
 
         RateLimiter::clear($this->throttleKey());

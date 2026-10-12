@@ -2,7 +2,7 @@
 
 @extends('layouts.app')
 
-@section('title', $page->name . ' | Página')
+@section('title', $page->name . ' | ' . __('Página'))
 
 @section('content')
     <div class="max-w-6xl mx-auto p-4">
@@ -12,14 +12,14 @@
             <a href="{{ route('facebook-pages.index') }}"
                 class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm hover:bg-gray-50">
                 <span aria-hidden="true">←</span>
-                <span>Volver</span>
+                <span>{{ __('Volver') }}</span>
             </a>
         </div>
 
         {{-- Perfil centrado --}}
         <div class="rounded-2xl border border-gray-200 bg-white p-6 mb-6">
             <div class="flex flex-col items-center text-center gap-4">
-                <img src="{{ $page->pictureUrl('square', 200, 200) }}" alt="Foto de {{ $page->name }}"
+                <img src="{{ $page->pictureUrl('square', 200, 200) }}" alt="{{ __('Foto de :nombre', ['nombre' => $page->name]) }}"
                     class="w-32 h-32 rounded-full ring-1 ring-gray-200 object-cover" />
                 <div>
                     <h1 class="text-2xl font-bold">{{ $page->name }}</h1>
@@ -34,19 +34,19 @@
         {{-- KPIs --}}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="text-xs text-gray-500">Publicaciones</p>
+                <p class="text-xs text-gray-500">{{ __('Publicaciones') }}</p>
                 <p class="text-2xl font-semibold">{{ number_format($totals['publicaciones']) }}</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="text-xs text-gray-500">Alcance total</p>
+                <p class="text-xs text-gray-500">{{ __('Alcance total') }}</p>
                 <p class="text-2xl font-semibold">{{ number_format($totals['alcance']) }}</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="text-xs text-gray-500">Visualizaciones totales</p>
+                <p class="text-xs text-gray-500">{{ __('Visualizaciones totales') }}</p>
                 <p class="text-2xl font-semibold">{{ number_format($totals['visualizaciones']) }}</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="text-xs text-gray-500">Interacciones totales</p>
+                <p class="text-xs text-gray-500">{{ __('Interacciones totales') }}</p>
                 <p class="text-2xl font-semibold">{{ number_format($totals['interacciones']) }}</p>
             </div>
         </div>
@@ -54,20 +54,20 @@
         {{-- Tabla: FECHA + MENSAJE (preview/expand) + métricas + ACCIONES --}}
         <div class="rounded-2xl border border-gray-200 bg-white p-4">
             <div class="flex items-center justify-between mb-3">
-                <h2 class="font-semibold">Publicaciones</h2>
-                <span class="text-xs text-gray-500">Listado con métricas</span>
+                <h2 class="font-semibold">{{ __('Publicaciones') }}</h2>
+                <span class="text-xs text-gray-500">{{ __('Listado con métricas') }}</span>
             </div>
 
             <div class="overflow-x-auto">
                 <table id="postsTable" class="min-w-full text-sm">
                     <thead>
                         <tr class="text-left text-gray-600">
-                            <th class="py-2 px-2">Fecha</th>
-                            <th class="py-2 px-2">Mensaje</th>
-                            <th class="py-2 px-2">Alcance</th>
-                            <th class="py-2 px-2">Visualizaciones</th>
-                            <th class="py-2 px-2">Interacciones</th>
-                            <th class="py-2 px-2">Acciones</th>
+                            <th class="py-2 px-2">{{ __('Fecha') }}</th>
+                            <th class="py-2 px-2">{{ __('Mensaje') }}</th>
+                            <th class="py-2 px-2">{{ __('Alcance') }}</th>
+                            <th class="py-2 px-2">{{ __('Visualizaciones') }}</th>
+                            <th class="py-2 px-2">{{ __('Interacciones') }}</th>
+                            <th class="py-2 px-2">{{ __('Acciones') }}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -93,7 +93,7 @@
                                             </span>
                                             <button type="button"
                                                 class="js-toggle-message ml-2 text-xs text-blue-600 hover:underline align-baseline">
-                                                ver más
+                                                {{ __('ver más') }}
                                             </button>
                                         @endif
                                     </div>
@@ -126,10 +126,10 @@
                                     @if ($url)
                                         <a href="{{ $url }}" target="_blank" rel="noopener"
                                             class="inline-flex items-center rounded-lg bg-blue-600 text-white px-2 py-1 text-xs hover:bg-blue-700">
-                                            Ver publicación
+                                            {{ __('Ver publicación') }}
                                         </a>
                                     @else
-                                        <span class="text-xs text-gray-400">Sin enlace</span>
+                                        <span class="text-xs text-gray-400">{{ __('Sin enlace') }}</span>
                                     @endif
                                 </td>
 
@@ -179,11 +179,11 @@
                 if (expanded) {
                     full.classList.add('hidden');
                     preview.classList.remove('hidden');
-                    btn.textContent = 'ver más';
+                    btn.textContent = @js(__('ver más'));
                 } else {
                     full.classList.remove('hidden');
                     preview.classList.add('hidden');
-                    btn.textContent = 'ver menos';
+                    btn.textContent = @js(__('ver menos'));
                 }
             });
         });

@@ -33,21 +33,21 @@
                         class="w-[100px]"
                       />
                     </div>
-                    <div>
-                    
+                    <div class="flex items-center gap-2">
+                    <x-idioma />
                     @auth
                         <a
                             href="{{ url('/dashboard') }}"
                             class="inline-block px-5 py-1.5 text-[#002EFF] hover:text-blue-700 rounded-sm text-xl leading-normal"
                         >
-                            Dashboard
+                            {{ __('Dashboard') }}
                         </a>
                     @else
                         <a
                             href="{{ url('/') }}"
                             class="inline-block px-5 py-1.5 text-[#002EFF] hover:text-blue-700 rounded-sm text-xl leading-normal"
                         >
-                            Inicio
+                            {{ __('Inicio') }}
                         </a>
                     @endauth
                     </div>
@@ -64,7 +64,7 @@
 
         <div class="hidden md:block md:w-1/2 content-center justify-items-center">
             <img src="/img/logo-transparente-home.png"
-                alt="Login Side Image" class="object-cover" style="width: 400px;">
+                alt="" class="object-cover" style="width: 400px;">
         </div>
         <!-- Login Form - Left Side -->
         <div class="w-full md:w-1/2 flex items-center justify-center px-6 py-12">
@@ -110,12 +110,12 @@
               V16c3.824-.604 6.75-3.934 6.75-7.951" />
                             </svg>
                             <!-- Texto -->
-                            Registrarme / Iniciar sesión con Facebook
+                            {{ __('Registrarme / Iniciar sesión con Facebook') }}
                         </a>
                     </div>
 
                     <div class="flex items-center gap-3">
-                        <label><input type="checkbox" id="tyc" value="1" checked required /> Acepto las <a href="https://editus.online/privacy.html" target="_blank" class="text-blue-400">Condiciones del servicio y la Política de privacidad</a></label>
+                        <label><input type="checkbox" id="tyc" value="1" checked required /> {{ __('Acepto las') }} <a href="{{ route('privacy') }}" target="_blank" class="text-blue-400">{{ __('Condiciones del servicio y la Política de privacidad') }}</a></label>
                     </div>
 
                 </form>

@@ -34,8 +34,8 @@ class CuentasAppController extends Controller
     public function facebook(Request $request, FacebookPageController $facebook): RedirectResponse|View
     {
         $u = CuentasAppService::usuarioFirmado($request);
-        if ($u === null) return $this->resultado('facebook', false, 'El enlace para conectar venció o no es válido. Vuelve a la app e intenta de nuevo.');
-        if ((string) config('services.facebook.client_id') === '') return $this->resultado('facebook', false, 'editus no tiene configurada la app de Facebook (FACEBOOK_CLIENT_ID).');
+        if ($u === null) return $this->resultado('facebook', false, __('El enlace para conectar venció o no es válido. Vuelve a la app e intenta de nuevo.'));
+        if ((string) config('services.facebook.client_id') === '') return $this->resultado('facebook', false, __('editus no tiene configurada la app de Facebook (FACEBOOK_CLIENT_ID).'));
 
         $request->session()->put(self::SESION, ['u' => $u, 'red' => 'facebook', 'desde' => time(), 'volver' => $this->volver($request)]);
         return $facebook->linkRedirect();
@@ -44,8 +44,8 @@ class CuentasAppController extends Controller
     public function youtube(Request $request): RedirectResponse|View
     {
         $u = CuentasAppService::usuarioFirmado($request);
-        if ($u === null) return $this->resultado('youtube', false, 'El enlace para conectar venció o no es válido. Vuelve a la app e intenta de nuevo.');
-        if ((string) config('services.google.client_id') === '') return $this->resultado('youtube', false, 'editus no tiene configurado el cliente de Google (GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET).');
+        if ($u === null) return $this->resultado('youtube', false, __('El enlace para conectar venció o no es válido. Vuelve a la app e intenta de nuevo.'));
+        if ((string) config('services.google.client_id') === '') return $this->resultado('youtube', false, __('editus no tiene configurado el cliente de Google (GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET).'));
 
         $request->session()->put(self::SESION, ['u' => $u, 'red' => 'youtube', 'desde' => time(), 'volver' => $this->volver($request)]);
         return Socialite::driver('google')
@@ -60,18 +60,18 @@ class CuentasAppController extends Controller
     {
         $request->session()->forget(self::SESION);
         $u = (string) ($vinculo['u'] ?? '');
-        if ($u === '') return $this->resultado('facebook', false, 'No se reconoció al usuario de la app. Vuelve a intentarlo desde la app.');
+        if ($u === '') return $this->resultado('facebook', false, __('No se reconoció al usuario de la app. Vuelve a intentarlo desde la app.'));
 
         if ($request->has('error')) {
             $desc = $request->get('error_description') ?: $request->get('error_reason') ?: $request->get('error');
-            return $this->resultado('facebook', false, "Facebook no autorizó la conexión: {$desc}", [], $vinculo['volver'] ?? null);
+            return $this->resultado('facebook', false, __('Facebook no autorizó la conexión: :error', ['error' => $desc]), [], $vinculo['volver'] ?? null);
         }
 
         try {
             $fbUser = Socialite::driver('facebook')->redirectUrl($redirectUrl)->user();
         } catch (\Throwable $e) {
             Log::error('[FB] conexión desde la app: fallo al obtener el usuario', ['err' => $e->getMessage()]);
-            return $this->resultado('facebook', false, 'No se pudo completar la conexión con Facebook. Inténtalo de nuevo. Detalle: ' . $e->getMessage(), [], $vinculo['volver'] ?? null);
+            return $this->resultado('facebook', false, __('No se pudo completar la conexión con Facebook. Inténtalo de nuevo. Detalle: :error', ['error' => $e->getMessage()]), [], $vinculo['volver'] ?? null);
         }
 
         // Token de usuario de larga duración
@@ -109,10 +109,10 @@ class CuentasAppController extends Controller
             $n = $cuentas->sincronizarPaginas($social, null, $u);
         } catch (\Throwable $e) {
             Log::error('[FB] conexión desde la app: fallo al sincronizar páginas', ['usuario_app' => $u, 'err' => $e->getMessage()]);
-            return $this->resultado('facebook', false, 'Tu cuenta quedó conectada, pero no se pudieron leer tus páginas: ' . $e->getMessage(), [], $vinculo['volver'] ?? null);
+            return $this->resultado('facebook', false, __('Tu cuenta quedó conectada, pero no se pudieron leer tus páginas: :error', ['error' => $e->getMessage()]), [], $vinculo['volver'] ?? null);
         }
 
-        return $this->resultado('facebook', true, $n === 1 ? 'Se conectó 1 página de Facebook.' : "Se conectaron {$n} páginas de Facebook.", ['paginas' => $n], $vinculo['volver'] ?? null);
+        return $this->resultado('facebook', true, $n === 1 ? __('Se conectó 1 página de Facebook.') : __('Se conectaron :n páginas de Facebook.', ['n' => $n]), ['paginas' => $n], $vinculo['volver'] ?? null);
     }
 
     /** Lo llama Admin\YoutubeController::callback cuando la conexión la inició la app. */
@@ -120,20 +120,22 @@ class CuentasAppController extends Controller
     {
         $request->session()->forget(self::SESION);
         $u = (string) ($vinculo['u'] ?? '');
-        if ($u === '') return $this->resultado('youtube', false, 'No se reconoció al usuario de la app. Vuelve a intentarlo desde la app.');
+        if ($u === '') return $this->resultado('youtube', false, __('No se reconoció al usuario de la app. Vuelve a intentarlo desde la app.'));
 
         if ($request->has('error')) {
-            return $this->resultado('youtube', false, 'Google no autorizó la conexión: ' . $request->get('error_description', $request->get('error')), [], $vinculo['volver'] ?? null);
+            return $this->resultado('youtube', false, __('Google no autorizó la conexión: :error', ['error' => $request->get('error_description', $request->get('error'))]), [], $vinculo['volver'] ?? null);
         }
         try {
             $g = Socialite::driver('google')->redirectUrl((string) config('services.google.redirect'))->stateless()->user();
             $canal = $youtube->registrarCanal((string) $g->token, $g->refreshToken ? (string) $g->refreshToken : null, $g->expiresIn ? (int) $g->expiresIn : null, null, $u);
         } catch (\Throwable $e) {
             Log::warning('[YouTube] conexión desde la app falló', ['usuario_app' => $u, 'err' => $e->getMessage()]);
-            return $this->resultado('youtube', false, 'No se pudo conectar el canal: ' . $e->getMessage(), [], $vinculo['volver'] ?? null);
+            return $this->resultado('youtube', false, __('No se pudo conectar el canal: :error', ['error' => $e->getMessage()]), [], $vinculo['volver'] ?? null);
         }
-        $aviso = $canal->refresh_token ? '' : ' Google no entregó permiso permanente: si deja de funcionar, desconéctalo y vuelve a conectarlo.';
-        return $this->resultado('youtube', true, "Canal «{$canal->titulo}» conectado.{$aviso}", ['canal' => $canal->titulo], $vinculo['volver'] ?? null);
+        $mensaje = $canal->refresh_token
+            ? __('Canal «:canal» conectado.', ['canal' => $canal->titulo])
+            : __('Canal «:canal» conectado. Google no entregó permiso permanente: si deja de funcionar, desconéctalo y vuelve a conectarlo.', ['canal' => $canal->titulo]);
+        return $this->resultado('youtube', true, $mensaje, ['canal' => $canal->titulo], $vinculo['volver'] ?? null);
     }
 
     /** Pantalla de la app a la que vuelve el navegador (?volver=en-vivo); por defecto "cuentas". */

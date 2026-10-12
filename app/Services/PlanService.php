@@ -24,9 +24,24 @@ class PlanService
         return (array) config('planes.planes', []);
     }
 
-    public function precio(string $plan, string $periodo): int
+    /** Precio del plan en la moneda indicada (COP en pesos, USD en dólares). */
+    public function precio(string $plan, string $periodo, string $moneda = 'COP'): int
     {
-        return (int) ($this->planes()[$plan][$periodo] ?? 0);
+        $p = $this->planes()[$plan] ?? [];
+        return (int) ($moneda === 'USD' ? ($p['usd'][$periodo] ?? 0) : ($p[$periodo] ?? 0));
+    }
+
+    /** «$60.000 COP» o «US$15». */
+    public static function formato(int|float $valor, string $moneda = 'COP'): string
+    {
+        if ($moneda === 'USD') return 'US$' . (fmod((float) $valor, 1.0) == 0.0 ? number_format($valor, 0) : number_format($valor, 2));
+        return '$' . number_format($valor, 0, ',', '.') . ' ' . $moneda;
+    }
+
+    /** Monto de un pago guardado en centavos, con su moneda. */
+    public static function formatoCentavos(int $centavos, ?string $moneda): string
+    {
+        return self::formato($centavos / 100, strtoupper((string) ($moneda ?: 'COP')));
     }
 
     public function habilitado(): bool
@@ -97,11 +112,11 @@ class PlanService
     {
         if ($this->sinLimites($user)) return null;
         $lim = $this->limites($user);
-        if (!$lim) return 'Necesitas un plan activo para publicar o transmitir. Elige tu plan en «Mi suscripción».';
+        if (!$lim) return __('Necesitas un plan activo para publicar o transmitir. Elige tu plan en «Mi suscripción».');
         $permitidas = $this->paginasPermitidas($user)->pluck('id')->map(fn($v) => (int) $v)->all();
         foreach ($metaPageIds as $id) {
             if (!in_array((int) $id, $permitidas, true)) {
-                return "Tu plan {$lim['nombre']} permite publicar en {$lim['paginas']} página(s). Elige cuáles en «Mi suscripción»; esta selección incluye una página fuera de tu plan.";
+                return __('Tu plan :plan permite publicar en :n página(s). Elige cuáles en «Mi suscripción»; esta selección incluye una página fuera de tu plan.', ['plan' => __($lim['nombre']), 'n' => $lim['paginas']]);
             }
         }
         return null;

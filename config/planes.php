@@ -1,7 +1,8 @@
 <?php
 
 /*
- * Planes de suscripción de editus (precios en pesos colombianos).
+ * Planes de suscripción de editus. En Colombia se cobra en pesos (mensual / anual, con Wompi);
+ * fuera de Colombia en dólares (usd.mensual / usd.anual, con Square).
  * Anual = 11 meses (un mes gratis). Los administradores y los usuarios marcados como
  * "exentos" (el equipo interno) no tienen límites.
  */
@@ -18,6 +19,7 @@ return [
             'nombre' => 'Básico',
             'mensual' => 60000,
             'anual' => 660000,
+            'usd' => ['mensual' => 15, 'anual' => 165],
             'paginas' => 2,          // páginas de Facebook/Instagram donde puede publicar
             'camaras' => 2,          // cámaras simultáneas en una transmisión
             'plantillas_logo' => false, // logo, marco e imagen de marca en el en vivo
@@ -30,6 +32,7 @@ return [
             'nombre' => 'Full',
             'mensual' => 90000,
             'anual' => 990000,
+            'usd' => ['mensual' => 25, 'anual' => 275],
             'paginas' => 10,
             'camaras' => 6,
             'plantillas_logo' => true,

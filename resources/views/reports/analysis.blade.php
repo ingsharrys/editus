@@ -7,15 +7,15 @@
         {{-- Encabezado --}}
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-                <h2 class="font-semibold text-xl">Análisis de rendimiento</h2>
+                <h2 class="font-semibold text-xl">{{ __('Análisis de rendimiento') }}</h2>
                 <p class="text-xs text-gray-500">
-                    Basado en {{ $fmt($totalPosts) }} publicaciones exitosas con métricas.
-                    Los promedios exigen mínimo {{ $minN }} publicaciones para considerarse confiables.
+                    {{ __('Basado en :n publicaciones exitosas con métricas.', ['n' => $fmt($totalPosts)]) }}
+                    {{ __('Los promedios exigen mínimo :n publicaciones para considerarse confiables.', ['n' => $minN]) }}
                 </p>
             </div>
             <a href="{{ route('reports.posts') }}"
                class="text-xs px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50">
-                📋 Ver informe detallado
+                📋 {{ __('Ver informe detallado') }}
             </a>
         </div>
 
@@ -23,25 +23,25 @@
         <form method="GET" action="{{ route('reports.analytics') }}"
               class="rounded-xl border border-gray-200 bg-white p-4 flex flex-wrap items-end gap-3">
             <div>
-                <label class="block text-[11px] font-medium text-gray-600 mb-1">Período</label>
+                <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Período') }}</label>
                 <select name="days" onchange="this.form.submit()" class="rounded-lg border-gray-200 text-sm">
-                    @foreach ([30 => 'Últimos 30 días', 90 => 'Últimos 90 días', 180 => 'Últimos 6 meses', 365 => 'Último año', 0 => 'Todo el histórico'] as $d => $label)
+                    @foreach ([30 => __('Últimos 30 días'), 90 => __('Últimos 90 días'), 180 => __('Últimos 6 meses'), 365 => __('Último año'), 0 => __('Todo el histórico')] as $d => $label)
                         <option value="{{ $d }}" {{ $filters['days'] === $d ? 'selected' : '' }}>{{ $label }}</option>
                     @endforeach
                 </select>
             </div>
             <div>
-                <label class="block text-[11px] font-medium text-gray-600 mb-1">Red</label>
+                <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Red') }}</label>
                 <select name="network" onchange="this.form.submit()" class="rounded-lg border-gray-200 text-sm">
-                    <option value="">Todas</option>
+                    <option value="">{{ __('Todas') }}</option>
                     <option value="facebook" {{ $filters['network'] === 'facebook' ? 'selected' : '' }}>📘 Facebook</option>
                     <option value="instagram" {{ $filters['network'] === 'instagram' ? 'selected' : '' }}>📸 Instagram</option>
                 </select>
             </div>
             <div>
-                <label class="block text-[11px] font-medium text-gray-600 mb-1">Campaña</label>
+                <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Campaña') }}</label>
                 <select name="campaign_id" onchange="this.form.submit()" class="rounded-lg border-gray-200 text-sm">
-                    <option value="">Todas</option>
+                    <option value="">{{ __('Todas') }}</option>
                     @foreach ($campaignsCatalog as $c)
                         <option value="{{ $c->id }}" {{ (string) $filters['campaign_id'] === (string) $c->id ? 'selected' : '' }}>
                             {{ $c->name }}{{ $c->is_system ? ' ⚙️' : '' }}
@@ -50,16 +50,16 @@
                 </select>
             </div>
             <div>
-                <label class="block text-[11px] font-medium text-gray-600 mb-1">Medios a comparar</label>
+                <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Medios a comparar') }}</label>
                 <details class="relative" id="mediosDropdown">
                     <summary class="cursor-pointer select-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm min-w-[220px] list-none">
                         {{ count($filters['page_ids'])
-                            ? '⚖️ ' . count($filters['page_ids']) . ' medio(s) seleccionados'
-                            : 'Todos los medios' }}
+                            ? '⚖️ ' . __(':n medio(s) seleccionados', ['n' => count($filters['page_ids'])])
+                            : __('Todos los medios') }}
                         <span class="float-right text-gray-400">▾</span>
                     </summary>
                     <div class="absolute z-30 mt-1 w-80 max-h-72 overflow-auto rounded-lg border border-gray-200 bg-white shadow-lg p-3">
-                        <input type="search" id="mediosSearch" placeholder="Buscar medio..."
+                        <input type="search" id="mediosSearch" placeholder="{{ __('Buscar medio...') }}"
                                class="w-full rounded-md border-gray-200 text-xs mb-2">
                         @foreach ($pagesCatalog as $p)
                             <label class="medioOption flex items-center gap-2 text-sm py-1 px-1 rounded hover:bg-gray-50 cursor-pointer"
@@ -72,11 +72,11 @@
                         @endforeach
                         <div class="flex gap-2 mt-2 sticky bottom-0 bg-white pt-2 border-t">
                             <button type="submit" class="flex-1 text-xs px-2 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700">
-                                Aplicar comparación
+                                {{ __('Aplicar comparación') }}
                             </button>
                             <a href="{{ route('reports.analytics', ['days' => $filters['days'], 'network' => $filters['network']]) }}"
                                class="text-xs px-2 py-1.5 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50">
-                                Quitar
+                                {{ __('Quitar') }}
                             </a>
                         </div>
                     </div>
@@ -86,17 +86,15 @@
 
         @if (count($filters['page_ids']) > 1)
             <div class="rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 px-4 py-2 text-xs">
-                ⚖️ Modo comparación: todo el análisis de abajo está limitado a los
-                <strong>{{ count($filters['page_ids']) }} medios seleccionados</strong> — el ranking, las horas,
-                los días y las conclusiones comparan solo entre ellos.
+                ⚖️ {!! __('Modo comparación: todo el análisis de abajo está limitado a los <strong>:n medios seleccionados</strong> — el ranking, las horas, los días y las conclusiones comparan solo entre ellos.', ['n' => e(count($filters['page_ids']))]) !!}
             </div>
         @endif
 
         {{-- Comparador por publicación --}}
         <div class="rounded-xl border border-gray-200 bg-white p-4">
-            <p class="font-semibold text-sm mb-1">🎯 Comparar una publicación entre medios</p>
+            <p class="font-semibold text-sm mb-1">🎯 {{ __('Comparar una publicación entre medios') }}</p>
             <p class="text-[11px] text-gray-500 mb-3">
-                Selecciona una publicación que se envió a varios medios a la vez y descubre en cuál rindió mejor.
+                {{ __('Selecciona una publicación que se envió a varios medios a la vez y descubre en cuál rindió mejor.') }}
             </p>
             <form method="GET" action="{{ route('reports.analytics') }}" class="flex flex-wrap items-end gap-3">
                 <input type="hidden" name="days" value="{{ $filters['days'] }}">
@@ -105,22 +103,22 @@
                     <input type="hidden" name="page_ids[]" value="{{ $pid }}">
                 @endforeach
                 <div>
-                    <label class="block text-[11px] font-medium text-gray-600 mb-1">Buscar publicación</label>
-                    <input type="search" name="batch_q" value="{{ $filters['batch_q'] }}" placeholder="Texto del mensaje…"
+                    <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Buscar publicación') }}</label>
+                    <input type="search" name="batch_q" value="{{ $filters['batch_q'] }}" placeholder="{{ __('Texto del mensaje…') }}"
                            class="rounded-lg border-gray-200 text-sm min-w-[220px]">
                 </div>
                 <div class="flex-1 min-w-[280px]">
-                    <label class="block text-[11px] font-medium text-gray-600 mb-1">Publicación (las 100 más recientes multi-medio)</label>
+                    <label class="block text-[11px] font-medium text-gray-600 mb-1">{{ __('Publicación (las 100 más recientes multi-medio)') }}</label>
                     <select name="batch" onchange="this.form.submit()" class="w-full rounded-lg border-gray-200 text-sm">
-                        <option value="">— Selecciona una publicación —</option>
+                        <option value="">— {{ __('Selecciona una publicación') }} —</option>
                         @foreach ($batchCatalog as $b)
                             <option value="{{ $b->batch_uuid }}" {{ $filters['batch'] === $b->batch_uuid ? 'selected' : '' }}>
-                                {{ \Carbon\Carbon::parse($b->published_at)->format('d/m/Y') }} · {{ $b->pages_count }} medios · {{ \Illuminate\Support\Str::limit($b->message ?: '(sin texto)', 70) }}
+                                {{ \Carbon\Carbon::parse($b->published_at)->format('d/m/Y') }} · {{ __(':n medios', ['n' => $b->pages_count]) }} · {{ \Illuminate\Support\Str::limit($b->message ?: __('(sin texto)'), 70) }}
                             </option>
                         @endforeach
                     </select>
                 </div>
-                <button type="submit" class="text-xs px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Buscar</button>
+                <button type="submit" class="text-xs px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">{{ __('Buscar') }}</button>
             </form>
 
             @if ($batchCompare)
@@ -128,17 +126,17 @@
                     <div class="flex flex-col lg:flex-row gap-4">
                         <div class="lg:w-72 shrink-0 space-y-3">
                             <div class="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4">
-                                <div class="text-[11px] uppercase tracking-wide text-gray-500">🥇 Medio ganador</div>
+                                <div class="text-[11px] uppercase tracking-wide text-gray-500">🥇 {{ __('Medio ganador') }}</div>
                                 <div class="mt-1 text-lg font-semibold text-amber-900">{{ $batchCompare['winner']['page'] }}</div>
                                 <div class="text-[11px] text-gray-500">
-                                    {{ number_format($batchCompare['winner']['alcance'], 0, ',', '.') }} de alcance
-                                    ({{ $batchCompare['total_reach'] > 0 ? round($batchCompare['winner']['alcance'] / $batchCompare['total_reach'] * 100, 1) : 0 }}% del total de la publicación)
+                                    {{ __(':n de alcance', ['n' => number_format($batchCompare['winner']['alcance'], 0, ',', '.')]) }}
+                                    ({{ __(':pct% del total de la publicación', ['pct' => $batchCompare['total_reach'] > 0 ? round($batchCompare['winner']['alcance'] / $batchCompare['total_reach'] * 100, 1) : 0]) }})
                                 </div>
                             </div>
                             <div class="text-xs text-gray-600">
-                                <p class="font-medium text-gray-800 mb-1">Publicación analizada:</p>
+                                <p class="font-medium text-gray-800 mb-1">{{ __('Publicación analizada:') }}</p>
                                 <p class="italic">"{{ $batchCompare['message'] }}"</p>
-                                <p class="mt-1 text-gray-400">{{ optional($batchCompare['date'])->format('d/m/Y H:i') }} · {{ $batchCompare['rows']->count() }} medios</p>
+                                <p class="mt-1 text-gray-400">{{ optional($batchCompare['date'])->format('d/m/Y H:i') }} · {{ __(':n medios', ['n' => $batchCompare['rows']->count()]) }}</p>
                             </div>
                         </div>
                         <div class="flex-1 min-w-0">
@@ -150,13 +148,13 @@
                             <thead>
                                 <tr class="text-left text-xs text-gray-500 border-b bg-gray-50">
                                     <th class="py-2 px-3">#</th>
-                                    <th class="py-2 px-3">Medio</th>
-                                    <th class="py-2 px-3">Red</th>
-                                    <th class="py-2 px-3 text-right">Alcance</th>
-                                    <th class="py-2 px-3 text-right">Impresiones</th>
-                                    <th class="py-2 px-3 text-right">Interacciones</th>
-                                    <th class="py-2 px-3 text-right">Tasa interacción</th>
-                                    <th class="py-2 px-3">Ver</th>
+                                    <th class="py-2 px-3">{{ __('Medio') }}</th>
+                                    <th class="py-2 px-3">{{ __('Red') }}</th>
+                                    <th class="py-2 px-3 text-right">{{ __('Alcance') }}</th>
+                                    <th class="py-2 px-3 text-right">{{ __('Impresiones') }}</th>
+                                    <th class="py-2 px-3 text-right">{{ __('Interacciones') }}</th>
+                                    <th class="py-2 px-3 text-right">{{ __('Tasa interacción') }}</th>
+                                    <th class="py-2 px-3">{{ __('Ver') }}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -175,7 +173,7 @@
                                         <td class="py-2 px-3 text-right">{{ $row['engagement'] !== null ? number_format($row['engagement'], 2, ',', '.') . '%' : '—' }}</td>
                                         <td class="py-2 px-3">
                                             @if ($row['permalink'])
-                                                <a href="{{ $row['permalink'] }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline text-xs">Abrir ↗</a>
+                                                <a href="{{ $row['permalink'] }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline text-xs">{{ __('Abrir') }} ↗</a>
                                             @endif
                                         </td>
                                     </tr>
@@ -186,21 +184,20 @@
                 </div>
             @elseif ($filters['batch'])
                 <p class="mt-3 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    No se encontró esa publicación o no tienes acceso a sus medios.
+                    {{ __('No se encontró esa publicación o no tienes acceso a sus medios.') }}
                 </p>
             @endif
         </div>
 
         @if ($totalPosts === 0)
             <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-800 p-6 text-sm">
-                No hay publicaciones exitosas con métricas en este filtro. Publica contenido o ejecuta
-                <code class="bg-white/70 px-1 rounded">php artisan stats:collect</code> para actualizar métricas.
+                {!! __('No hay publicaciones exitosas con métricas en este filtro. Publica contenido o ejecuta :cmd para actualizar métricas.', ['cmd' => '<code class="bg-white/70 px-1 rounded">php artisan stats:collect</code>']) !!}
             </div>
         @else
 
             {{-- Conclusiones automáticas --}}
             <div>
-                <p class="font-semibold text-sm mb-2">📌 Conclusiones del período</p>
+                <p class="font-semibold text-sm mb-2">📌 {{ __('Conclusiones del período') }}</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     @foreach ($insights as $ins)
                         <div class="rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-white p-4">
@@ -215,17 +212,17 @@
             {{-- Rendimiento por campaña --}}
             @if ($byCampaign->count() > 1)
                 <div class="rounded-xl border border-gray-200 bg-white p-4 overflow-x-auto">
-                    <p class="font-semibold text-sm mb-3">🎯 Rendimiento por campaña</p>
+                    <p class="font-semibold text-sm mb-3">🎯 {{ __('Rendimiento por campaña') }}</p>
                     <table class="w-full text-sm">
                         <thead>
                             <tr class="text-left text-xs text-gray-500 border-b bg-gray-50">
                                 <th class="py-2 px-3">#</th>
-                                <th class="py-2 px-3">Campaña</th>
-                                <th class="py-2 px-3 text-right">Publicaciones</th>
-                                <th class="py-2 px-3 text-right">Alcance total</th>
-                                <th class="py-2 px-3 text-right">Alcance promedio</th>
-                                <th class="py-2 px-3 text-right">Interacc. promedio</th>
-                                <th class="py-2 px-3 text-right">Tasa interacción</th>
+                                <th class="py-2 px-3">{{ __('Campaña') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Publicaciones') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Alcance total') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Alcance promedio') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Interacc. promedio') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Tasa interacción') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -247,8 +244,8 @@
 
             {{-- Ranking de medios --}}
             <div class="rounded-xl border border-gray-200 bg-white p-4">
-                <p class="font-semibold text-sm mb-3">🏆 Ranking de medios
-                    <span class="text-[11px] font-normal text-gray-400 ml-2">ordenado por alcance total del período</span>
+                <p class="font-semibold text-sm mb-3">🏆 {{ __('Ranking de medios') }}
+                    <span class="text-[11px] font-normal text-gray-400 ml-2">{{ __('ordenado por alcance total del período') }}</span>
                 </p>
                 @if ($byPage->count() > 1)
                     <div class="h-64 mb-4"><canvas id="pagesChart"></canvas></div>
@@ -258,13 +255,13 @@
                         <thead>
                             <tr class="text-left text-xs text-gray-500 border-b bg-gray-50">
                                 <th class="py-2 px-3">#</th>
-                                <th class="py-2 px-3">Medio</th>
-                                <th class="py-2 px-3 text-right">Publicaciones</th>
-                                <th class="py-2 px-3 text-right">Alcance total</th>
-                                <th class="py-2 px-3 text-right">Alcance promedio</th>
-                                <th class="py-2 px-3 text-right">Interacc. promedio</th>
-                                <th class="py-2 px-3 text-right">Tasa interacción</th>
-                                <th class="py-2 px-3">Mejor publicación</th>
+                                <th class="py-2 px-3">{{ __('Medio') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Publicaciones') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Alcance total') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Alcance promedio') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Interacc. promedio') }}</th>
+                                <th class="py-2 px-3 text-right">{{ __('Tasa interacción') }}</th>
+                                <th class="py-2 px-3">{{ __('Mejor publicación') }}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -290,19 +287,19 @@
             {{-- Hora y día --}}
             <div class="grid lg:grid-cols-2 gap-4">
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
-                    <p class="font-semibold text-sm mb-3">⏰ Alcance promedio según la hora de publicación</p>
+                    <p class="font-semibold text-sm mb-3">⏰ {{ __('Alcance promedio según la hora de publicación') }}</p>
                     <div class="h-56"><canvas id="hourChart"></canvas></div>
-                    <p class="mt-2 text-[11px] text-gray-400">Barras grises: menos de {{ $minN }} publicaciones (muestra insuficiente).</p>
+                    <p class="mt-2 text-[11px] text-gray-400">{{ __('Barras grises: menos de :n publicaciones (muestra insuficiente).', ['n' => $minN]) }}</p>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
-                    <p class="font-semibold text-sm mb-3">📅 Alcance promedio según el día de publicación</p>
+                    <p class="font-semibold text-sm mb-3">📅 {{ __('Alcance promedio según el día de publicación') }}</p>
                     <div class="h-56"><canvas id="dowChart"></canvas></div>
                 </div>
             </div>
 
             {{-- Mapa de calor --}}
             <div class="rounded-xl border border-gray-200 bg-white p-4 overflow-x-auto">
-                <p class="font-semibold text-sm mb-3">🔥 Mapa de calor: alcance promedio por día y franja horaria</p>
+                <p class="font-semibold text-sm mb-3">🔥 {{ __('Mapa de calor: alcance promedio por día y franja horaria') }}</p>
                 <table class="w-full text-[11px] border-separate" style="border-spacing: 3px;">
                     <thead>
                         <tr>
@@ -323,7 +320,7 @@
                                     @endphp
                                     <td class="text-center rounded-md py-2 {{ $alpha > 0.55 ? 'text-white' : 'text-gray-700' }}"
                                         style="background: {{ $alpha > 0 ? "rgba(37,99,235,{$alpha})" : '#f3f4f6' }}"
-                                        title="{{ $label }} {{ $b }}h — alcance prom: {{ $fmt($cell['avg']) }} ({{ $cell['n'] }} publicaciones)">
+                                        title="{{ $label }} {{ $b }}h — {{ __('alcance prom: :avg (:n publicaciones)', ['avg' => $fmt($cell['avg']), 'n' => $cell['n']]) }}">
                                         {{ $cell['n'] > 0 ? $fmt($cell['avg']) : '·' }}
                                     </td>
                                 @endforeach
@@ -331,22 +328,22 @@
                         @endforeach
                     </tbody>
                 </table>
-                <p class="mt-2 text-[11px] text-gray-400">Más azul = mayor alcance promedio. El punto (·) indica que no hay publicaciones en esa franja.</p>
+                <p class="mt-2 text-[11px] text-gray-400">{{ __('Más azul = mayor alcance promedio. El punto (·) indica que no hay publicaciones en esa franja.') }}</p>
             </div>
 
             {{-- Formato y red --}}
             <div class="grid lg:grid-cols-2 gap-4">
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
-                    <p class="font-semibold text-sm mb-3">🎨 Rendimiento por formato de contenido</p>
+                    <p class="font-semibold text-sm mb-3">🎨 {{ __('Rendimiento por formato de contenido') }}</p>
                     <div class="h-52"><canvas id="typeChart"></canvas></div>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white p-4">
-                    <p class="font-semibold text-sm mb-3">🌐 Rendimiento por red</p>
+                    <p class="font-semibold text-sm mb-3">🌐 {{ __('Rendimiento por red') }}</p>
                     @if ($byNetwork->count() > 1)
                         <div class="h-52"><canvas id="netChart"></canvas></div>
                     @else
                         <div class="py-8 text-center text-sm text-gray-500">
-                            Solo hay datos de {{ $byNetwork->first()['label'] ?? 'una red' }} en este filtro.
+                            {{ __('Solo hay datos de :red en este filtro.', ['red' => $byNetwork->first()['label'] ?? __('una red')]) }}
                         </div>
                     @endif
                 </div>
@@ -354,7 +351,7 @@
 
             {{-- Top y peores --}}
             <div class="grid lg:grid-cols-2 gap-4">
-                @foreach ([['🚀 Publicaciones con mayor alcance', $topPosts], ['🐢 Publicaciones con menor alcance', $worstPosts]] as [$title, $list])
+                @foreach ([['🚀 ' . __('Publicaciones con mayor alcance'), $topPosts], ['🐢 ' . __('Publicaciones con menor alcance'), $worstPosts]] as [$title, $list])
                     <div class="rounded-xl border border-gray-200 bg-white p-4">
                         <p class="font-semibold text-sm mb-3">{{ $title }}</p>
                         <div class="space-y-2">
@@ -366,16 +363,16 @@
                                     <div class="min-w-0 flex-1">
                                         @if ($post->fb_permalink_url)
                                             <a href="{{ $post->fb_permalink_url }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline block truncate">
-                                                {{ \Illuminate\Support\Str::limit($post->message ?: '(sin texto)', 60) }}
+                                                {{ \Illuminate\Support\Str::limit($post->message ?: __('(sin texto)'), 60) }}
                                             </a>
                                         @else
-                                            <span class="block truncate">{{ \Illuminate\Support\Str::limit($post->message ?: '(sin texto)', 60) }}</span>
+                                            <span class="block truncate">{{ \Illuminate\Support\Str::limit($post->message ?: __('(sin texto)'), 60) }}</span>
                                         @endif
                                         <span class="text-[11px] text-gray-400">{{ $post->published_at->format('d/m/Y H:i') }}</span>
                                     </div>
                                     <div class="text-right shrink-0">
                                         <div class="font-semibold">{{ $fmt($post->alcance) }}</div>
-                                        <div class="text-[10px] text-gray-400">alcance</div>
+                                        <div class="text-[10px] text-gray-400">{{ __('alcance') }}</div>
                                     </div>
                                 </div>
                             @endforeach
@@ -405,6 +402,7 @@
             const byType = @json($byType->values());
             const byNet = @json($byNetwork->values());
             const MIN_N = {{ $minN }};
+            const T_PUBS = @js(__(':n publicaciones'));
 
             const fmt = new Intl.NumberFormat('es-CO');
             const grid = { color: 'rgba(0,0,0,0.05)' };
@@ -417,8 +415,8 @@
                 data: {
                     labels: batchRows.map(r => r.page.length > 24 ? r.page.slice(0, 24) + '…' : r.page),
                     datasets: [
-                        { label: 'Alcance', data: batchRows.map(r => r.alcance), backgroundColor: batchRows.map((r, i) => i === 0 ? '#f59e0b' : '#2563eb'), borderRadius: 3 },
-                        { label: 'Interacciones', data: batchRows.map(r => r.interacciones), backgroundColor: '#059669', borderRadius: 3 },
+                        { label: @js(__('Alcance')), data: batchRows.map(r => r.alcance), backgroundColor: batchRows.map((r, i) => i === 0 ? '#f59e0b' : '#2563eb'), borderRadius: 3 },
+                        { label: @js(__('Interacciones')), data: batchRows.map(r => r.interacciones), backgroundColor: '#059669', borderRadius: 3 },
                     ],
                 },
                 options: {
@@ -433,8 +431,8 @@
                 data: {
                     labels: byPage.map(r => r.name.length > 22 ? r.name.slice(0, 22) + '…' : r.name),
                     datasets: [
-                        { label: 'Alcance total', data: byPage.map(r => r.reach), backgroundColor: '#2563eb', borderRadius: 3 },
-                        { label: 'Alcance promedio', data: byPage.map(r => r.avg_reach), backgroundColor: '#93c5fd', borderRadius: 3 },
+                        { label: @js(__('Alcance total')), data: byPage.map(r => r.reach), backgroundColor: '#2563eb', borderRadius: 3 },
+                        { label: @js(__('Alcance promedio')), data: byPage.map(r => r.avg_reach), backgroundColor: '#93c5fd', borderRadius: 3 },
                     ],
                 },
                 options: {
@@ -449,7 +447,7 @@
                 data: {
                     labels: byHour.map(r => String(r.hour).padStart(2, '0') + ':00'),
                     datasets: [{
-                        label: 'Alcance promedio',
+                        label: @js(__('Alcance promedio')),
                         data: byHour.map(r => r.avg_reach),
                         backgroundColor: byHour.map(r => r.n >= MIN_N ? '#2563eb' : '#d1d5db'),
                         borderRadius: 2,
@@ -459,7 +457,7 @@
                     responsive: true, maintainAspectRatio: false,
                     plugins: {
                         legend: { display: false },
-                        tooltip: { callbacks: { afterLabel: ctx => `${byHour[ctx.dataIndex].n} publicaciones` } },
+                        tooltip: { callbacks: { afterLabel: ctx => T_PUBS.replace(':n', byHour[ctx.dataIndex].n) } },
                     },
                     scales: { x: { grid: { display: false }, ticks: { font: { size: 9 }, maxRotation: 90 } }, y: { grid, ticks: money } },
                 },
@@ -470,7 +468,7 @@
                 data: {
                     labels: byDow.map(r => r.label),
                     datasets: [{
-                        label: 'Alcance promedio',
+                        label: @js(__('Alcance promedio')),
                         data: byDow.map(r => r.avg_reach),
                         backgroundColor: byDow.map(r => r.n >= MIN_N ? '#7c3aed' : '#d1d5db'),
                         borderRadius: 3,
@@ -480,7 +478,7 @@
                     responsive: true, maintainAspectRatio: false,
                     plugins: {
                         legend: { display: false },
-                        tooltip: { callbacks: { afterLabel: ctx => `${byDow[ctx.dataIndex].n} publicaciones` } },
+                        tooltip: { callbacks: { afterLabel: ctx => T_PUBS.replace(':n', byDow[ctx.dataIndex].n) } },
                     },
                     scales: { x: { grid: { display: false }, ticks: { font: { size: 10 } } }, y: { grid, ticks: money } },
                 },
@@ -491,8 +489,8 @@
                 data: {
                     labels: byType.map(r => r.label),
                     datasets: [
-                        { label: 'Alcance promedio', data: byType.map(r => r.avg_reach), backgroundColor: '#2563eb', borderRadius: 3 },
-                        { label: 'Interacciones promedio', data: byType.map(r => r.avg_inter), backgroundColor: '#059669', borderRadius: 3 },
+                        { label: @js(__('Alcance promedio')), data: byType.map(r => r.avg_reach), backgroundColor: '#2563eb', borderRadius: 3 },
+                        { label: @js(__('Interacciones promedio')), data: byType.map(r => r.avg_inter), backgroundColor: '#059669', borderRadius: 3 },
                     ],
                 },
                 options: {
@@ -507,8 +505,8 @@
                 data: {
                     labels: byNet.map(r => r.label),
                     datasets: [
-                        { label: 'Alcance promedio', data: byNet.map(r => r.avg_reach), backgroundColor: ['#2563eb', '#ec4899'], borderRadius: 3 },
-                        { label: 'Interacciones promedio', data: byNet.map(r => r.avg_inter), backgroundColor: ['#93c5fd', '#f9a8d4'], borderRadius: 3 },
+                        { label: @js(__('Alcance promedio')), data: byNet.map(r => r.avg_reach), backgroundColor: ['#2563eb', '#ec4899'], borderRadius: 3 },
+                        { label: @js(__('Interacciones promedio')), data: byNet.map(r => r.avg_inter), backgroundColor: ['#93c5fd', '#f9a8d4'], borderRadius: 3 },
                     ],
                 },
                 options: {

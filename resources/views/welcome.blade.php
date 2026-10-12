@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Editus | Estrategía profesional en medios digitales</title>
+    <title>Editus | {{ __('Estrategía profesional en medios digitales') }}</title>
     <link rel="icon" href="{{ asset('img/logo.jpg') }}" type="image/png">
 
     <!-- Fonts -->
@@ -41,7 +41,7 @@
                             href="{{ route('login') }}"
                             class="inline-block px-5 py-1.5 text-[#002EFF] hover:text-blue-700 rounded-sm text-xl leading-normal"
                         >
-                            Iniciar Sesión
+                            {{ __('Iniciar Sesión') }}
                         </a>
                     @endauth
                     </div>
@@ -66,13 +66,13 @@
         <!-- Contenido -->
         <div class="text-sm sm:text-lg leading-relaxed space-y-4 py-5 my-1 sm:py-10 sm:my-10">
           <p class="text-sm sm:text-2xl font-bold my-0 leading-none">
-            Estrategia profesional en </br>
+            {{ __('Estrategia profesional en') }} </br>
           <span class="text-2xl sm:text-5xl font-bold">
-            medios digitales
+            {{ __('medios digitales') }}
           </span>
           </p>
           <p>
-            Plataforma digital que permite gestionar, planificar y difundir campañas publicitarias de manera eficiente. Centraliza la administración de contenidos, la programación de publicaciones y el seguimiento de estrategias, optimizando la comunicación entre marcas, medios y audiencias
+            {{ __('Plataforma digital que permite gestionar, planificar y difundir campañas publicitarias de manera eficiente. Centraliza la administración de contenidos, la programación de publicaciones y el seguimiento de estrategias, optimizando la comunicación entre marcas, medios y audiencias') }}
           </p>
         </div>
 
@@ -89,7 +89,7 @@
                 <!-- Redes sociales -->
                 <div>
                     <h3 class="text-xl sm:text-2xl font-bold text-[#0B1560] mb-3">
-                        Síguenos
+                        {{ __('Síguenos') }}
                     </h3>
     
                     <div class="flex items-center gap-3">
@@ -140,7 +140,7 @@
                 <div class="text-left md:text-right">
     
                     <h3 class="text-xl sm:text-2xl font-extrabold text-[#0B1560] mb-3 uppercase">
-                        Contáctanos
+                        {{ __('Contáctanos') }}
                     </h3>
     
                     <div class="space-y-2 text-[#0B1560] font-semibold">
@@ -172,11 +172,11 @@
                 <div class="flex flex-col md:flex-row justify-between items-center gap-3">
     
                     <p class="text-[#002EFF] text-sm">
-                        © 2026 Dime Media S.A.S. Todos los derechos reservados.
+                        {{ __('© 2026 Dime Media S.A.S. Todos los derechos reservados.') }}
                     </p>
     
                     <p class="text-[#002EFF] text-sm">
-                        Desarrollado por
+                        {{ __('Desarrollado por') }}
                         <a href="https://sharrys.com/"
                             class="underline hover:text-[#0B1560] font-medium">
                             Sharrys Tech

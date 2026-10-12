@@ -466,7 +466,7 @@ class EnVivoController extends Controller
     public function invitadoPagina(string $codigo)
     {
         [$t, $inv] = $this->buscarInvitacion($codigo);
-        if (!$t) abort(404, 'Invitación no válida');
+        if (!$t) abort(404, __('Invitación no válida'));
         return view('en-vivo.invitado', ['transmision' => $t, 'invitacion' => $inv, 'codigo' => $codigo, 'activa' => in_array($t->estado, ['sala', 'en_vivo'], true), 'modo' => $inv['modo'] ?? 'camara',
             'programada' => $t->estado === 'programada' ? $t->programada_en : null]);
     }
@@ -475,17 +475,17 @@ class EnVivoController extends Controller
     public function invitadoToken(Request $request, string $codigo): JsonResponse
     {
         [$t, $inv] = $this->buscarInvitacion($codigo);
-        if (!$t) return response()->json(['success' => false, 'error' => 'Invitación no válida'], 404);
-        if ($t->estado === 'programada') return response()->json(['success' => false, 'error' => 'La transmisión está programada para el ' . $t->programada_en?->translatedFormat('l j \\d\\e F \\a \\l\\a\\s g:i a') . '. El estudio se abre poco antes: vuelve a esta página a esa hora.'], 422);
-        if (!in_array($t->estado, ['sala', 'en_vivo'], true)) return response()->json(['success' => false, 'error' => 'La transmisión no está en vivo en este momento'], 422);
-        $nombre = Str::limit(trim((string) $request->input('nombre', $inv['nombre'] ?? (($inv['modo'] ?? '') === 'pantalla' ? 'Pantalla' : 'Invitado'))), 40, '') ?: 'Invitado';
+        if (!$t) return response()->json(['success' => false, 'error' => __('Invitación no válida')], 404);
+        if ($t->estado === 'programada') return response()->json(['success' => false, 'error' => __('La transmisión está programada para el :fecha. El estudio se abre poco antes: vuelve a esta página a esa hora.', ['fecha' => $t->programada_en?->translatedFormat(app()->getLocale() === 'en' ? 'l, F j \\a\\t g:i a' : 'l j \\d\\e F \\a \\l\\a\\s g:i a')])], 422);
+        if (!in_array($t->estado, ['sala', 'en_vivo'], true)) return response()->json(['success' => false, 'error' => __('La transmisión no está en vivo en este momento')], 422);
+        $nombre = Str::limit(trim((string) $request->input('nombre', $inv['nombre'] ?? (($inv['modo'] ?? '') === 'pantalla' ? __('Pantalla') : __('Invitado')))), 40, '') ?: __('Invitado');
         $identity = 'invitado-' . $codigo;
         // Límite de cámaras del plan de quien transmite (la cámara principal cuenta)
         $max = app(\App\Services\PlanService::class)->camarasDe($t);
         if ($max !== null) {
             try { $conectados = collect($this->livekit->participantes($t->room))->pluck('identity'); } catch (\Throwable) { $conectados = collect(); }
             if (!$conectados->contains($identity) && $conectados->count() >= $max) {
-                return response()->json(['success' => false, 'error' => "Esta transmisión ya tiene el máximo de cámaras de su plan ({$max})."], 422);
+                return response()->json(['success' => false, 'error' => __('Esta transmisión ya tiene el máximo de cámaras de su plan (:max).', ['max' => $max])], 422);
             }
         }
         return response()->json([

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="{{ app()->getLocale() }}">
 
 <head>
     <meta charset="utf-8">
-    <title>reporte editus – {{ $summary['titulo'] ?: '—' }}</title>
+    <title>{{ __('reporte editus – :titulo', ['titulo' => $summary['titulo'] ?: '—']) }}</title>
     <style>
         @page {
             margin: 30px 25px;
@@ -107,10 +107,10 @@
 <body>
 
     {{-- Encabezado --}}
-    <h1>reporte editus – {{ $summary['titulo'] ?: '—' }}</h1>
+    <h1>{{ __('reporte editus – :titulo', ['titulo' => $summary['titulo'] ?: '—']) }}</h1>
     <div class="muted mb-4">
         @if ($summary['effective_at'])
-            · Publicación:
+            · {{ __('Publicación:') }}
             {{ optional($summary['effective_at'])->timezone(config('app.timezone'))->format('d/m/Y H:i') }}
         @endif
     </div>
@@ -118,24 +118,24 @@
     {{-- Resumen --}}
     <div class="grid-2 mb-4">
         <div class="card">
-            <h2>Resumen</h2>
+            <h2>{{ __('Resumen') }}</h2>
             <div class="hr"></div>
             <table>
                 <tbody>
                     <tr>
-                        <th>Páginas con datos</th>
+                        <th>{{ __('Páginas con datos') }}</th>
                         <td>{{ number_format($summary['total_paginas']) }}</td>
                     </tr>
                     <tr>
-                        <th>Total alcance</th>
+                        <th>{{ __('Total alcance') }}</th>
                         <td>{{ number_format($summary['total_alcance']) }}</td>
                     </tr>
                     <tr>
-                        <th>Total visualizaciones</th>
+                        <th>{{ __('Total visualizaciones') }}</th>
                         <td>{{ number_format($summary['total_visualizaciones']) }}</td>
                     </tr>
                     <tr>
-                        <th>Total interacciones</th>
+                        <th>{{ __('Total interacciones') }}</th>
                         <td>{{ number_format($summary['total_interacciones']) }}</td>
                     </tr>
                 </tbody>
@@ -155,10 +155,10 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Alcance</th>
-                        <th>Visualizaciones</th>
-                        <th>Interacciones</th>
-                        <th>Enlace</th>
+                        <th>{{ __('Alcance') }}</th>
+                        <th>{{ __('Visualizaciones') }}</th>
+                        <th>{{ __('Interacciones') }}</th>
+                        <th>{{ __('Enlace') }}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -183,13 +183,13 @@
                     style="width:520px; max-width:520px; height:auto;
             display:block; margin:8px auto; 
             border:1px solid #e5e7eb; border-radius:6px;"
-                    alt="Evidencia {{ $row['pagina'] }}">
+                    alt="{{ __('Evidencia :pagina', ['pagina' => $row['pagina']]) }}">
             @endif
 
 
         </div>
     @empty
-        <p class="muted">No hay páginas con datos para este reporte.</p>
+        <p class="muted">{{ __('No hay páginas con datos para este reporte.') }}</p>
     @endforelse
 
     <div class="footer">

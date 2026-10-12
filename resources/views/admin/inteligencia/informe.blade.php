@@ -5,10 +5,10 @@
     <div class="mt-10 mb-6 flex items-center justify-between gap-4">
         <div class="text-[#00024f]">
             <a href="{{ route('inteligencia.show', $campana) }}" class="text-sm underline">← {{ $campana->nombre }}</a>
-            <h1 class="text-2xl font-bold mt-1">Informe {{ $informe->desde->format('d/m/Y') }} a {{ $informe->hasta->format('d/m/Y') }}</h1>
-            <p class="text-xs text-gray-500">Redactado el {{ $informe->created_at->format('d/m/Y H:i') }} a partir de datos agregados.</p>
+            <h1 class="text-2xl font-bold mt-1">{{ __('Informe :desde a :hasta', ['desde' => $informe->desde->format('d/m/Y'), 'hasta' => $informe->hasta->format('d/m/Y')]) }}</h1>
+            <p class="text-xs text-gray-500">{{ __('Redactado el :fecha a partir de datos agregados.', ['fecha' => $informe->created_at->format('d/m/Y H:i')]) }}</p>
         </div>
-        <button onclick="window.print()" class="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">Imprimir / PDF</button>
+        <button onclick="window.print()" class="rounded-lg border border-gray-300 px-3 py-2 text-sm bg-white">{{ __('Imprimir / PDF') }}</button>
     </div>
     @if (session('success'))<div class="rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 p-3 mb-4">{{ session('success') }}</div>@endif
     <article id="informe" class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm prose prose-sm max-w-none"></article>

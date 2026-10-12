@@ -49,14 +49,14 @@ class FacebookAuthController extends Controller
 
             return redirect()
                 ->route('facebook.login')
-                ->with('error', "Facebook OAuth error: {$desc}");
+                ->with('error', __('Facebook OAuth error: :detalle', ['detalle' => $desc]));
         }
 
         // Si NO vino el code, no intentes Socialite (evitas el 400 feo)
         if (!$request->filled('code')) {
             return redirect()
                 ->route('facebook.login')
-                ->with('error', 'Facebook no devolvió el parámetro "code". Revisa permisos/redirect. (Mira laravel.log)');
+                ->with('error', __('Facebook no devolvió el parámetro "code". Revisa permisos/redirect. (Mira laravel.log)'));
         }
 
         $version = config('services.facebook.version', 'v23.0');

@@ -53,7 +53,7 @@ class CampaignController extends Controller
 
     public function edit(Campaign $campaign)
     {
-        abort_if($campaign->is_system, 403, 'La campaña de sistema no se edita.');
+        abort_if($campaign->is_system, 403, __('La campaña de sistema no se edita.'));
         return $this->formulario($campaign->load('perfil.paginas'));
     }
 
@@ -61,23 +61,25 @@ class CampaignController extends Controller
     {
         $data = $this->validar($request);
         $c = $this->campanas->guardar(new Campaign(), $data, Auth::id());
-        return redirect()->route('campaigns.index')->with('success', "Campaña «{$c->name}» creada en " . count($c->medios ?? []) . ' medio(s). Ya puedes elegirla al publicar y analizarla en Inteligencia.');
+        return redirect()->route('campaigns.index')->with('success', __('Campaña «:nombre» creada en :n medio(s). Ya puedes elegirla al publicar y analizarla en Inteligencia.', ['nombre' => $c->name, 'n' => count($c->medios ?? [])]));
     }
 
     public function update(Request $request, Campaign $campaign)
     {
-        abort_if($campaign->is_system, 403, 'La campaña de sistema no se edita.');
+        abort_if($campaign->is_system, 403, __('La campaña de sistema no se edita.'));
         $data = $this->validar($request, $campaign);
         $this->campanas->guardar($campaign, $data);
-        return redirect()->route('campaigns.index')->with('success', "Campaña «{$campaign->name}» actualizada.");
+        return redirect()->route('campaigns.index')->with('success', __('Campaña «:nombre» actualizada.', ['nombre' => $campaign->name]));
     }
 
     public function toggle(Campaign $campaign)
     {
-        abort_if($campaign->is_system, 403, 'La campaña de sistema no se puede desactivar.');
+        abort_if($campaign->is_system, 403, __('La campaña de sistema no se puede desactivar.'));
         $campaign->update(['is_active' => !$campaign->is_active]);
         $this->campanas->sincronizarPerfil($campaign);
-        return back()->with('success', "Campaña «{$campaign->name}» " . ($campaign->is_active ? 'activada' : 'desactivada') . '.');
+        return back()->with('success', $campaign->is_active
+            ? __('Campaña «:nombre» activada.', ['nombre' => $campaign->name])
+            : __('Campaña «:nombre» desactivada.', ['nombre' => $campaign->name]));
     }
 
     private function validar(Request $request, ?Campaign $c = null): array
@@ -96,8 +98,8 @@ class CampaignController extends Controller
             'paginas_extra.*' => ['integer', 'exists:meta_pages,id'],
             'temas' => ['nullable', 'string', 'max:2000'],
         ], [
-            'medios.required' => 'Elige al menos un medio donde se publicará la campaña.',
-            'ends_on.after_or_equal' => 'La fecha de fin debe ser posterior a la de inicio.',
+            'medios.required' => __('Elige al menos un medio donde se publicará la campaña.'),
+            'ends_on.after_or_equal' => __('La fecha de fin debe ser posterior a la de inicio.'),
         ]);
     }
 

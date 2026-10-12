@@ -34,6 +34,7 @@ class SuscripcionesTest extends TestCase
         Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
         User::factory()->create(['name' => 'Equipo']); // usuario existente → queda exento
         (require database_path('migrations/2026_10_13_000001_create_suscripciones.php'))->up();
+        (require database_path('migrations/2026_10_21_000001_idiomas_y_pagos_internacionales.php'))->up();
 
         Role::firstOrCreate(['slug' => 'user'], ['name' => 'Usuario']);
         $this->cliente = User::factory()->create(['name' => 'Cliente', 'email' => 'cliente@prueba.co', 'role_id' => Role::where('slug', 'user')->value('id')]);

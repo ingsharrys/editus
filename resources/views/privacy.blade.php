@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Editus | Política de Privacidad</title>
+    <title>Editus | {{ __('Política de Privacidad') }}</title>
     <link rel="icon" href="{{ asset('img/logo.jpg') }}" type="image/png">
 
     <!-- Fonts -->
@@ -12,7 +12,7 @@
 
     <!-- Tailwind CDN -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
-    <meta name="description" content="Política de Privacidad de Editus, plataforma desarrollada por Sharrys Tech para la gestión e integración con Facebook.">
+    <meta name="description" content="{{ __('Política de Privacidad de Editus, plataforma desarrollada por Sharrys Tech para la gestión e integración con Facebook.') }}">
     <meta name="robots" content="index,follow">
   </head>
 
@@ -21,6 +21,10 @@
       <div class="max-w-5xl mx-auto px-6 py-12">
 
         <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+
+            @if (app()->getLocale() === 'en')
+            @include('legal.privacy-en')
+            @else
 
             <!-- Encabezado -->
             <div class="bg-blue-700 text-white p-10">
@@ -470,6 +474,8 @@
                 © {{ date('Y') }} Sharrys Tech · Editus · Todos los derechos reservados.
 
             </div>
+
+            @endif
 
         </div>
 

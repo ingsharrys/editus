@@ -4,8 +4,8 @@
     <div class="w-full md:max-w-7xl mx-auto mt-20">
         <x-slot name="header">
             <div class="flex items-center justify-between">
-                <h2 class="font-semibold text-xl">Páginas de Meta</h2>
-                <span class="text-sm text-gray-500">Total:
+                <h2 class="font-semibold text-xl">{{ __('Páginas de Meta') }}</h2>
+                <span class="text-sm text-gray-500">{{ __('Total:') }}
                     {{ method_exists($pages, 'total') ? $pages->total() : $pages->count() }}</span>
             </div>
         </x-slot>
@@ -38,15 +38,15 @@
         @if (session('publish_results'))
             @php
                 $prettyError = function ($err) {
-                    if (!$err) return 'Error desconocido';
+                    if (!$err) return __('Error desconocido');
                     $json = json_decode((string) $err, true);
                     $msg = data_get($json, 'error.message', (string) $err);
                     $code = (int) data_get($json, 'error.code', 0);
                     if ($code === 190 || str_contains($msg, 'access token') || str_contains($msg, 'Sin token activo') || $msg === 'Sin token activo') {
-                        return 'Token de la página vencido o ausente → pulsa «Sincronizar» arriba (o «Vincular» en la tarjeta de esta página) y vuelve a intentar.';
+                        return __('Token de la página vencido o ausente → pulsa «Sincronizar» arriba (o «Vincular» en la tarjeta de esta página) y vuelve a intentar.');
                     }
                     if ($code === 200 || str_contains($msg, 'permission')) {
-                        return 'Falta un permiso de Meta para esta página: ' . \Illuminate\Support\Str::limit($msg, 140);
+                        return __('Falta un permiso de Meta para esta página: :detalle', ['detalle' => \Illuminate\Support\Str::limit($msg, 140)]);
                     }
                     return \Illuminate\Support\Str::limit($msg, 180);
                 };
@@ -54,7 +54,7 @@
             @endphp
             <div class="rounded-xl border border-gray-200 bg-white p-4 mb-3">
                 <div class="flex items-center justify-between mb-2">
-                    <p class="text-sm font-semibold text-gray-800">Detalle del último envío por página</p>
+                    <p class="text-sm font-semibold text-gray-800">{{ __('Detalle del último envío por página') }}</p>
                     <span class="text-[11px] text-gray-500">
                         ✅ {{ $resultados->where('ok', true)->count() }} ·
                         ❌ {{ $resultados->where('ok', false)->count() }}
@@ -65,11 +65,11 @@
                         <div class="flex items-start gap-2 text-xs">
                             @if ($r['ok'] ?? false)
                                 <span class="shrink-0 text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">
-                                    {{ data_get($r, 'body.queued') ? '⏳ En cola' : '✅ Publicado' }}
+                                    {{ data_get($r, 'body.queued') ? '⏳ ' . __('En cola') : '✅ ' . __('Publicado') }}
                                 </span>
                                 <span class="font-medium text-gray-800 pt-0.5">{{ $r['page'] ?? '—' }}</span>
                             @else
-                                <span class="shrink-0 text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">❌ Falló</span>
+                                <span class="shrink-0 text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">❌ {{ __('Falló') }}</span>
                                 <div class="min-w-0 pt-0.5">
                                     <span class="font-medium text-gray-800">{{ $r['page'] ?? '—' }}:</span>
                                     <span class="text-gray-600">{{ $prettyError($r['error'] ?? null) }}</span>
@@ -107,7 +107,7 @@
                         </h2>
         
                         <p class="text-xs text-gray-500">
-                            Gestiona y publica en tus páginas.
+                            {{ __('Gestiona y publica en tus páginas.') }}
                         </p>
         
                         <!-- Estado -->
@@ -117,7 +117,7 @@
         
                             <span class="text-xs font-medium 
                                 {{ $hasFb ? 'text-emerald-600' : 'text-gray-500' }}">
-                                {{ $hasFb ? 'Conectado' : 'No conectado' }}
+                                {{ $hasFb ? __('Conectado') : __('No conectado') }}
                             </span>
                         </div>
                     </div>
@@ -131,7 +131,7 @@
                             onchange="this.form.submit()"
                             class="text-xs rounded-lg border border-gray-200 px-3 py-2 bg-white
                                    focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-                            <option value="">Todos los perfiles</option>
+                            <option value="">{{ __('Todos los perfiles') }}</option>
                             @foreach ($owners as $o)
                                 <option value="{{ $o->id }}"
                                     {{ (string) ($ownerId ?? request('owner_id')) === (string) $o->id ? 'selected' : '' }}>
@@ -145,7 +145,7 @@
                         <a href="{{ route('facebook.connect') }}"
                            class="text-xs inline-flex items-center justify-center px-4 py-2 rounded-lg
                                   border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition">
-                            Conectar
+                            {{ __('Conectar') }}
                         </a>
                     @endif
         
@@ -155,18 +155,18 @@
                             class="text-xs px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition
                             {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
                             {{ $hasFb ? '' : 'disabled' }}>
-                            Sincronizar
+                            {{ __('Sincronizar') }}
                         </button>
                     </form>
         
                     <form method="POST" action="{{ route('facebook.unlink') }}"
-                          onsubmit="return confirm('¿Desvincular Facebook de tu cuenta?');">
+                          onsubmit="return confirm(@js(__('¿Desvincular Facebook de tu cuenta?')));">
                         @csrf @method('DELETE')
                         <button
                             class="text-xs px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition
                             {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
                             {{ $hasFb ? '' : 'disabled' }}>
-                            Desvincular
+                            {{ __('Desvincular') }}
                         </button>
                     </form>
         
@@ -182,13 +182,13 @@
                         class="text-xs px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition
                         {{ $hasFb ? '' : 'opacity-50 cursor-not-allowed' }}"
                         {{ $hasFb ? '' : 'disabled' }}>
-                        Arreglar tokens (insights)
+                        {{ __('Arreglar tokens (insights)') }}
                     </button>
         
                     <!-- Barra -->
                     <div id="repairBox" class="hidden w-full max-w-md">
                         <div class="flex justify-between text-xs mb-1">
-                            <span id="repairLabel" class="text-gray-600">Preparando…</span>
+                            <span id="repairLabel" class="text-gray-600">{{ __('Preparando…') }}</span>
                             <span id="repairPct" class="text-gray-600">0%</span>
                         </div>
         
@@ -215,7 +215,7 @@
 
             <!-- Buscar -->
             <div class="flex flex-col gap-1">
-                <label for="searchInput" class="text-xs font-medium text-gray-200">Buscar</label>
+                <label for="searchInput" class="text-xs font-medium text-gray-200">{{ __('Buscar') }}</label>
         
                 <div class="relative group">
                     <span class="absolute inset-y-0 left-3 flex items-center text-gray-400">
@@ -227,7 +227,7 @@
                     </span>
         
                     <input id="searchInput" type="search"
-                        placeholder="Nombre o ID..."
+                        placeholder="{{ __('Nombre o ID...') }}"
                         class="w-full h-11 rounded-xl bg-white/90 border border-gray-200 pl-10 pr-3
                                text-sm text-gray-800 placeholder:text-gray-400 shadow-sm
                                focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none
@@ -237,7 +237,7 @@
         
             <!-- Estado -->
             <div class="flex flex-col gap-1">
-                <label for="statusFilter" class="text-xs font-medium text-gray-200">Estado</label>
+                <label for="statusFilter" class="text-xs font-medium text-gray-200">{{ __('Estado') }}</label>
         
                 <div class="relative">
                     <select id="statusFilter"
@@ -246,9 +246,9 @@
                                focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none
                                transition">
         
-                        <option value="all">Todas</option>
-                        <option value="active">Activo</option>
-                        <option value="inactive">Inactivo</option>
+                        <option value="all">{{ __('Todas') }}</option>
+                        <option value="active">{{ __('Activo') }}</option>
+                        <option value="inactive">{{ __('Inactivo') }}</option>
                     </select>
         
                     <span class="absolute inset-y-0 right-3 flex items-center text-gray-400 pointer-events-none">
@@ -262,7 +262,7 @@
         
             <!-- Selección -->
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-gray-200">Selección</label>
+                <label class="text-xs font-medium text-gray-200">{{ __('Selección') }}</label>
         
                 <div class="flex items-center justify-between h-11 px-3
                             rounded-xl bg-white/90 border border-gray-200 shadow-sm
@@ -271,7 +271,7 @@
                     <label for="selectAll" class="flex items-center gap-2 cursor-pointer">
                         <input id="selectAll" type="checkbox"
                             class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200">
-                        <span class="text-sm text-gray-700">Todas</span>
+                        <span class="text-sm text-gray-700">{{ __('Todas') }}</span>
                     </label>
         
                     <span class="flex items-center gap-1 text-xs text-gray-600">
@@ -279,14 +279,14 @@
                             class="px-2 py-0.5 rounded-md bg-gray-100 text-gray-800 font-medium">
                             0
                         </span>
-                        seleccionadas
+                        {{ __('seleccionadas') }}
                     </span>
                 </div>
             </div>
         
             <!-- Favoritos -->
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-gray-200">Favoritos</label>
+                <label class="text-xs font-medium text-gray-200">{{ __('Favoritos') }}</label>
         
                 <div class="flex items-center gap-2">
         
@@ -297,7 +297,7 @@
                                text-sm text-yellow-800 hover:bg-yellow-100
                                shadow-sm transition">
                         ⭐
-                        <span class="hidden sm:inline">Gestionar</span>
+                        <span class="hidden sm:inline">{{ __('Gestionar') }}</span>
                     </button>
         
                     <!-- Checkbox -->
@@ -309,7 +309,7 @@
                         <input id="onlyFavorites" type="checkbox"
                             class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-200">
         
-                        <span>Solo</span>
+                        <span>{{ __('Solo') }}</span>
                     </label>
                 </div>
             </div>
@@ -334,22 +334,22 @@
                     @php $lim = $planInfo['limites'] ?? null; @endphp
                     <div class="rounded-xl {{ $lim ? 'border border-indigo-200 bg-indigo-50 text-indigo-900' : 'border border-amber-200 bg-amber-50 text-amber-900' }} px-4 py-3 text-sm">
                         @if ($lim)
-                            Plan <strong>{{ $lim['nombre'] }}</strong>: publicas en {{ count($planInfo['permitidas']) }} de {{ $lim['paginas'] }} página(s).
-                            <a href="{{ route('suscripcion.index') }}" class="underline">Elegir páginas del plan</a>
+                            {!! __('Plan <strong>:plan</strong>: publicas en :n de :max página(s).', ['plan' => e($lim['nombre']), 'n' => count($planInfo['permitidas']), 'max' => e($lim['paginas'])]) !!}
+                            <a href="{{ route('suscripcion.index') }}" class="underline">{{ __('Elegir páginas del plan') }}</a>
                         @else
-                            Necesitas un plan activo para publicar. <a href="{{ route('suscripcion.index') }}" class="font-semibold underline">Ver planes</a>
+                            {{ __('Necesitas un plan activo para publicar.') }} <a href="{{ route('suscripcion.index') }}" class="font-semibold underline">{{ __('Ver planes') }}</a>
                         @endif
                     </div>
                 @else
                 <!-- CAMPAÑA (obligatoria) -->
                 <div>
                     <h3 class="text-sm font-semibold text-gray-800 mb-2">
-                        Campaña <span class="text-red-500">*</span>
+                        {{ __('Campaña') }} <span class="text-red-500">*</span>
                     </h3>
                     <select name="campaign_id" id="campaignSelect" required
                             data-paginas='@json($campaignPages ?? [])'
                             class="w-full sm:max-w-md rounded-xl border-gray-200 text-sm">
-                        <option value="">— Selecciona la campaña de esta publicación —</option>
+                        <option value="">{{ __('— Selecciona la campaña de esta publicación —') }}</option>
                         @foreach ($campaigns ?? [] as $c)
                             <option value="{{ $c->id }}" {{ (string) old('campaign_id') === (string) $c->id ? 'selected' : '' }}>
                                 {{ $c->name }}{{ $c->medios ? ' · ' . implode(', ', $c->nombresMedios()) : '' }}
@@ -358,9 +358,9 @@
                     </select>
                     <p id="campaignPagesHint" class="hidden mt-2 rounded-lg bg-indigo-50 text-indigo-800 px-3 py-2 text-xs"></p>
                     <p class="mt-1 text-[11px] text-gray-500">
-                        Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.
+                        {{ __('Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.') }}
                         @if (auth()->user()->isAdmin())
-                            <a href="{{ route('campaigns.index') }}" class="text-blue-600 hover:underline">Gestionar campañas</a>
+                            <a href="{{ route('campaigns.index') }}" class="text-blue-600 hover:underline">{{ __('Gestionar campañas') }}</a>
                         @endif
                     </p>
                 </div>
@@ -368,7 +368,7 @@
 
                 <!-- REDES DESTINO -->
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">Publicar en</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">{{ __('Publicar en') }}</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label class="cursor-pointer">
                             <input type="checkbox" name="networks[]" value="facebook" id="netFacebook" class="hidden peer" checked>
@@ -390,16 +390,16 @@
                         </label>
                     </div>
                     <p id="igTextWarning" class="hidden mt-2 text-[11px] text-amber-600">
-                        ⚠️ Instagram no permite publicaciones de solo texto: agrega una foto o video, o se publicará únicamente en Facebook.
+                        ⚠️ {{ __('Instagram no permite publicaciones de solo texto: agrega una foto o video, o se publicará únicamente en Facebook.') }}
                     </p>
                     <p class="mt-1 text-[11px] text-gray-500">
-                        Instagram publica solo en páginas con cuenta de Instagram Business conectada.
+                        {{ __('Instagram publica solo en páginas con cuenta de Instagram Business conectada.') }}
                     </p>
                 </div>
 
                 <!-- TIPO DE PUBLICACIÓN -->
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">Tipo de publicación</h3>
+                    <h3 class="text-sm font-semibold text-gray-800 mb-3">{{ __('Tipo de publicación') }}</h3>
             
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             
@@ -410,7 +410,7 @@
                                         border-gray-200 text-sm text-gray-700
                                         peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700
                                         hover:border-gray-300 transition">
-                                📝 Texto / Enlace
+                                📝 {{ __('Texto / Enlace') }}
                             </div>
                         </label>
             
@@ -421,7 +421,7 @@
                                         border-gray-200 text-sm text-gray-700
                                         peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700
                                         hover:border-gray-300 transition">
-                                🖼️ Foto
+                                🖼️ {{ __('Foto') }}
                             </div>
                         </label>
             
@@ -443,7 +443,7 @@
                 <div>
                     <div class="flex items-center justify-between mb-1">
                         <label for="messageInput" class="text-sm font-medium text-gray-800">
-                            Mensaje
+                            {{ __('Mensaje') }}
                         </label>
                         <span class="text-[11px] text-gray-500">
                             <span id="msgCount">0</span> / 63206
@@ -451,21 +451,21 @@
                     </div>
             
                     <textarea id="messageInput" name="message" rows="4"
-                        placeholder="Escribe tu mensaje..."
+                        placeholder="{{ __('Escribe tu mensaje...') }}"
                         required maxlength="63206"
                         class="w-full rounded-xl border border-gray-200 px-3 py-3 text-sm
                                placeholder-gray-400 resize-none
                                focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition"></textarea>
             
                     <p class="mt-1 text-[11px] text-gray-500">
-                        Este campo es obligatorio.
+                        {{ __('Este campo es obligatorio.') }}
                     </p>
                 </div>
             
                 <!-- ENLACE -->
                 <div id="linkWrap">
                     <label for="linkInput" class="block text-sm font-medium text-gray-800 mb-1">
-                        Enlace (opcional)
+                        {{ __('Enlace (opcional)') }}
                     </label>
             
                     <div class="relative">
@@ -474,14 +474,14 @@
                         </span>
             
                         <input id="linkInput" type="url" name="link"
-                            placeholder="https://tusitio.com"
+                            placeholder="{{ __('https://tusitio.com') }}"
                             class="w-full rounded-xl border border-gray-200 pl-9 pr-20 py-2.5 text-sm
                                    focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none transition" />
             
                         <button type="button" id="clearLink"
                             class="absolute right-2 top-1/2 -translate-y-1/2 hidden text-xs px-2 py-1 rounded-md
                                    text-gray-600 hover:bg-gray-100">
-                            Limpiar
+                            {{ __('Limpiar') }}
                         </button>
                     </div>
                 </div>
@@ -489,7 +489,7 @@
                 <!-- FOTOS -->
                 <div id="photoFilesWrap" class="hidden">
                     <label class="block text-sm font-medium text-gray-800 mb-1">
-                        Imágenes
+                        {{ __('Imágenes') }}
                     </label>
             
                     <input id="photoFiles" type="file" name="photos[]" accept="image/*" multiple
@@ -504,7 +504,7 @@
                          class="mt-3 grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4"></div>
             
                     <p class="mt-2 text-[11px] text-gray-500">
-                        <span id="photoCount">0</span> imagen(es) seleccionadas
+                        <span id="photoCount">0</span> {{ __('imagen(es) seleccionadas') }}
                     </p>
                 </div>
             
@@ -525,7 +525,7 @@
                         controls></video>
             
                     <p class="mt-2 text-[11px] text-gray-500">
-                        Formatos: MP4, WEBM, MOV.
+                        {{ __('Formatos: MP4, WEBM, MOV.') }}
                     </p>
                 </div>
             
@@ -536,7 +536,7 @@
                 <button type="submit"
                     class="px-5 py-2.5 rounded-xl bg-[#183EEB] text-white text-sm font-medium
                            hover:bg-indigo-700 transition shadow-sm">
-                    Publicar
+                    {{ __('Publicar') }}
                 </button>
             </div>
             
@@ -552,11 +552,11 @@
             <!-- Header -->
             <div class="flex items-center justify-between mb-5">
                 <h2 class="text-lg font-semibold text-gray-800">
-                    Selecciona páginas para publicar
+                    {{ __('Selecciona páginas para publicar') }}
                 </h2>
         
                 <span class="text-xs text-gray-500">
-                    Solo publicará en páginas sincronizadas
+                    {{ __('Solo publicará en páginas sincronizadas') }}
                 </span>
             </div>
         
@@ -564,14 +564,11 @@
             @if (auth()->user()->isAdmin())
                 <!-- Publicación automática desde esnoticia -->
                 <div class="mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
-                    <p class="text-sm font-semibold text-blue-900">📰 Publicación automática de esnoticia</p>
+                    <p class="text-sm font-semibold text-blue-900">📰 {{ __('Publicación automática de esnoticia') }}</p>
                     <p class="mt-1 text-xs text-blue-800 leading-relaxed">
-                        En cada página verás el selector <strong>«Medio esnoticia»</strong>. Elige el medio que le
-                        corresponde y se guarda solo con seleccionarlo: desde ese momento, cada artículo publicado en
-                        ese medio desde la app de noticias se publicará automáticamente en la página de Facebook
-                        (como enlace con vista previa) y en su Instagram Business conectado (imagen + titular).
-                        Estas publicaciones quedan bajo la campaña «Esnoticia» en los informes.
-                        Para desactivar una página, selecciona «— Sin medio —».
+                        {!! __('En cada página verás el selector <strong>«Medio esnoticia»</strong>. Elige el medio que le corresponde y se guarda solo con seleccionarlo: desde ese momento, cada artículo publicado en ese medio desde la app de noticias se publicará automáticamente en la página de Facebook (como enlace con vista previa) y en su Instagram Business conectado (imagen + titular).') !!}
+                        {{ __('Estas publicaciones quedan bajo la campaña «Esnoticia» en los informes.') }}
+                        {{ __('Para desactivar una página, selecciona «— Sin medio —».') }}
                     </p>
                 </div>
             @endif
@@ -672,7 +669,7 @@
                                        {{ $ok ? '' : 'disabled' }}>
         
                                 <span class="text-sm text-gray-700">
-                                    Publicar aquí
+                                    {{ __('Publicar aquí') }}
                                 </span>
         
                             </label>
@@ -681,14 +678,14 @@
                                 <!-- Medio esnoticia (guarda al seleccionar) -->
                                 <div class="flex flex-col">
                                     <label class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
-                                        Medio esnoticia
+                                        {{ __('Medio esnoticia') }}
                                     </label>
                                     <select name="medio_slug"
                                             form="medio-{{ $p->id }}"
                                             onchange="document.getElementById('medio-{{ $p->id }}').submit()"
                                             class="mt-0.5 rounded-lg border-gray-300 text-xs py-1 pr-7
                                                    {{ $p->medio_slug ? 'text-blue-700 font-semibold' : 'text-gray-500' }}">
-                                        <option value="">— Sin medio —</option>
+                                        <option value="">{{ __('— Sin medio —') }}</option>
                                         @foreach (config('services.editus.medios', []) as $slug => $nombre)
                                             <option value="{{ $slug }}" {{ $p->medio_slug === $slug ? 'selected' : '' }}>
                                                 {{ $nombre }}
@@ -706,7 +703,7 @@
                             <!-- BOTÓN PUBLICAR -->
                             <button type="button"
                                 class="px-4 py-2 rounded-lg bg-[#183EEB] text-white text-xs font-medium hover:bg-blue-700 transition">
-                                Publicar
+                                {{ __('Publicar') }}
                             </button>
         
                             <!-- BOTÓN VINCULAR -->
@@ -716,11 +713,11 @@
         
                                     <button type="submit"
                                         form="unlink-{{ $p->id }}"
-                                        onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}»?');"
+                                        onclick="event.stopPropagation(); return confirm({{ \Illuminate\Support\Js::from(__('¿Desvincular «:nombre»?', ['nombre' => $p->name])) }});"
                                         class="px-4 py-2 rounded-lg bg-[#222]
                                                text-white text-xs font-medium
                                                hover:bg-black transition">
-                                        Desvincular
+                                        {{ __('Desvincular') }}
                                     </button>
         
                                 @else
@@ -731,7 +728,7 @@
                                         class="px-4 py-2 rounded-lg bg-[#222]
                                                text-white text-xs font-medium
                                                hover:bg-black transition">
-                                        Vincular
+                                        {{ __('Vincular') }}
                                     </button>
         
                                 @endif
@@ -742,11 +739,11 @@
         
                                     <button type="submit"
                                         form="unlink-{{ $p->id }}"
-                                        onclick="event.stopPropagation(); return confirm('¿Desvincular «{{ $p->name }}»?');"
+                                        onclick="event.stopPropagation(); return confirm({{ \Illuminate\Support\Js::from(__('¿Desvincular «:nombre»?', ['nombre' => $p->name])) }});"
                                         class="px-4 py-2 rounded-lg bg-[#222]
                                                text-white text-xs font-medium
                                                hover:bg-black transition">
-                                        Desvincular
+                                        {{ __('Desvincular') }}
                                     </button>
         
                                 @else
@@ -757,7 +754,7 @@
                                         class="px-4 py-2 rounded-lg bg-[#222]
                                                text-white text-xs font-medium
                                                hover:bg-black transition">
-                                        Vincular
+                                        {{ __('Vincular') }}
                                     </button>
         
                                 @endif
@@ -778,17 +775,17 @@
             @if (auth()->user()->isAdmin())
                 <div class="sticky bottom-4 z-10">
                     <div class="rounded-xl border border-gray-200 bg-[#0B238F] p-3 shadow-sm flex items-center justify-between">
-                        <div class="text-sm text-white"><span id="selectedCountFooter">0</span> páginas seleccionadas
+                        <div class="text-sm text-white"><span id="selectedCountFooter">0</span> {{ __('páginas seleccionadas') }}
                         </div>
                         <button id="publishBtn" type="submit" form="publishForm"
                             class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                             disabled>
-                            Publicar
+                            {{ __('Publicar') }}
                         </button>
                     </div>
                 </div>
             @else
-                <p class="text-sm text-gray-500">Solo el admin puede publicar en múltiples página.</p>
+                <p class="text-sm text-gray-500">{{ __('Solo el admin puede publicar en múltiples página.') }}</p>
             @endif
         @endauth
         </form>
@@ -834,14 +831,14 @@
 
             <div class="relative mx-auto mt-20 w-full max-w-xl rounded-2xl bg-white shadow-xl">
                 <div class="flex items-center justify-between px-4 py-3 border-b">
-                    <h3 class="font-semibold">Selecciona tus páginas favoritas</h3>
+                    <h3 class="font-semibold">{{ __('Selecciona tus páginas favoritas') }}</h3>
                     <button id="closeFavModal" class="text-gray-500 hover:text-gray-700">&times;</button>
                 </div>
 
                 <div class="p-4">
                     {{-- Buscador dentro del modal --}}
                     <div class="mb-3">
-                        <input id="favSearch" type="search" placeholder="Buscar página por nombre o ID..."
+                        <input id="favSearch" type="search" placeholder="{{ __('Buscar página por nombre o ID...') }}"
                             class="w-full h-10 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-100">
                     </div>
 
@@ -868,8 +865,8 @@
                                 <span class="text-sm text-gray-800 truncate">{{ $p->name }}</span>
 
                                 <span class="ml-auto inline-flex items-center"
-                                    title="{{ $ok ? 'Vinculada' : 'Desvinculada' }}"
-                                    aria-label="{{ $ok ? 'Vinculada' : 'Desvinculada' }}">
+                                    title="{{ $ok ? __('Vinculada') : __('Desvinculada') }}"
+                                    aria-label="{{ $ok ? __('Vinculada') : __('Desvinculada') }}">
                                     <span
                                         class="inline-block h-2.5 w-2.5 rounded-full {{ $ok ? 'bg-green-500' : 'bg-amber-400' }}"></span>
                                 </span>
@@ -882,17 +879,32 @@
                 <div class="flex items-center justify-end gap-2 px-4 py-3 border-t">
                     <button id="favClearAll" type="button"
                         class="text-sm rounded-lg px-3 py-2 bg-gray-100 hover:bg-gray-200">
-                        Borrar selección
+                        {{ __('Borrar selección') }}
                     </button>
                     <button id="favSave" type="button"
                         class="text-sm rounded-lg px-3 py-2 bg-blue-600 text-white hover:bg-blue-700">
-                        Guardar
+                        {{ __('Guardar') }}
                     </button>
                 </div>
             </div>
         </div>
         <script>
             (function() {
+                const T = @js([
+                    'quitar' => __('Quitar'),
+                    'noEsImagen' => __('No es imagen: :nombre'),
+                    'seMarcaron' => __('Se marcaron :n página(s) de los medios de la campaña. Desmarca las que quieras excluir.'),
+                    'sinToken' => __(':n página(s) de la campaña no tienen token activo.'),
+                    'campanaSinPaginas' => __('La campaña no tiene páginas con token activo en esta lista. Marca a mano dónde publicar o revisa sus medios en Campañas.'),
+                    'debesCampana' => __('Debes seleccionar una campaña antes de publicar.'),
+                    'mensajeObligatorio' => __('El mensaje es obligatorio.'),
+                    'alMenosRed' => __('Selecciona al menos una red (Facebook o Instagram).'),
+                    'igSoloTexto' => __('Instagram no permite publicaciones de solo texto. Agrega una foto o video, o marca también Facebook.'),
+                    'alMenosPagina' => __('Selecciona al menos una página para publicar.'),
+                    'publicando' => __('Publicando...'),
+                    'noGuardarFav' => __('No se pudo guardar favoritos.'),
+                    'errorFav' => __('Error guardando favoritos:'),
+                ]);
                 // ====== ELEMENTOS ORIGINALES ======
                 const searchInput = document.getElementById('searchInput');
                 const statusFilter = document.getElementById('statusFilter');
@@ -1154,7 +1166,7 @@
         <img src="${url}" alt="" class="w-full h-32 object-cover" loading="lazy">
         <button type="button" data-index="${idx}"
           class="remove-img absolute top-1.5 right-1.5 bg-white/90 rounded-full p-1 shadow hidden group-hover:block"
-          title="Quitar">
+          title="${T.quitar}">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
             <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" />
           </svg>
@@ -1170,7 +1182,7 @@
                     const incoming = Array.from(fileList || []);
                     for (const f of incoming) {
                         if (!f.type.startsWith('image/')) {
-                            errors.push(`No es imagen: ${f.name}`);
+                            errors.push(T.noEsImagen.replace(':nombre', f.name));
                             continue;
                         }
                         if (f.size > MAX_SIZE) {
@@ -1277,8 +1289,8 @@
                         });
                         if (hint) {
                             hint.textContent = marcadas
-                                ? 'Se marcaron ' + marcadas + ' página(s) de los medios de la campaña. Desmarca las que quieras excluir.' + (sinToken ? ' ' + sinToken + ' página(s) de la campaña no tienen token activo.' : '')
-                                : 'La campaña no tiene páginas con token activo en esta lista. Marca a mano dónde publicar o revisa sus medios en Campañas.';
+                                ? T.seMarcaron.replace(':n', marcadas) + (sinToken ? ' ' + T.sinToken.replace(':n', sinToken) : '')
+                                : T.campanaSinPaginas;
                             hint.classList.remove('hidden');
                         }
                     };
@@ -1291,7 +1303,7 @@
                     const campaignSelect = document.getElementById('campaignSelect');
                     if (campaignSelect && !campaignSelect.value) {
                         e.preventDefault();
-                        alert('Debes seleccionar una campaña antes de publicar.');
+                        alert(T.debesCampana);
                         campaignSelect.focus();
                         return;
                     }
@@ -1299,20 +1311,20 @@
                     const hasMsg = (msg?.value || '').trim().length > 0;
                     if (!hasMsg) {
                         e.preventDefault();
-                        alert('El mensaje es obligatorio.');
+                        alert(T.mensajeObligatorio);
                         msg?.focus();
                         return;
                     }
 
                     if (netFacebook && netInstagram && !netFacebook.checked && !netInstagram.checked) {
                         e.preventDefault();
-                        alert('Selecciona al menos una red (Facebook o Instagram).');
+                        alert(T.alMenosRed);
                         return;
                     }
 
                     if (netInstagram?.checked && !netFacebook?.checked && typeText?.checked) {
                         e.preventDefault();
-                        alert('Instagram no permite publicaciones de solo texto. Agrega una foto o video, o marca también Facebook.');
+                        alert(T.igSoloTexto);
                         return;
                     }
 
@@ -1324,7 +1336,7 @@
                     const selected = checkboxes().filter(cb => cb.checked && !cb.disabled);
                     if (selected.length === 0) {
                         e.preventDefault();
-                        alert('Selecciona al menos una página para publicar.');
+                        alert(T.alMenosPagina);
                         return;
                     }
 
@@ -1340,7 +1352,7 @@
 
                     if (publishBtn) {
                         publishBtn.disabled = true;
-                        publishBtn.textContent = 'Publicando...';
+                        publishBtn.textContent = T.publicando;
                     }
                 });
 
@@ -1388,14 +1400,14 @@
 
                         if (!res.ok) {
                             const txt = await res.text();
-                            alert('No se pudo guardar favoritos.\n' + txt);
+                            alert(T.noGuardarFav + '\n' + txt);
                             return;
                         }
 
                         // Refresca para ver ⭐ y data-favorite actualizados
                         window.location.reload();
                     } catch (e) {
-                        alert('Error guardando favoritos: ' + (e?.message || e));
+                        alert(T.errorFav + ' ' + (e?.message || e));
                     }
                 });
 
@@ -1409,6 +1421,15 @@
         </script>
         <script>
             (function() {
+                const TR = @js([
+                    'inicializando' => __('Inicializando…'),
+                    'error' => __('Error:'),
+                    'inicio' => __('inicio'),
+                    'errorStep' => __('Error en step'),
+                    'terminado' => __('Terminado'),
+                    'procesando' => __('Procesando…'),
+                    'stats' => __('Total: :total | Listos: :listos | Fix: :fix | Errores: :errores'),
+                ]);
                 const btn = document.getElementById('btnRepairTokens');
                 const box = document.getElementById('repairBox');
                 const bar = document.getElementById('repairBar');
@@ -1432,7 +1453,7 @@
                 async function start() {
                     btn.disabled = true;
                     box.classList.remove('hidden');
-                    label.textContent = 'Inicializando…';
+                    label.textContent = TR.inicializando;
                     bar.style.width = '0%';
                     pct.textContent = '0%';
                     stats.textContent = '';
@@ -1442,7 +1463,7 @@
 
                     const s = await post(startUrl);
                     if (!s.ok) {
-                        label.textContent = 'Error: ' + (s.error || 'inicio');
+                        label.textContent = TR.error + ' ' + (s.error || TR.inicio);
                         btn.disabled = false;
                         return;
                     }
@@ -1452,7 +1473,7 @@
                             limit: 25
                         });
                         if (!r.ok) {
-                            label.textContent = 'Error en step';
+                            label.textContent = TR.errorStep;
                             btn.disabled = false;
                             return;
                         }
@@ -1464,9 +1485,9 @@
 
                         bar.style.width = perc + '%';
                         pct.textContent = perc + '%';
-                        label.textContent = st.finished ? 'Terminado' : 'Procesando…';
+                        label.textContent = st.finished ? TR.terminado : TR.procesando;
                         stats.textContent =
-                            `Total: ${total} | Listos: ${st.kept} | Fix: ${st.fixed} | Errores: ${st.errors}`;
+                            TR.stats.replace(':total', total).replace(':listos', st.kept).replace(':fix', st.fixed).replace(':errores', st.errors);
 
                         if (st.finished) {
                             btn.disabled = false;

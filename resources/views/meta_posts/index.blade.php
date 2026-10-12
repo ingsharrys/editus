@@ -8,11 +8,11 @@
 
         <div class="text-[#00024f]">
             <h1 class="text-2xl font-bold">
-                Publicaciones enviadas
+                {{ __('Publicaciones enviadas') }}
             </h1>
 
             <p class="text-sm mt-1">
-                Historial de publicaciones realizadas en páginas sincronizadas.
+                {{ __('Historial de publicaciones realizadas en páginas sincronizadas.') }}
             </p>
         </div>
 
@@ -20,7 +20,7 @@
         <div class="flex items-center gap-2">
             <button
                 class="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition">
-                Recientes
+                {{ __('Recientes') }}
             </button>
         </div>
 
@@ -36,11 +36,11 @@
             </div>
 
             <h3 class="text-lg font-semibold text-gray-800">
-                No hay publicaciones
+                {{ __('No hay publicaciones') }}
             </h3>
 
             <p class="mt-1 text-sm text-gray-500">
-                Aún no has realizado publicaciones.
+                {{ __('Aún no has realizado publicaciones.') }}
             </p>
 
         </div>
@@ -59,25 +59,25 @@
                         'text' => [
                             'badge' => 'bg-blue-50 text-blue-700 border-blue-100',
                             'icon'  => '📝',
-                            'label' => 'Texto',
+                            'label' => __('Texto'),
                         ],
 
                         'photo' => [
                             'badge' => 'bg-emerald-50 text-emerald-700 border-emerald-100',
                             'icon'  => '🖼️',
-                            'label' => 'Imagen',
+                            'label' => __('Imagen'),
                         ],
 
                         'video' => [
                             'badge' => 'bg-violet-50 text-violet-700 border-violet-100',
                             'icon'  => '🎥',
-                            'label' => 'Video',
+                            'label' => __('Video'),
                         ],
 
                         default => [
                             'badge' => 'bg-gray-50 text-gray-700 border-gray-100',
                             'icon'  => '📄',
-                            'label' => 'Publicación',
+                            'label' => __('Publicación'),
                         ],
                     };
 
@@ -145,7 +145,7 @@
 
                             <div class="text-[15px] leading-6 font-medium text-gray-800 line-clamp-3 min-h-[72px]">
 
-                                {{ \Illuminate\Support\Str::limit($g->message ?? 'Sin contenido', 120) }}
+                                {{ \Illuminate\Support\Str::limit($g->message ?? __('Sin contenido'), 120) }}
 
                             </div>
 

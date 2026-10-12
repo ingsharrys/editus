@@ -17,7 +17,7 @@
 
         <div class="flex items-center justify-between mb-6">
             <h1 class="text-2xl md:text-3xl font-bold text-white tracking-tight">
-                Informe del grupo
+                {{ __('Informe del grupo') }}
                 <span class="ml-2 text-gray-300 text-base align-middle px-2 py-1 rounded-xl bg-white/10">
                     {{ $key }}
                 </span>
@@ -25,7 +25,7 @@
 
             <a href="{{ route('informe.index') }}"
                 class="bg-white border border-gray-200 shadow-sm px-4 py-2 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
-                ← Volver
+                ← {{ __('Volver') }}
             </a>
         </div>
 
@@ -37,23 +37,23 @@
         @endphp
         <div class="grid sm:grid-cols-5 gap-4 mb-6">
             <div class="rounded-2xl bg-white p-4 border shadow-sm">
-                <div class="text-xs text-gray-500">Publicaciones</div>
+                <div class="text-xs text-gray-500">{{ __('Publicaciones') }}</div>
                 <div class="text-xl font-bold">{{ number_format((int) ($summary['total_posts'] ?? 0)) }}</div>
             </div>
             <div class="rounded-2xl bg-white p-4 border shadow-sm">
-                <div class="text-xs text-gray-500">Alcance total</div>
+                <div class="text-xs text-gray-500">{{ __('Alcance total') }}</div>
                 <div class="text-xl font-bold">{{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}</div>
             </div>
             <div class="rounded-2xl bg-white p-4 border shadow-sm">
-                <div class="text-xs text-gray-500">Visualizaciones totales</div>
+                <div class="text-xs text-gray-500">{{ __('Visualizaciones totales') }}</div>
                 <div class="text-xl font-bold">{{ number_format((int) ($summary['visualizaciones_sum'] ?? 0)) }}</div>
             </div>
             <div class="rounded-2xl bg-white p-4 border shadow-sm">
-                <div class="text-xs text-gray-500">Interacciones totales</div>
+                <div class="text-xs text-gray-500">{{ __('Interacciones totales') }}</div>
                 <div class="text-xl font-bold">{{ number_format((int) ($summary['interacciones_sum'] ?? 0)) }}</div>
             </div>
             <div class="rounded-2xl bg-white p-4 border shadow-sm">
-                <div class="text-xs text-gray-500">Última publicación</div>
+                <div class="text-xs text-gray-500">{{ __('Última publicación') }}</div>
                 <div class="text-xl font-bold">{{ $eff }}</div>
             </div>
         </div>
@@ -62,7 +62,7 @@
         <div class="grid lg:grid-cols-2 gap-6">
             <div class="rounded-2xl bg-white border p-4 shadow-sm">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="text-sm text-gray-600">Suma por página</div>
+                    <div class="text-sm text-gray-600">{{ __('Suma por página') }}</div>
                 </div>
                 <div class="h-72">
                     <canvas id="chartByPage"></canvas>
@@ -71,7 +71,7 @@
 
             <div class="rounded-2xl bg-white border p-4 shadow-sm">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="text-sm text-gray-600">Suma por publicación</div>
+                    <div class="text-sm text-gray-600">{{ __('Suma por publicación') }}</div>
                 </div>
                 <div class="h-72">
                     <canvas id="chartByPost"></canvas>
@@ -82,10 +82,10 @@
         {{-- Detalle de publicaciones --}}
         <div class="mt-8 rounded-2xl bg-white border shadow-sm overflow-hidden">
             <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-                <div class="text-sm text-gray-700">Detalle de publicaciones ({{ number_format($posts->count()) }})</div>
+                <div class="text-sm text-gray-700">{{ __('Detalle de publicaciones (:n)', ['n' => number_format($posts->count())]) }}</div>
                 @if (!empty($summary['any_permalink']))
                     <a href="{{ $summary['any_permalink'] }}" target="_blank" rel="noopener noreferrer"
-                        class="text-indigo-600 text-sm hover:underline">Ver un ejemplo</a>
+                        class="text-indigo-600 text-sm hover:underline">{{ __('Ver un ejemplo') }}</a>
                 @endif
             </div>
 
@@ -93,13 +93,13 @@
                 <table class="min-w-full text-sm">
                     <thead class="bg-gray-50 text-gray-600">
                         <tr>
-                            <th class="text-left px-4 py-3">Fecha</th>
-                            <th class="text-left px-4 py-3">Página</th>
-                            <th class="text-left px-4 py-3">Tipo</th>
-                            <th class="text-right px-4 py-3">Alcance</th>
-                            <th class="text-right px-4 py-3">Vistas</th>
-                            <th class="text-right px-4 py-3">Interacciones</th>
-                            <th class="text-center px-4 py-3">Enlace</th>
+                            <th class="text-left px-4 py-3">{{ __('Fecha') }}</th>
+                            <th class="text-left px-4 py-3">{{ __('Página') }}</th>
+                            <th class="text-left px-4 py-3">{{ __('Tipo') }}</th>
+                            <th class="text-right px-4 py-3">{{ __('Alcance') }}</th>
+                            <th class="text-right px-4 py-3">{{ __('Vistas') }}</th>
+                            <th class="text-right px-4 py-3">{{ __('Interacciones') }}</th>
+                            <th class="text-center px-4 py-3">{{ __('Enlace') }}</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y">
@@ -113,7 +113,7 @@
                                 <td class="px-4 py-2 text-center">
                                     @if ($p->any_permalink)
                                         <a href="{{ $p->any_permalink }}" target="_blank" rel="noopener noreferrer"
-                                            class="text-indigo-600 hover:underline">Ver</a>
+                                            class="text-indigo-600 hover:underline">{{ __('Ver') }}</a>
                                     @else
                                         <span class="text-gray-400">—</span>
                                     @endif
@@ -124,7 +124,7 @@
                     {{-- Totales del grupo al pie --}}
                     <tfoot class="bg-gray-50">
                         <tr>
-                            <td colspan="3" class="px-4 py-3 text-right font-semibold text-gray-700">Totales del grupo
+                            <td colspan="3" class="px-4 py-3 text-right font-semibold text-gray-700">{{ __('Totales del grupo') }}
                             </td>
                             <td class="px-4 py-3 text-right font-bold">
                                 {{ number_format((int) ($summary['alcance_sum'] ?? 0)) }}</td>

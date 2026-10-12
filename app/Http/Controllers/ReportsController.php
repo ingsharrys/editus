@@ -157,7 +157,7 @@ class ReportsController extends Controller
                 return $agg($g) + [
                     'page_id' => (int) $pid,
                     'name' => $pageNames[$pid] ?? '—',
-                    'best_post' => $best ? \Illuminate\Support\Str::limit($best->message ?: '(sin texto)', 60) : null,
+                    'best_post' => $best ? \Illuminate\Support\Str::limit($best->message ?: __('(sin texto)'), 60) : null,
                     'best_reach' => (int) ($best->alcance ?? 0),
                 ];
             })
@@ -170,7 +170,7 @@ class ReportsController extends Controller
         });
 
         // ----- Por día de la semana (ISO: 1=Lun ... 7=Dom) -----
-        $dowLabels = [1 => 'Lunes', 2 => 'Martes', 3 => 'Miércoles', 4 => 'Jueves', 5 => 'Viernes', 6 => 'Sábado', 7 => 'Domingo'];
+        $dowLabels = [1 => __('Lunes'), 2 => __('Martes'), 3 => __('Miércoles'), 4 => __('Jueves'), 5 => __('Viernes'), 6 => __('Sábado'), 7 => __('Domingo')];
         $byDow = collect(range(1, 7))->map(function ($d) use ($posts, $agg, $dowLabels) {
             return ['dow' => $d, 'label' => $dowLabels[$d]] + $agg($posts->filter(fn($p) => $p->published_at->dayOfWeekIso === $d));
         });
@@ -191,14 +191,14 @@ class ReportsController extends Controller
         }
 
         // ----- Comparaciones por tipo y por red -----
-        $typeLabels = ['text' => '📝 Texto', 'photo' => '🖼️ Foto', 'video' => '🎬 Video'];
+        $typeLabels = ['text' => '📝 ' . __('Texto'), 'photo' => '🖼️ ' . __('Foto'), 'video' => '🎬 ' . __('Video')];
         $byType = $posts->groupBy('type')->map(fn($g, $t) => $agg($g) + ['label' => $typeLabels[$t] ?? $t])->sortByDesc('avg_reach');
         $byNetwork = $posts->groupBy('network')->map(fn($g, $n) => $agg($g) + ['label' => $n === 'instagram' ? '📸 Instagram' : '📘 Facebook'])->sortByDesc('avg_reach');
 
         // Comparación entre campañas
         $campaignNames = $campaignsCatalog->pluck('name', 'id');
         $byCampaign = $posts->groupBy('campaign_id')
-            ->map(fn($g, $cid) => $agg($g) + ['name' => $campaignNames[$cid] ?? 'Sin campaña'])
+            ->map(fn($g, $cid) => $agg($g) + ['name' => $campaignNames[$cid] ?? __('Sin campaña')])
             ->sortByDesc('reach')
             ->values();
 
@@ -211,28 +211,28 @@ class ReportsController extends Controller
         $insights = [];
 
         if ($best = $byPage->first(fn($r) => $r['n'] >= $MIN_N) ?? $byPage->first()) {
-            $insights[] = ['icon' => '🏆', 'title' => 'Mejor medio', 'value' => $best['name'],
-                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance por publicación ({$best['n']} publicaciones)"];
+            $insights[] = ['icon' => '🏆', 'title' => __('Mejor medio'), 'value' => $best['name'],
+                'detail' => __('Promedio de :avg de alcance por publicación (:n publicaciones)', ['avg' => number_format($best['avg_reach'], 0, ',', '.'), 'n' => $best['n']])];
         }
         if ($best = $byHour->filter(fn($r) => $r['n'] >= $MIN_N)->sortByDesc('avg_reach')->first()) {
-            $insights[] = ['icon' => '⏰', 'title' => 'Mejor hora para publicar', 'value' => sprintf('%02d:00', $best['hour']),
-                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance ({$best['n']} publicaciones)"];
+            $insights[] = ['icon' => '⏰', 'title' => __('Mejor hora para publicar'), 'value' => sprintf('%02d:00', $best['hour']),
+                'detail' => __('Promedio de :avg de alcance (:n publicaciones)', ['avg' => number_format($best['avg_reach'], 0, ',', '.'), 'n' => $best['n']])];
         }
         if ($best = $byDow->filter(fn($r) => $r['n'] >= $MIN_N)->sortByDesc('avg_reach')->first()) {
-            $insights[] = ['icon' => '📅', 'title' => 'Mejor día de la semana', 'value' => $best['label'],
-                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance ({$best['n']} publicaciones)"];
+            $insights[] = ['icon' => '📅', 'title' => __('Mejor día de la semana'), 'value' => $best['label'],
+                'detail' => __('Promedio de :avg de alcance (:n publicaciones)', ['avg' => number_format($best['avg_reach'], 0, ',', '.'), 'n' => $best['n']])];
         }
         if (($best = $byType->filter(fn($r) => $r['n'] >= $MIN_N)->first()) && $byType->count() > 1) {
-            $insights[] = ['icon' => '🎨', 'title' => 'Mejor formato', 'value' => $best['label'],
-                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance por publicación"];
+            $insights[] = ['icon' => '🎨', 'title' => __('Mejor formato'), 'value' => $best['label'],
+                'detail' => __('Promedio de :avg de alcance por publicación', ['avg' => number_format($best['avg_reach'], 0, ',', '.')])];
         }
         if ($byNetwork->count() > 1 && ($best = $byNetwork->filter(fn($r) => $r['n'] >= $MIN_N)->first())) {
-            $insights[] = ['icon' => '🌐', 'title' => 'Mejor red', 'value' => $best['label'],
-                'detail' => "Promedio de " . number_format($best['avg_reach'], 0, ',', '.') . " de alcance vs " . number_format($byNetwork->last()['avg_reach'], 0, ',', '.')];
+            $insights[] = ['icon' => '🌐', 'title' => __('Mejor red'), 'value' => $best['label'],
+                'detail' => __('Promedio de :avg de alcance vs :otro', ['avg' => number_format($best['avg_reach'], 0, ',', '.'), 'otro' => number_format($byNetwork->last()['avg_reach'], 0, ',', '.')])];
         }
         if ($eng = $byPage->filter(fn($r) => $r['n'] >= $MIN_N && $r['engagement'] !== null)->sortByDesc('engagement')->first()) {
-            $insights[] = ['icon' => '❤️', 'title' => 'Audiencia más participativa', 'value' => $eng['name'],
-                'detail' => "Tasa de interacción del {$eng['engagement']}% (interacciones/alcance)"];
+            $insights[] = ['icon' => '❤️', 'title' => __('Audiencia más participativa'), 'value' => $eng['name'],
+                'detail' => __('Tasa de interacción del :pct% (interacciones/alcance)', ['pct' => $eng['engagement']])];
         }
 
         // ----- Comparador por publicación (batch multi-medio) -----
@@ -275,7 +275,7 @@ class ReportsController extends Controller
 
                 $batchCompare = [
                     'uuid' => $batchUuid,
-                    'message' => \Illuminate\Support\Str::limit($batchPosts->first()->message ?: '(sin texto)', 140),
+                    'message' => \Illuminate\Support\Str::limit($batchPosts->first()->message ?: __('(sin texto)'), 140),
                     'date' => $batchPosts->first()->published_at,
                     'rows' => $rows,
                     'winner' => $rows->first(),
@@ -318,12 +318,14 @@ class ReportsController extends Controller
 
         $filename = 'publicaciones_' . now()->format('Y-m-d_His') . '.csv';
 
-        return response()->streamDownload(function () use ($query, $filters) {
+        $encabezados = [__('Fecha'), __('Campaña'), __('Página'), __('Red'), __('Tipo'), __('Estado'), __('Autor'), __('Mensaje'), __('Alcance'), __('Impresiones'), __('Interacciones'), __('Enlace')];
+
+        return response()->streamDownload(function () use ($query, $filters, $encabezados) {
             $out = fopen('php://output', 'w');
             // BOM para que Excel abra los acentos correctamente
             fwrite($out, "\xEF\xBB\xBF");
 
-            fputcsv($out, ['Fecha', 'Campaña', 'Página', 'Red', 'Tipo', 'Estado', 'Autor', 'Mensaje', 'Alcance', 'Impresiones', 'Interacciones', 'Enlace'], ';');
+            fputcsv($out, $encabezados, ';');
 
             $query->with(['page:id,name', 'user:id,name', 'campaign:id,name'])
                 ->orderBy($filters['sort'], $filters['dir'])

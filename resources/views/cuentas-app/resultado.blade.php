@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="es">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ $ok ? 'Cuenta conectada' : 'No se pudo conectar' }} · editus</title>
+<title>{{ $ok ? __('Cuenta conectada') : __('No se pudo conectar') }} · editus</title>
 {{-- Página final de la conexión iniciada desde la app: muestra el resultado y devuelve al usuario a la app (deep link). --}}
 <style>
   :root { color-scheme: light; }
@@ -20,10 +20,10 @@
 <body>
 <main>
   <div class="icono">{{ $ok ? '✓' : '!' }}</div>
-  <h1>{{ $ok ? ($red === 'youtube' ? 'Canal de YouTube conectado' : 'Facebook conectado') : 'No se pudo conectar' }}</h1>
+  <h1>{{ $ok ? ($red === 'youtube' ? __('Canal de YouTube conectado') : __('Facebook conectado')) : __('No se pudo conectar') }}</h1>
   <p>{{ $mensaje }}</p>
-  <a class="boton" href="{{ $volver }}">Volver a la app</a>
-  <small>Si la app no se abre sola, toca el botón o cierra esta ventana.</small>
+  <a class="boton" href="{{ $volver }}">{{ __('Volver a la app') }}</a>
+  <small>{{ __('Si la app no se abre sola, toca el botón o cierra esta ventana.') }}</small>
 </main>
 <script>
   // Vuelve a la app por sí sola (la app cierra el navegador al recibir el enlace)

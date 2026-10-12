@@ -21,7 +21,7 @@ class UsuarioActivo
             Auth::guard('web')->logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-            return redirect()->route('login')->withErrors(['email' => 'Tu usuario está desactivado. Habla con un administrador.']);
+            return redirect()->route('login')->withErrors(['email' => __('Tu usuario está desactivado. Habla con un administrador.')]);
         }
         if ($user && Schema::hasColumn('users', 'ultimo_acceso') && (!$user->ultimo_acceso || $user->ultimo_acceso->lt(now()->subMinutes(5)))) {
             $user->forceFill(['ultimo_acceso' => now()])->saveQuietly();

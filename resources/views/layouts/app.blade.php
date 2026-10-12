@@ -43,13 +43,13 @@
 
         <!-- Topbar (mobile) -->
         <header class="lg:hidden bg-white shadow p-4 flex items-center justify-between">
-            <button onclick="toggleSidebar()">
+            <button onclick="toggleSidebar()" aria-label="{{ __('Menú') }}">
                 <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
                     <path :class="{'hidden': open, 'inline-flex': ! open }" class="inline-flex" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                     <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
-            <img src="/img/logo-editus.png" class="w-20" alt="logo">
+            <div class="flex items-center gap-3"><x-idioma /><img src="/img/logo-editus.png" class="w-20" alt="editus"></div>
         </header>
 
         <!-- Main -->
@@ -67,10 +67,10 @@
                     class="w-[100px]"
                   />
                 </div>
-                <div>
-                
+                <div class="flex items-center gap-3">
+                    <x-idioma />
                     <p class="inline-block px-5 py-1.5 text-[#1b1b18] rounded-sm text-sm leading-normal">
-                        Estrategía Profesional En Medios Digitales
+                        {{ __('Estrategia profesional en medios digitales') }}
                     </p>
                 </div>
             </nav>
@@ -110,7 +110,7 @@
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            Mis Páginas
+                                            {{ __('Mis Páginas') }}
                                         </span>
                                     </a>
                                 </li>
@@ -126,7 +126,7 @@
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            En vivo
+                                            {{ __('En vivo') }}
                                         </span>
                                     </a>
                                 </li>
@@ -160,7 +160,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Mis Publicaciones
+                                                {{ __('Mis Publicaciones') }}
                                             </span>
                                         </a>
                                     </li>
@@ -178,7 +178,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Informes
+                                                {{ __('Informes') }}
                                             </span>
                                         </a>
                                     </li>
@@ -196,7 +196,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                App del editor
+                                                {{ __('App del editor') }}
                                             </span>
                                         </a>
                                     </li>
@@ -212,7 +212,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Plantillas de imagen
+                                                {{ __('Plantillas de imagen') }}
                                             </span>
                                         </a>
                                     </li>
@@ -230,7 +230,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Inteligencia
+                                                {{ __('Inteligencia') }}
                                             </span>
                                         </a>
                                     </li>
@@ -248,7 +248,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Mis Publicaciones
+                                                {{ __('Mis Publicaciones') }}
                                             </span>
                                         </a>
                                     </li>
@@ -266,7 +266,7 @@
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
                                                          hidden group-hover:block text-sm transition-all duration-300">
-                                                Campañas
+                                                {{ __('Campañas') }}
                                             </span>
                                         </a>
                                     </li>
@@ -284,7 +284,7 @@
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            Estadísticas
+                                            {{ __('Estadísticas') }}
                                         </span>
                                     </a>
                                 </li>
@@ -302,7 +302,7 @@
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            Informe de publicaciones
+                                            {{ __('Informe de publicaciones') }}
                                         </span>
                                     </a>
                                 </li>
@@ -320,7 +320,7 @@
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            Análisis de rendimiento
+                                            {{ __('Análisis de rendimiento') }}
                                         </span>
                                     </a>
                                 </li>
@@ -331,7 +331,7 @@
                                 <li>
                                     <a href="{{ route('usuarios.index') }}" class="flex items-center gap-4 rounded-xl px-4 py-3 hover:bg-[#00024f] transition-all">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">Usuarios</span>
+                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">{{ __('Usuarios') }}</span>
                                     </a>
                                 </li>
                                 @endif
@@ -340,7 +340,7 @@
                                 <li>
                                     <a href="{{ route('roles.index') }}" class="flex items-center gap-4 rounded-xl px-4 py-3 hover:bg-[#00024f] transition-all">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">Roles y permisos</span>
+                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">{{ __('Roles y permisos') }}</span>
                                     </a>
                                 </li>
                                 @endif
@@ -373,7 +373,7 @@
                                     </p>
                     
                                     <p class="text-xs text-gray-300 whitespace-nowrap">
-                                        {{ auth()->user()->role->name ?? 'Usuario' }}
+                                        {{ auth()->user()->role->name ?? __('Usuario') }}
                                     </p>
                                 </div>
                             </button>
@@ -386,7 +386,7 @@
                     
                                 <a href="{{ route('profile.edit') }}"
                                    class="block px-4 py-3 text-sm hover:bg-gray-100 transition">
-                                    Mi Perfil
+                                    {{ __('Mi Perfil') }}
                                 </a>
                     
                                 <form method="POST" action="{{ route('logout') }}">
@@ -394,7 +394,7 @@
                     
                                     <button type="submit"
                                             class="w-full text-left px-4 py-3 text-sm hover:bg-gray-100 transition">
-                                        Cerrar Sesión
+                                        {{ __('Cerrar Sesión') }}
                                     </button>
                                 </form>
                             </div>

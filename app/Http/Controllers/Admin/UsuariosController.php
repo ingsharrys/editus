@@ -52,56 +52,56 @@ class UsuariosController extends Controller
     {
         $d = $this->validar($request);
         $rol = Role::findOrFail($d['role_id']);
-        abort_unless($this->acceso->puedeAsignar(Auth::user(), $rol), 403, 'No puedes asignar ese rol.');
+        abort_unless($this->acceso->puedeAsignar(Auth::user(), $rol), 403, __('No puedes asignar ese rol.'));
         $clave = ($d['password'] ?? null) ?: Str::password(12, symbols: false);
         $u = new User();
         $u->forceFill([
             'name' => $d['name'], 'email' => strtolower($d['email']), 'password' => Hash::make($clave), 'role_id' => $rol->id,
             'cargo' => $d['cargo'] ?? null, 'telefono' => $d['telefono'] ?? null, 'activo' => (bool) ($d['activo'] ?? true), 'email_verified_at' => now(),
         ])->save();
-        $msg = "Usuario {$u->name} creado.";
-        if (empty($d['password'])) $msg .= " Contraseña temporal: {$clave} (cópiala y compártela; podrá cambiarla en su perfil).";
+        $msg = __('Usuario :nombre creado.', ['nombre' => $u->name]);
+        if (empty($d['password'])) $msg .= ' ' . __('Contraseña temporal: :clave (cópiala y compártela; podrá cambiarla en su perfil).', ['clave' => $clave]);
         return redirect()->route('usuarios.index')->with('success', $msg)->with('clave_temporal', empty($d['password']) ? $clave : null);
     }
 
     public function update(Request $request, User $usuario): RedirectResponse
     {
         $actor = Auth::user();
-        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, 'No puedes editar a este usuario.');
+        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, __('No puedes editar a este usuario.'));
         $d = $this->validar($request, $usuario);
         $rol = Role::findOrFail($d['role_id']);
         if ((int) $usuario->role_id !== (int) $rol->id) {
-            if ($usuario->id === $actor->id) return back()->withErrors(['role_id' => 'No puedes cambiar tu propio rol.']);
-            abort_unless($this->acceso->puedeAsignar($actor, $rol), 403, 'No puedes asignar ese rol.');
-            if ($usuario->isAdmin() && !$rol->esAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['role_id' => 'Debe quedar al menos un administrador.']);
+            if ($usuario->id === $actor->id) return back()->withErrors(['role_id' => __('No puedes cambiar tu propio rol.')]);
+            abort_unless($this->acceso->puedeAsignar($actor, $rol), 403, __('No puedes asignar ese rol.'));
+            if ($usuario->isAdmin() && !$rol->esAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['role_id' => __('Debe quedar al menos un administrador.')]);
         }
         $usuario->forceFill(['name' => $d['name'], 'email' => strtolower($d['email']), 'role_id' => $rol->id, 'cargo' => $d['cargo'] ?? null, 'telefono' => $d['telefono'] ?? null]);
         if (!empty($d['password'])) $usuario->password = Hash::make($d['password']);
         $usuario->save();
-        return redirect()->route('usuarios.index', $request->only('q', 'rol', 'estado'))->with('success', "Usuario {$usuario->name} actualizado.");
+        return redirect()->route('usuarios.index', $request->only('q', 'rol', 'estado'))->with('success', __('Usuario :nombre actualizado.', ['nombre' => $usuario->name]));
     }
 
     public function activo(User $usuario): RedirectResponse
     {
         $actor = Auth::user();
-        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, 'No puedes cambiar a este usuario.');
-        if ($usuario->id === $actor->id) return back()->withErrors(['activo' => 'No puedes desactivarte a ti mismo.']);
+        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, __('No puedes cambiar a este usuario.'));
+        if ($usuario->id === $actor->id) return back()->withErrors(['activo' => __('No puedes desactivarte a ti mismo.')]);
         $nuevo = !$usuario->estaActivo();
-        if (!$nuevo && $usuario->isAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['activo' => 'Debe quedar al menos un administrador activo.']);
+        if (!$nuevo && $usuario->isAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['activo' => __('Debe quedar al menos un administrador activo.')]);
         $usuario->forceFill(['activo' => $nuevo])->save();
-        return back()->with('success', $nuevo ? "{$usuario->name} puede volver a entrar." : "{$usuario->name} quedó desactivado: ya no puede entrar a editus.");
+        return back()->with('success', $nuevo ? __(':nombre puede volver a entrar.', ['nombre' => $usuario->name]) : __(':nombre quedó desactivado: ya no puede entrar a editus.', ['nombre' => $usuario->name]));
     }
 
     public function destroy(User $usuario): RedirectResponse
     {
         $actor = Auth::user();
-        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, 'No puedes borrar a este usuario.');
-        if ($usuario->id === $actor->id) return back()->withErrors(['borrar' => 'No puedes borrarte a ti mismo (hazlo desde tu perfil).']);
-        if ($usuario->isAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['borrar' => 'Debe quedar al menos un administrador.']);
+        abort_unless($this->acceso->puedeGestionar($actor, $usuario), 403, __('No puedes borrar a este usuario.'));
+        if ($usuario->id === $actor->id) return back()->withErrors(['borrar' => __('No puedes borrarte a ti mismo (hazlo desde tu perfil).')]);
+        if ($usuario->isAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['borrar' => __('Debe quedar al menos un administrador.')]);
         if ($usuario->avatar) Storage::disk('public')->delete($usuario->avatar);
         $nombre = $usuario->name;
         $usuario->delete();
-        return back()->with('success', "Usuario {$nombre} borrado.");
+        return back()->with('success', __('Usuario :nombre borrado.', ['nombre' => $nombre]));
     }
 
     private function validar(Request $request, ?User $u = null): array
@@ -114,6 +114,6 @@ class UsuariosController extends Controller
             'telefono' => ['nullable', 'string', 'max:40'],
             'password' => ['nullable', 'string', 'min:8', 'max:100'],
             'activo' => ['nullable', 'boolean'],
-        ], ['email.unique' => 'Ya existe un usuario con ese correo.', 'password.min' => 'La contraseña debe tener al menos 8 caracteres.']);
+        ], ['email.unique' => __('Ya existe un usuario con ese correo.'), 'password.min' => __('La contraseña debe tener al menos 8 caracteres.')]);
     }
 }

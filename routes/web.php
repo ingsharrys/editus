@@ -16,6 +16,9 @@ foreach (array_unique([config('planes.dominio_landing'), 'www.' . config('planes
         Route::get('/', [\App\Http\Controllers\LandingController::class, 'index']);
     });
 }
+// Idioma del sitio (es / en) y moneda de los precios (COP / USD)
+Route::get('/idioma/{idioma}', [\App\Http\Controllers\RegionController::class, 'idioma'])->where('idioma', '[a-z]{2}')->name('idioma');
+Route::get('/moneda/{moneda}', [\App\Http\Controllers\RegionController::class, 'moneda'])->where('moneda', '[A-Za-z]{3}')->name('moneda');
 Route::get('/planes', [\App\Http\Controllers\LandingController::class, 'index'])->name('landing');
 Route::get('/suscribirse', [\App\Http\Controllers\LandingController::class, 'formulario'])->name('landing.suscribirse');
 Route::post('/suscribirse', [\App\Http\Controllers\LandingController::class, 'suscribir'])->middleware('throttle:10,1')->name('landing.suscribir');
@@ -35,6 +38,9 @@ Route::post('/webhooks/emisor', \App\Http\Controllers\EmisorWebhookController::c
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:240,1')->name('webhooks.emisor');
 Route::post('/webhooks/wompi', \App\Http\Controllers\WompiWebhookController::class)
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.wompi');
+// Eventos de pagos de Square (sin sesión; se valida la firma con SQUARE_WEBHOOK_SIGNATURE_KEY)
+Route::post('/webhooks/square', \App\Http\Controllers\SquareWebhookController::class)
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.square');
 Route::get('/en-vivo/invitado/{codigo}', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoPagina'])->name('en-vivo.invitado');
 Route::post('/en-vivo/invitado/{codigo}/token', [\App\Http\Controllers\Api\EnVivoController::class, 'invitadoToken'])
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->name('en-vivo.invitado.token');
@@ -118,6 +124,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/suscripcion', [\App\Http\Controllers\SuscripcionController::class, 'index'])->middleware('permiso:suscripcion')->name('suscripcion.index');
     Route::post('/suscripcion/pagar', [\App\Http\Controllers\SuscripcionController::class, 'pagar'])->middleware('permiso:suscripcion')->name('suscripcion.pagar');
     Route::get('/suscripcion/resultado', [\App\Http\Controllers\SuscripcionController::class, 'resultado'])->middleware('permiso:suscripcion')->name('suscripcion.resultado');
+    Route::get('/suscripcion/square', [\App\Http\Controllers\SuscripcionController::class, 'resultadoSquare'])->middleware('permiso:suscripcion')->name('suscripcion.square');
     Route::post('/suscripcion/paginas', [\App\Http\Controllers\SuscripcionController::class, 'paginas'])->middleware('permiso:suscripcion')->name('suscripcion.paginas');
     Route::post('/suscripcion/licencia', [\App\Http\Controllers\SuscripcionController::class, 'regenerarLicencia'])->middleware('permiso:suscripcion')->name('suscripcion.licencia');
     Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->middleware('permiso:suscripcion')->name('suscripcion.sitio.liberar');

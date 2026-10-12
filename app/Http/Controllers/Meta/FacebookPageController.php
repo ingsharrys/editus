@@ -44,7 +44,7 @@ class FacebookPageController extends Controller
         $myPivot = $facebook_page->users->firstWhere('id', $user->id)?->pivot;
 
         $canView = $isAdmin || ($myPivot && $myPivot->is_active && !empty($myPivot->page_access_token));
-        abort_unless($canView, 403, 'No tienes permiso para ver esta página.');
+        abort_unless($canView, 403, __('No tienes permiso para ver esta página.'));
 
         // Publicaciones de esta página (agregamos fb_permalink_url y link)
         $posts = \App\Models\MetaPost::where('meta_page_id', $facebook_page->id)
@@ -269,8 +269,8 @@ class FacebookPageController extends Controller
         $nombreMedio = $slug ? (config('services.editus.medios')[$slug] ?? $slug) : null;
 
         return back()->with('success', $slug
-            ? "«{$metaPage->name}» quedó vinculada al medio {$nombreMedio}: los artículos de ese medio se publicarán aquí automáticamente."
-            : "«{$metaPage->name}» quedó sin medio: ya no recibirá publicaciones automáticas.");
+            ? __('«:pagina» quedó vinculada al medio :medio: los artículos de ese medio se publicarán aquí automáticamente.', ['pagina' => $metaPage->name, 'medio' => $nombreMedio])
+            : __('«:pagina» quedó sin medio: ya no recibirá publicaciones automáticas.', ['pagina' => $metaPage->name]));
     }
 
     public function publish(Request $request)
@@ -327,7 +327,7 @@ class FacebookPageController extends Controller
         // Instagram no acepta publicaciones de solo texto
         if ($request->type === 'text' && !in_array('facebook', $networks, true)) {
             return back()
-                ->withErrors(['networks' => 'Instagram no permite publicaciones de solo texto. Selecciona Facebook o agrega una foto/video.'])
+                ->withErrors(['networks' => __('Instagram no permite publicaciones de solo texto. Selecciona Facebook o agrega una foto/video.')])
                 ->withInput();
         }
 
@@ -335,11 +335,11 @@ class FacebookPageController extends Controller
             $request->validate(['message' => ['required', 'string', 'max:63206']]);
         } elseif ($request->type === 'photo') {
             if (!$request->hasFile('photos')) {
-                return back()->withErrors(['photos' => 'Selecciona al menos una imagen.'])->withInput();
+                return back()->withErrors(['photos' => __('Selecciona al menos una imagen.')])->withInput();
             }
         } elseif ($request->type === 'video') {
             if (!$request->hasFile('video')) {
-                return back()->withErrors(['video' => 'Selecciona un video.'])->withInput();
+                return back()->withErrors(['video' => __('Selecciona un video.')])->withInput();
             }
         }
 
@@ -349,7 +349,7 @@ class FacebookPageController extends Controller
             ->get();
 
         if ($pages->isEmpty()) {
-            return back()->withErrors(['page_ids' => 'No se encontraron páginas válidas.']);
+            return back()->withErrors(['page_ids' => __('No se encontraron páginas válidas.')]);
         }
 
         $results = [];
@@ -459,7 +459,7 @@ class FacebookPageController extends Controller
                         $res = $this->storePhotoPublicTmp($file); // ya lo tienes implementado
                         if (!($res['ok'] ?? false)) {
                             $postData['status'] = 'fail';
-                            $postData['error'] = $res['error'] ?? 'No se pudo guardar una imagen en público.';
+                            $postData['error'] = $res['error'] ?? __('No se pudo guardar una imagen en público.');
                             MetaPost::create($postData);
                             $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                             continue 2; // salta a la siguiente página del foreach ($pages as $page)
@@ -471,7 +471,7 @@ class FacebookPageController extends Controller
 
                     if (empty($urls)) {
                         $postData['status'] = 'fail';
-                        $postData['error'] = 'No se pudo preparar ninguna imagen.';
+                        $postData['error'] = __('No se pudo preparar ninguna imagen.');
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                         continue;
@@ -521,18 +521,18 @@ class FacebookPageController extends Controller
                     if (!$file || !$file->isValid()) {
                         $code = $file?->getError() ?? UPLOAD_ERR_NO_FILE;
                         $msg = match ($code) {
-                            UPLOAD_ERR_INI_SIZE => 'El archivo supera upload_max_filesize (php.ini).',
-                            UPLOAD_ERR_FORM_SIZE => 'El archivo supera MAX_FILE_SIZE (formulario).',
-                            UPLOAD_ERR_PARTIAL => 'El archivo se subió parcialmente.',
-                            UPLOAD_ERR_NO_FILE => 'No se subió ningún archivo.',
-                            UPLOAD_ERR_NO_TMP_DIR => 'Falta upload_tmp_dir.',
-                            UPLOAD_ERR_CANT_WRITE => 'No se pudo escribir en disco.',
-                            UPLOAD_ERR_EXTENSION => 'Una extensión detuvo la subida.',
-                            default => 'Fallo de subida (código ' . $code . ').',
+                            UPLOAD_ERR_INI_SIZE => __('El archivo supera upload_max_filesize (php.ini).'),
+                            UPLOAD_ERR_FORM_SIZE => __('El archivo supera MAX_FILE_SIZE (formulario).'),
+                            UPLOAD_ERR_PARTIAL => __('El archivo se subió parcialmente.'),
+                            UPLOAD_ERR_NO_FILE => __('No se subió ningún archivo.'),
+                            UPLOAD_ERR_NO_TMP_DIR => __('Falta upload_tmp_dir.'),
+                            UPLOAD_ERR_CANT_WRITE => __('No se pudo escribir en disco.'),
+                            UPLOAD_ERR_EXTENSION => __('Una extensión detuvo la subida.'),
+                            default => __('Fallo de subida (código :codigo).', ['codigo' => $code]),
                         };
 
                         $postData['status'] = 'fail';
-                        $postData['error'] = 'Error de subida: ' . $msg;
+                        $postData['error'] = __('Error de subida: :detalle', ['detalle' => $msg]);
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                         continue;
@@ -542,7 +542,7 @@ class FacebookPageController extends Controller
                     $pub = $this->storeVideoPublicTmp($file);
                     if (!($pub['ok'] ?? false)) {
                         $postData['status'] = 'fail';
-                        $postData['error'] = $pub['error'] ?? 'No se pudo guardar el video en público.';
+                        $postData['error'] = $pub['error'] ?? __('No se pudo guardar el video en público.');
                         MetaPost::create($postData);
                         $results[] = ['page' => $page->name, 'ok' => false, 'error' => $postData['error']];
                         continue;
@@ -606,10 +606,10 @@ class FacebookPageController extends Controller
         $fails = collect($results)->where('ok', false)->count();
 
         $mensaje = match (true) {
-            $published > 0 && $queued > 0 => "Listo: publicados {$published} y en cola {$queued}. Fallidos: {$fails}.",
-            $published > 0 => "Listo: publicados {$published}. Fallidos: {$fails}.",
-            $queued > 0 => "Tus videos quedaron en cola ({$queued}). Fallidos: {$fails}.",
-            default => "No se pudo procesar nada. Revisa los detalles.",
+            $published > 0 && $queued > 0 => __('Listo: publicados :publicados y en cola :cola. Fallidos: :fallidos.', ['publicados' => $published, 'cola' => $queued, 'fallidos' => $fails]),
+            $published > 0 => __('Listo: publicados :publicados. Fallidos: :fallidos.', ['publicados' => $published, 'fallidos' => $fails]),
+            $queued > 0 => __('Tus videos quedaron en cola (:cola). Fallidos: :fallidos.', ['cola' => $queued, 'fallidos' => $fails]),
+            default => __('No se pudo procesar nada. Revisa los detalles.'),
         };
 
         return back()
@@ -679,7 +679,7 @@ class FacebookPageController extends Controller
         $label = $page->name . ' (Instagram)';
 
         if (empty($page->instagram_business_account_id)) {
-            $results[] = ['page' => $label, 'ok' => false, 'error' => 'La página no tiene Instagram Business conectado. Sincroniza para detectarlo.'];
+            $results[] = ['page' => $label, 'ok' => false, 'error' => __('La página no tiene Instagram Business conectado. Sincroniza para detectarlo.')];
             return;
         }
 
@@ -703,7 +703,7 @@ class FacebookPageController extends Controller
                 foreach ($request->file('photos', []) as $file) {
                     $res = $this->storePhotoForInstagramTmp($file);
                     if (!($res['ok'] ?? false)) {
-                        $results[] = ['page' => $label, 'ok' => false, 'error' => $res['error'] ?? 'No se pudo preparar una imagen para Instagram.'];
+                        $results[] = ['page' => $label, 'ok' => false, 'error' => $res['error'] ?? __('No se pudo preparar una imagen para Instagram.')];
                         return;
                     }
                     $urls[] = $res['url'];
@@ -712,7 +712,7 @@ class FacebookPageController extends Controller
                 }
 
                 if (empty($urls)) {
-                    $results[] = ['page' => $label, 'ok' => false, 'error' => 'No se pudo preparar ninguna imagen para Instagram.'];
+                    $results[] = ['page' => $label, 'ok' => false, 'error' => __('No se pudo preparar ninguna imagen para Instagram.')];
                     return;
                 }
 
@@ -738,7 +738,7 @@ class FacebookPageController extends Controller
                 // Copia propia del video para IG (los jobs limpian sus archivos al terminar)
                 $pub = $this->storeVideoPublicTmp($request->file('video'));
                 if (!($pub['ok'] ?? false)) {
-                    $results[] = ['page' => $label, 'ok' => false, 'error' => $pub['error'] ?? 'No se pudo preparar el video para Instagram.'];
+                    $results[] = ['page' => $label, 'ok' => false, 'error' => $pub['error'] ?? __('No se pudo preparar el video para Instagram.')];
                     return;
                 }
 
@@ -787,7 +787,7 @@ class FacebookPageController extends Controller
                 ->toJpeg(quality: 88);
 
             if (!$disk->put($path, (string) $jpeg)) {
-                return ['ok' => false, 'error' => 'No se pudo escribir la imagen JPEG para Instagram.'];
+                return ['ok' => false, 'error' => __('No se pudo escribir la imagen JPEG para Instagram.')];
             }
 
             return [
@@ -802,7 +802,7 @@ class FacebookPageController extends Controller
             if (($res['ok'] ?? false) && in_array(strtolower($file->getClientOriginalExtension()), ['jpg', 'jpeg'], true)) {
                 return $res;
             }
-            return ['ok' => false, 'error' => 'No se pudo convertir la imagen a JPEG: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => __('No se pudo convertir la imagen a JPEG: :detalle', ['detalle' => $e->getMessage()])];
         }
     }
 
@@ -826,7 +826,7 @@ class FacebookPageController extends Controller
         // Sanidad previa
         $size = (int) ($file->getSize() ?? 0);
         if ($size <= 0) {
-            return ['ok' => false, 'error' => 'El archivo llegó con tamaño 0 (parcial o bloqueado).'];
+            return ['ok' => false, 'error' => __('El archivo llegó con tamaño 0 (parcial o bloqueado).')];
         }
 
         // Extensión normalizada (mp4/mov)
@@ -852,7 +852,7 @@ class FacebookPageController extends Controller
             $saved = $disk->putFileAs('videos/tmp', $file, $name);
 
             if (!$saved) {
-                return ['ok' => false, 'error' => 'Falló escribir en storage/app/public/videos/tmp.'];
+                return ['ok' => false, 'error' => __('Falló escribir en storage/app/public/videos/tmp.')];
             }
 
             // Asegurar visibilidad pública (evita 403 desde Facebook)
@@ -861,7 +861,7 @@ class FacebookPageController extends Controller
             // Paths y URL estables
             $abs = storage_path('app/public/' . $path);
             if (!file_exists($abs)) {
-                return ['ok' => false, 'error' => 'No se encontró el archivo guardado en storage (permisos).'];
+                return ['ok' => false, 'error' => __('No se encontró el archivo guardado en storage (permisos).')];
             }
 
             // Construir URL estable sin depender de asset()/APP_URL
@@ -885,21 +885,21 @@ class FacebookPageController extends Controller
         // 2) Fallback a public/uploads/tmp
         $dir = public_path('uploads/tmp');
         if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
-            return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp (permisos).'];
+            return ['ok' => false, 'error' => __('No se pudo crear public/uploads/tmp (permisos).')];
         }
         if (!is_writable($dir)) {
-            return ['ok' => false, 'error' => 'public/uploads/tmp no es escribible (permisos).'];
+            return ['ok' => false, 'error' => __('public/uploads/tmp no es escribible (permisos).')];
         }
 
         $abs = $dir . '/' . $name;
         try {
             $file->move($dir, $name);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'No se pudo mover a public/uploads/tmp: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => __('No se pudo mover a public/uploads/tmp: :detalle', ['detalle' => $e->getMessage()])];
         }
 
         if (!file_exists($abs)) {
-            return ['ok' => false, 'error' => 'El archivo no quedó en public/uploads/tmp.'];
+            return ['ok' => false, 'error' => __('El archivo no quedó en public/uploads/tmp.')];
         }
 
         $url = url('uploads/tmp/' . $name);
@@ -926,7 +926,7 @@ class FacebookPageController extends Controller
     {
         $size = (int) ($file->getSize() ?? 0);
         if ($size <= 0) {
-            return ['ok' => false, 'error' => 'El archivo llegó con tamaño 0 (parcial/bloqueado).'];
+            return ['ok' => false, 'error' => __('El archivo llegó con tamaño 0 (parcial/bloqueado).')];
         }
 
         $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
@@ -941,7 +941,7 @@ class FacebookPageController extends Controller
 
             $stream = fopen($file->getRealPath(), 'r');
             if ($stream === false) {
-                return ['ok' => false, 'error' => 'No se pudo abrir el archivo temporal del upload.'];
+                return ['ok' => false, 'error' => __('No se pudo abrir el archivo temporal del upload.')];
             }
 
             $path = 'images/tmp/' . $name;
@@ -950,11 +950,11 @@ class FacebookPageController extends Controller
                 fclose($stream);
 
             if (!$saved)
-                return ['ok' => false, 'error' => 'Falló escribir en storage/app/public/images/tmp.'];
+                return ['ok' => false, 'error' => __('Falló escribir en storage/app/public/images/tmp.')];
 
             $abs = storage_path('app/public/' . $path);
             if (!file_exists($abs))
-                return ['ok' => false, 'error' => 'No se encontró el archivo guardado en storage.'];
+                return ['ok' => false, 'error' => __('No se encontró el archivo guardado en storage.')];
 
             $url = asset('storage/' . $path);
             return [
@@ -972,21 +972,21 @@ class FacebookPageController extends Controller
         // 2) fallback a public/uploads/tmp
         $dir = public_path('uploads/tmp');
         if (!is_dir($dir) && !@mkdir($dir, 0755, true)) {
-            return ['ok' => false, 'error' => 'No se pudo crear public/uploads/tmp.'];
+            return ['ok' => false, 'error' => __('No se pudo crear public/uploads/tmp.')];
         }
         if (!is_writable($dir)) {
-            return ['ok' => false, 'error' => 'public/uploads/tmp no es escribible.'];
+            return ['ok' => false, 'error' => __('public/uploads/tmp no es escribible.')];
         }
 
         $abs = $dir . '/' . $name;
         try {
             $file->move($dir, $name);
         } catch (\Throwable $e) {
-            return ['ok' => false, 'error' => 'No se pudo mover a public/uploads/tmp: ' . $e->getMessage()];
+            return ['ok' => false, 'error' => __('No se pudo mover a public/uploads/tmp: :detalle', ['detalle' => $e->getMessage()])];
         }
 
         if (!file_exists($abs))
-            return ['ok' => false, 'error' => 'El archivo no quedó en public/uploads/tmp.'];
+            return ['ok' => false, 'error' => __('El archivo no quedó en public/uploads/tmp.')];
 
         $url = url('uploads/tmp/' . $name);
         return [
@@ -1098,7 +1098,7 @@ class FacebookPageController extends Controller
             return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackFacebook($request, (array) $vinculo, $redirectUrl, app(\App\Services\CuentasAppService::class));
         }
         if (!Auth::check()) {
-            return redirect()->route('login')->with('error', 'Inicia sesión en editus para conectar páginas.');
+            return redirect()->route('login')->with('error', __('Inicia sesión en editus para conectar páginas.'));
         }
 
         // Si Facebook devolvió un error (usuario canceló, permisos denegados, etc.)
@@ -1110,7 +1110,7 @@ class FacebookPageController extends Controller
             Log::warning('[FB] linkCallback: error de Facebook', ['query' => $request->query()]);
 
             return redirect()->route('meta.pages.index')
-                ->with('error', "Facebook devolvió un error: {$desc}");
+                ->with('error', __('Facebook devolvió un error: :detalle', ['detalle' => $desc]));
         }
 
         // Si no te falla state, puedes dejar ->user() normal.
@@ -1127,7 +1127,7 @@ class FacebookPageController extends Controller
             ]);
 
             return redirect()->route('meta.pages.index')
-                ->with('error', 'No se pudo completar la conexión con Facebook. Verifica que la URL de callback esté registrada en la app de Meta e inténtalo de nuevo. Detalle: ' . $e->getMessage());
+                ->with('error', __('No se pudo completar la conexión con Facebook. Verifica que la URL de callback esté registrada en la app de Meta e inténtalo de nuevo. Detalle: :detalle', ['detalle' => $e->getMessage()]));
         }
 
         // Intercambia por token long-lived (recomendado)
@@ -1173,12 +1173,12 @@ class FacebookPageController extends Controller
 
             return redirect()
                 ->route('meta.pages.index')
-                ->with('error', 'Cuenta conectada, pero la sincronización de páginas falló: ' . $e->getMessage());
+                ->with('error', __('Cuenta conectada, pero la sincronización de páginas falló: :detalle', ['detalle' => $e->getMessage()]));
         }
 
         return redirect()
             ->route('meta.pages.index')
-            ->with('success', "Páginas sincronizadas: {$count}");
+            ->with('success', __('Páginas sincronizadas: :n', ['n' => $count]));
     }
 
 
@@ -1192,7 +1192,7 @@ class FacebookPageController extends Controller
 
         if (!$social) {
             return redirect()->route('facebook.connect')
-                ->with('info', 'Primero conecta tu cuenta de Facebook para poder sincronizar páginas.');
+                ->with('info', __('Primero conecta tu cuenta de Facebook para poder sincronizar páginas.'));
         }
 
         try {
@@ -1205,13 +1205,13 @@ class FacebookPageController extends Controller
 
             if ($this->isExpiredTokenError($e->getMessage())) {
                 return redirect()->route('facebook.connect')
-                    ->with('error', 'Tu sesión de Facebook expiró. Vuelve a conectar tu cuenta.');
+                    ->with('error', __('Tu sesión de Facebook expiró. Vuelve a conectar tu cuenta.'));
             }
 
-            return back()->with('error', 'No se pudieron sincronizar las páginas: ' . $e->getMessage());
+            return back()->with('error', __('No se pudieron sincronizar las páginas: :detalle', ['detalle' => $e->getMessage()]));
         }
 
-        return back()->with('success', "Páginas sincronizadas: {$count}");
+        return back()->with('success', __('Páginas sincronizadas: :n', ['n' => $count]));
     }
 
     /**
@@ -1254,7 +1254,7 @@ class FacebookPageController extends Controller
             ->get();
 
         if ($pivots->isEmpty()) {
-            return response()->json(['ok' => false, 'error' => 'No hay páginas vinculadas.'], 404);
+            return response()->json(['ok' => false, 'error' => __('No hay páginas vinculadas.')], 404);
         }
 
         // Guardar ids en cache como "cola" simple
@@ -1300,7 +1300,7 @@ class FacebookPageController extends Controller
         $list = Cache::get($listKey);
 
         if (!$state || !$list) {
-            return response()->json(['ok' => false, 'error' => 'No hay sesión de reparación inicializada.'], 400);
+            return response()->json(['ok' => false, 'error' => __('No hay sesión de reparación inicializada.')], 400);
         }
 
         if (!empty($state['finished'])) {
@@ -1443,7 +1443,7 @@ class FacebookPageController extends Controller
                 ->delete();
         });
 
-        return back()->with('success', 'Facebook desvinculado de tu cuenta y tokens limpiados.');
+        return back()->with('success', __('Facebook desvinculado de tu cuenta y tokens limpiados.'));
     }
 
     public function unlinkPage(Request $request, MetaPage $metaPage)
@@ -1456,7 +1456,7 @@ class FacebookPageController extends Controller
 
                 $exists = $metaPage->users()->where('users.id', $ownerId)->exists();
                 if (!$exists) {
-                    return back()->with('error', 'Ese propietario no está asociado a esta página.');
+                    return back()->with('error', __('Ese propietario no está asociado a esta página.'));
                 }
 
                 $metaPage->users()->updateExistingPivot($ownerId, [
@@ -1465,12 +1465,12 @@ class FacebookPageController extends Controller
                     'expires_at' => null,
                 ]);
 
-                return back()->with('success', "Página «{$metaPage->name}» desvinculada para el usuario seleccionado.");
+                return back()->with('success', __('Página «:pagina» desvinculada para el usuario seleccionado.', ['pagina' => $metaPage->name]));
             }
 
             $userIds = $metaPage->users()->pluck('users.id')->all();
             if (empty($userIds)) {
-                return back()->with('success', "Página «{$metaPage->name}» no tenía vínculos activos.");
+                return back()->with('success', __('Página «:pagina» no tenía vínculos activos.', ['pagina' => $metaPage->name]));
             }
 
             foreach ($userIds as $uid) {
@@ -1481,7 +1481,7 @@ class FacebookPageController extends Controller
                 ]);
             }
 
-            return back()->with('success', "Página «{$metaPage->name}» desvinculada para todos los usuarios.");
+            return back()->with('success', __('Página «:pagina» desvinculada para todos los usuarios.', ['pagina' => $metaPage->name]));
         }
 
         $exists = $user->metaPages()->where('meta_page_id', $metaPage->id)->exists();
@@ -1493,7 +1493,7 @@ class FacebookPageController extends Controller
             'expires_at' => null,
         ]);
 
-        return back()->with('success', "Página «{$metaPage->name}» desvinculada.");
+        return back()->with('success', __('Página «:pagina» desvinculada.', ['pagina' => $metaPage->name]));
     }
 
     public function linkSinglePage(Request $request, MetaPage $metaPage)
@@ -1511,12 +1511,12 @@ class FacebookPageController extends Controller
 
             if (!$social) {
                 return redirect()->route('facebook.connect')
-                    ->with('info', 'Conecta tu Facebook y vuelve a intentar.');
+                    ->with('info', __('Conecta tu Facebook y vuelve a intentar.'));
             }
 
             $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string) $metaPage->page_id);
             if (!$found || empty($found['access_token'])) {
-                return back()->with('error', 'No se encontró token para esta página. Verifica tu rol y permisos (pages_manage_posts).');
+                return back()->with('error', __('No se encontró token para esta página. Verifica tu rol y permisos (pages_manage_posts).'));
             }
 
             $metaPage->update([
@@ -1537,19 +1537,19 @@ class FacebookPageController extends Controller
                 ]
             ]);
 
-            return back()->with('success', "Página «{$metaPage->name}» vinculada correctamente.");
+            return back()->with('success', __('Página «:pagina» vinculada correctamente.', ['pagina' => $metaPage->name]));
         }
 
         if ($ownerId) {
             $owner = User::find($ownerId);
             if (!$owner)
-                return back()->with('error', 'El propietario especificado no existe.');
+                return back()->with('error', __('El propietario especificado no existe.'));
             if (!$metaPage->users()->where('users.id', $owner->id)->exists()) {
-                return back()->with('error', 'Ese propietario no tiene esta página asociada.');
+                return back()->with('error', __('Ese propietario no tiene esta página asociada.'));
             }
             $social = SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
             if (!$social)
-                return back()->with('error', "«{$owner->name}» no tiene Facebook conectado.");
+                return back()->with('error', __('«:usuario» no tiene Facebook conectado.', ['usuario' => $owner->name]));
         } else {
             $owner = $metaPage->users()
                 ->wherePivotNotNull('social_account_id')
@@ -1557,18 +1557,18 @@ class FacebookPageController extends Controller
                 ->first();
 
             if (!$owner)
-                return back()->with('error', 'No hay un usuario propietario con Facebook conectado para esta página.');
+                return back()->with('error', __('No hay un usuario propietario con Facebook conectado para esta página.'));
 
             $social = SocialAccount::find($owner->pivot->social_account_id)
                 ?: SocialAccount::where('user_id', $owner->id)->where('provider', 'facebook')->first();
 
             if (!$social)
-                return back()->with('error', 'No se encontró el token del propietario.');
+                return back()->with('error', __('No se encontró el token del propietario.'));
         }
 
         $found = $this->fb->getPageDataFromMeAccounts($social->access_token, (string) $metaPage->page_id);
         if (!$found || empty($found['access_token'])) {
-            return back()->with('error', 'El propietario no tiene permisos actuales sobre esta página o no hay token.');
+            return back()->with('error', __('El propietario no tiene permisos actuales sobre esta página o no hay token.'));
         }
 
         $metaPage->update([
@@ -1586,6 +1586,6 @@ class FacebookPageController extends Controller
             'is_active' => true,
         ]);
 
-        return back()->with('success', "Página «{$metaPage->name}» vinculada usando la cuenta de «{$owner->name}».");
+        return back()->with('success', __('Página «:pagina» vinculada usando la cuenta de «:usuario».', ['pagina' => $metaPage->name, 'usuario' => $owner->name]));
     }
 }

@@ -21,7 +21,7 @@ class YoutubeController extends Controller
     public function conectar(): RedirectResponse
     {
         if ((string) config('services.google.client_id') === '') {
-            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', 'Faltan GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en el .env de editus.');
+            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', __('Faltan GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en el .env de editus.'));
         }
         return Socialite::driver('google')
             ->scopes(self::SCOPES)
@@ -37,27 +37,31 @@ class YoutubeController extends Controller
             return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackYoutube($request, (array) $vinculo, $youtube);
         }
         if (!auth()->check() || !auth()->user()->tienePermiso('app_editor')) {
-            return redirect()->route('login')->with('error', 'Inicia sesión como administrador para conectar canales.');
+            return redirect()->route('login')->with('error', __('Inicia sesión como administrador para conectar canales.'));
         }
         if ($request->has('error')) {
-            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', 'Google devolvió un error: ' . $request->get('error_description', $request->get('error')));
+            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', __('Google devolvió un error: :error', ['error' => $request->get('error_description', $request->get('error'))]));
         }
         try {
             $g = Socialite::driver('google')->redirectUrl((string) config('services.google.redirect'))->stateless()->user();
             $canal = $youtube->registrarCanal((string) $g->token, $g->refreshToken ? (string) $g->refreshToken : null, $g->expiresIn ? (int) $g->expiresIn : null, auth()->id());
         } catch (\Throwable $e) {
             Log::warning('[YouTube] conexión falló', ['err' => $e->getMessage()]);
-            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', 'No se pudo conectar el canal: ' . $e->getMessage());
+            return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('error', __('No se pudo conectar el canal: :error', ['error' => $e->getMessage()]));
         }
-        $aviso = $canal->refresh_token ? '' : ' Google no entregó permiso permanente: si deja de funcionar, desconéctalo y vuelve a conectarlo.';
-        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', "Canal «{$canal->titulo}» conectado.{$aviso}");
+        $mensaje = $canal->refresh_token
+            ? __('Canal «:canal» conectado.', ['canal' => $canal->titulo])
+            : __('Canal «:canal» conectado. Google no entregó permiso permanente: si deja de funcionar, desconéctalo y vuelve a conectarlo.', ['canal' => $canal->titulo]);
+        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', $mensaje);
     }
 
     public function visible(Request $request, YoutubeCanal $canal): RedirectResponse
     {
         $canal->visible_en_editor = $request->boolean('visible');
         $canal->save();
-        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', "Canal «{$canal->titulo}» " . ($canal->visible_en_editor ? 'visible' : 'oculto') . ' en la app.');
+        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', $canal->visible_en_editor
+            ? __('Canal «:canal» visible en la app.', ['canal' => $canal->titulo])
+            : __('Canal «:canal» oculto en la app.', ['canal' => $canal->titulo]));
     }
 
     /** Qué usuarios de la app ven este canal de la organización (vacío = todos). */
@@ -65,14 +69,18 @@ class YoutubeController extends Controller
     {
         $canal->app_usuarios = \App\Models\MetaPage::usuariosApp($request->input('usuarios', []));
         $canal->save();
-        $quien = in_array('*', $canal->app_usuarios, true) ? 'lo ven todos los periodistas' : ($canal->app_usuarios ? 'solo lo ven ' . implode(', ', $canal->app_usuarios) : 'no lo ve ningún periodista');
-        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', "Canal «{$canal->titulo}»: {$quien}.");
+        $mensaje = in_array('*', $canal->app_usuarios, true)
+            ? __('Canal «:canal»: lo ven todos los periodistas.', ['canal' => $canal->titulo])
+            : ($canal->app_usuarios
+                ? __('Canal «:canal»: solo lo ven :periodistas.', ['canal' => $canal->titulo, 'periodistas' => implode(', ', $canal->app_usuarios)])
+                : __('Canal «:canal»: no lo ve ningún periodista.', ['canal' => $canal->titulo]));
+        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', $mensaje);
     }
 
     public function desconectar(YoutubeCanal $canal): RedirectResponse
     {
         $nombre = $canal->titulo;
         $canal->delete();
-        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', "Canal «{$nombre}» desconectado.");
+        return redirect()->route('editor-app.index', ['tab' => 'youtube'])->with('success', __('Canal «:canal» desconectado.', ['canal' => $nombre]));
     }
 }

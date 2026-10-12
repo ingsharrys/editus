@@ -58,10 +58,10 @@ class PregrabadosController extends Controller
     /** Crea la programación y devuelve la URL a la que el navegador sube el video por partes. */
     public function store(Request $request): JsonResponse
     {
-        if (!$this->emisor->configurado()) return $this->error('El servidor de pregrabados no está configurado (EMISOR_URL y EMISOR_SECRETO en el .env). Ver infra/en-vivo/README.md');
+        if (!$this->emisor->configurado()) return $this->error(__('El servidor de pregrabados no está configurado (EMISOR_URL y EMISOR_SECRETO en el .env). Ver infra/en-vivo/README.md'));
         $user = Auth::user();
         $lim = $this->planes->limites($user);
-        if (!$lim) return $this->error('Necesitas un plan activo para programar pregrabados.', 403);
+        if (!$lim) return $this->error(__('Necesitas un plan activo para programar pregrabados.'), 403);
         $d = $request->validate([
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
@@ -73,22 +73,22 @@ class PregrabadosController extends Controller
             'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
         ]);
         $cuando = Carbon::createFromFormat('Y-m-d\TH:i', $d['programada_en'], config('app.timezone'))->seconds(0);
-        if ($cuando->lt(now()->addMinutes(10))) return $this->error('Programa el video al menos 10 minutos en el futuro: hay que subirlo y prepararlo.');
-        if ($cuando->gt(now()->addDays(365))) return $this->error('Se puede programar hasta con un año de anticipación.');
-        if ($d['archivo_bytes'] > $this->maxBytes()) return $this->error('El video supera el máximo de ' . config('services.emisor.max_gb', 6) . ' GB.');
+        if ($cuando->lt(now()->addMinutes(10))) return $this->error(__('Programa el video al menos 10 minutos en el futuro: hay que subirlo y prepararlo.'));
+        if ($cuando->gt(now()->addDays(365))) return $this->error(__('Se puede programar hasta con un año de anticipación.'));
+        if ($d['archivo_bytes'] > $this->maxBytes()) return $this->error(__('El video supera el máximo de :gb GB.', ['gb' => config('services.emisor.max_gb', 6)]));
         $cola = $lim['pregrabados_cola'] ?? null;
         if ($cola !== null && EmisionProgramada::where('user_id', $user->id)->whereIn('estado', EmisionProgramada::PENDIENTES)->count() >= $cola) {
-            return $this->error("Tu plan {$lim['nombre']} permite {$cola} pregrabados programados a la vez. Espera a que salga alguno o cancela uno.");
+            return $this->error(__('Tu plan :plan permite :n pregrabados programados a la vez. Espera a que salga alguno o cancela uno.', ['plan' => $lim['nombre'], 'n' => $cola]));
         }
 
         $permitidas = $this->paginasPermitidas()->keyBy('id');
         $paginas = collect((array) ($d['meta_page_ids'] ?? []))->map(fn($id) => $permitidas->get((int) $id));
-        if ($paginas->contains(null)) return $this->error('Alguna de las páginas elegidas no está conectada a tu cuenta.');
+        if ($paginas->contains(null)) return $this->error(__('Alguna de las páginas elegidas no está conectada a tu cuenta.'));
         if ($motivo = $this->planes->validarPaginas($user, $paginas->pluck('id')->all())) return $this->error($motivo);
         $canalesOk = app(CuentasAppService::class)->canalesDe(null)->keyBy('id');
         $canales = collect((array) ($d['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
-        if ($canales->contains(null)) return $this->error('Alguno de los canales de YouTube no está disponible.');
-        if ($paginas->isEmpty() && $canales->isEmpty()) return $this->error('Elige al menos una página de Facebook o un canal de YouTube.');
+        if ($canales->contains(null)) return $this->error(__('Alguno de los canales de YouTube no está disponible.'));
+        if ($paginas->isEmpty() && $canales->isEmpty()) return $this->error(__('Elige al menos una página de Facebook o un canal de YouTube.'));
 
         $conLogo = !empty($lim['plantillas_logo']);
         $logo = $conLogo && !empty($d['logo_id']) ? PlantillaEditor::whereNotNull('logo_path')->find($d['logo_id']) : null;
@@ -115,8 +115,8 @@ class PregrabadosController extends Controller
     public function reanudar(Request $request, EmisionProgramada $emision): JsonResponse
     {
         $this->propia($emision);
-        if ($emision->estado !== 'subiendo') return $this->error('Este video ya no está esperando la subida.');
-        if ((int) $request->input('archivo_bytes') !== (int) $emision->archivo_bytes) return $this->error('Ese no es el mismo archivo: elige el video «' . $emision->archivo_nombre . '».');
+        if ($emision->estado !== 'subiendo') return $this->error(__('Este video ya no está esperando la subida.'));
+        if ((int) $request->input('archivo_bytes') !== (int) $emision->archivo_bytes) return $this->error(__('Ese no es el mismo archivo: elige el video «:archivo».', ['archivo' => $emision->archivo_nombre]));
         $emision->touch();
         return response()->json(['success' => true, 'emision' => $emision->paraVista(), 'subida' => $this->emisor->urlSubida($emision->emisor_id, (int) $emision->archivo_bytes)]);
     }
@@ -127,10 +127,10 @@ class PregrabadosController extends Controller
         $this->propia($emision);
         try {
             $v = $this->emisor->estado($emision->emisor_id);
-            if (!$v) return $this->error('El servidor de pregrabados no tiene el video. Vuelve a subirlo.');
+            if (!$v) return $this->error(__('El servidor de pregrabados no tiene el video. Vuelve a subirlo.'));
             $this->emisiones->aplicar($emision, $v);
         } catch (\Throwable $e) {
-            return $this->error('No se pudo preparar el video: ' . $e->getMessage());
+            return $this->error(__('No se pudo preparar el video: :error', ['error' => $e->getMessage()]));
         }
         return response()->json(['success' => true, 'emision' => $emision->refresh()->paraVista()]);
     }
@@ -146,7 +146,7 @@ class PregrabadosController extends Controller
     public function ahora(EmisionProgramada $emision): JsonResponse
     {
         $this->propia($emision);
-        if ($emision->estado !== 'listo') return $this->error('El video todavía no está listo para salir.');
+        if ($emision->estado !== 'listo') return $this->error(__('El video todavía no está listo para salir.'));
         $emision->fill(['programada_en' => now()->addMinutes(2)->seconds(0)])->save();
         return response()->json(['success' => true, 'emision' => $emision->refresh()->paraVista()]);
     }
