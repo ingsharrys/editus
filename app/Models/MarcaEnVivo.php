@@ -23,7 +23,7 @@ class MarcaEnVivo extends Model
         'fondo', 'mostrar_nombres', 'en_vivo', 'etiqueta', 'pie', 'hashtag', 'marco_url'];
 
     protected $table = 'marcas_en_vivo';
-    protected $fillable = ['user_id', 'nombre', 'datos'];
+    protected $fillable = ['user_id', 'usuario_app', 'nombre', 'datos'];
     protected $casts = ['datos' => 'array'];
 
     public function datosCompletos(): array

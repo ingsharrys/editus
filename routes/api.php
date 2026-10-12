@@ -64,6 +64,15 @@ Route::middleware('editus.token')->group(function () {
     Route::post('/en-vivo/recursos/{recurso}/borrar', [\App\Http\Controllers\Api\EnVivoController::class, 'recursoBorrar'])->name('api.envivo.recursos.borrar');
     Route::get('/en-vivo/youtube', [\App\Http\Controllers\Api\EnVivoController::class, 'youtubeCanales'])->name('api.envivo.youtube');
     Route::get('/en-vivo/recursos', [\App\Http\Controllers\Api\EnVivoController::class, 'recursos'])->name('api.envivo.recursos');
+    // Estudio (al estilo StreamYard) desde la app: marcas, archivos propios, notas y comentarios
+    Route::get('/en-vivo/estudio', [\App\Http\Controllers\Api\EstudioAppController::class, 'estudio'])->name('api.envivo.estudio');
+    Route::post('/en-vivo/marcas', [\App\Http\Controllers\Api\EstudioAppController::class, 'marcaCrear'])->name('api.envivo.marcas.crear');
+    Route::post('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Api\EstudioAppController::class, 'marcaGuardar'])->name('api.envivo.marcas.guardar');
+    Route::post('/en-vivo/marcas/{marca}/borrar', [\App\Http\Controllers\Api\EstudioAppController::class, 'marcaBorrar'])->name('api.envivo.marcas.borrar');
+    Route::post('/en-vivo/activos/{activo}/borrar', [\App\Http\Controllers\Api\EstudioAppController::class, 'activoBorrar'])->name('api.envivo.activos.borrar');
+    Route::post('/en-vivo/{transmision}/marca', [\App\Http\Controllers\Api\EstudioAppController::class, 'marcaAplicar'])->name('api.envivo.marca');
+    Route::post('/en-vivo/{transmision}/notas', [\App\Http\Controllers\Api\EstudioAppController::class, 'notas'])->name('api.envivo.notas');
+    Route::get('/en-vivo/{transmision}/comentarios', [\App\Http\Controllers\Api\EstudioAppController::class, 'comentarios'])->name('api.envivo.comentarios');
     Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Api\EnVivoController::class, 'escena'])->name('api.envivo.escena');
     Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Api\EnVivoController::class, 'invitacion'])->name('api.envivo.invitacion');
     Route::get('/en-vivo/{transmision}/participantes', [\App\Http\Controllers\Api\EnVivoController::class, 'participantes'])->name('api.envivo.participantes');
@@ -82,6 +91,8 @@ Route::post('/subidas/video', [\App\Http\Controllers\Api\SubidasController::clas
     ->name('api.subidas.video');
 Route::post('/subidas/recurso', [\App\Http\Controllers\Api\SubidasController::class, 'recurso'])
     ->name('api.subidas.recurso');
+Route::post('/subidas/activo', [\App\Http\Controllers\Api\SubidasController::class, 'activo'])
+    ->middleware('throttle:60,1')->name('api.subidas.activo');
 
 // Plugin de WordPress SharryStreem (autopost). Peticiones firmadas con la licencia del cliente.
 Route::prefix('sharrystreem/v1')->middleware('throttle:60,1')->group(function () {

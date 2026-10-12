@@ -158,8 +158,12 @@ En editus → **En vivo → Estudio**, al abrir el estudio se ve a pantalla comp
   superposiciones PNG, fondos, clips, sonidos y música) va a `storage/app/public/en-vivo/recursos`
   y lo sirve el VPS con `LIVEKIT_RECURSOS_URL`.
 
-Migración: `php artisan migrate --force` (tablas `marcas_en_vivo`, `activos_en_vivo` y columnas
-`notas`, `marca_id`). La escena cambió: en el VPS hay que actualizar `/opt/editus-src`.
+La app del editor tiene el mismo estudio (vía el backend de esnoticia, con `usuario`): cada
+usuario de la app tiene sus marcas y archivos, que sube directo a editus con firma
+(`/api/subidas/activo`).
+
+Migración: `php artisan migrate --force` (tablas `marcas_en_vivo`, `activos_en_vivo`, columnas
+`notas`, `marca_id` y `usuario_app`). La escena cambió: en el VPS hay que actualizar `/opt/editus-src`.
 Para subir clips grandes, el PHP del hosting debe permitirlo (`upload_max_filesize` y
 `post_max_size`, p. ej. 300M); si no, el estudio avisa que el archivo supera el límite.
 

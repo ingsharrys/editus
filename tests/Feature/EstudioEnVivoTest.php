@@ -49,6 +49,8 @@ class EstudioEnVivoTest extends TestCase
         (require database_path('migrations/2026_10_16_000001_programar_transmisiones_en_vivo.php'))->up();
         (require database_path('migrations/2026_10_17_000001_notificaciones_y_miniaturas.php'))->up();
         (require database_path('migrations/2026_10_18_000001_estudio_marcas_activos_notas.php'))->up();
+        (require database_path('migrations/2026_10_19_000001_estudio_app_usuario.php'))->up();
+        config(['services.editus.ingest_token' => 'tok-integracion']);
         $rol = Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
         $this->admin = User::factory()->create(['name' => 'Dario', 'email' => 'dario@prueba.co', 'role_id' => $rol->id]);
         $this->pagina = MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias']);
@@ -247,6 +249,58 @@ class EstudioEnVivoTest extends TestCase
         $ultima = collect($this->llamadas)->last(fn($l) => str_contains($l['url'], 'liveChat/messages'));
         $this->assertSame('p2', $ultima['datos']['pageToken']);
         $this->assertCount(1, collect($this->llamadas)->filter(fn($l) => str_contains($l['url'], 'liveBroadcasts') && $l['metodo'] === 'GET'), 'el id del chat se pide una vez');
+    }
+
+    private function api(string $metodo, string $ruta, array $datos = [])
+    {
+        return $this->withHeader('X-Editus-Token', 'tok-integracion')->json($metodo, '/api' . $ruta, $datos);
+    }
+
+    public function test_app_marcas_archivos_notas_y_escena_solo_lo_suyo(): void
+    {
+        $t = $this->sala(['usuario_app' => '7', 'user_id' => null, 'plantilla' => \App\Http\Controllers\Api\EnVivoController::normalizarPlantilla(['logo_texto' => 'OPA Noticias', 'pie' => 'opanoticias.com', 'color_etiqueta' => '#2563EB'], 'Debate')]);
+        $this->api('GET', '/en-vivo/estudio')->assertStatus(422);
+        $j = $this->api('GET', '/en-vivo/estudio?usuario=7')->assertOk()->json();
+        $this->assertSame('Marca 1', $j['marcas'][0]['nombre']);
+        $m = MarcaEnVivo::find($j['marcas'][0]['id']);
+        $this->assertSame('7', $m->usuario_app);
+        $this->assertNull($m->user_id);
+        // La primera vez, la marca nueva adopta el aspecto de la transmisión (no borra el logo de texto del medio)
+        $this->api('POST', "/en-vivo/{$t->id}/marca", ['usuario' => '7', 'marca_id' => $m->id, 'adoptar' => true])->assertOk()->assertJsonPath('plantilla.logo_texto', 'OPA Noticias');
+        $this->assertSame('opanoticias.com', $m->refresh()->datos['pie']);
+        $this->assertSame('#2563EB', $m->datos['color_etiqueta']);
+        // Guardar y aplicar
+        $this->api('POST', "/en-vivo/marcas/{$m->id}", ['usuario' => '7', 'transmision_id' => $t->id, 'datos' => ['tema' => 'minimal', 'banners' => [['texto' => 'Dato del día']]]])->assertOk()->assertJsonPath('plantilla.tema', 'minimal');
+        $this->assertSame('Dato del día', $m->refresh()->datos['banners'][0]['texto']);
+        $this->api('POST', "/en-vivo/marcas/{$m->id}", ['usuario' => '9', 'datos' => ['tema' => 'bloque']])->assertForbidden();
+        $this->api('POST', "/en-vivo/{$t->id}/marca", ['usuario' => '9', 'marca_id' => $m->id])->assertForbidden();
+        $otra = $this->api('POST', '/en-vivo/marcas', ['usuario' => '7', 'nombre' => 'Elecciones', 'copiar_de' => $m->id])->assertOk()->json('marca');
+        $this->assertSame('minimal', $otra['datos']['tema']);
+        $this->api('POST', "/en-vivo/marcas/{$otra['id']}/borrar", ['usuario' => '7'])->assertOk();
+        $this->api('POST', "/en-vivo/marcas/{$m->id}/borrar", ['usuario' => '7'])->assertStatus(422);
+        // Subida firmada (la firma la genera el backend de esnoticia)
+        $exp = time() + 600;
+        $firma = ['u' => '7', 'exp' => $exp, 'sig' => hash_hmac('sha256', "7|{$exp}", 'tok-integracion')];
+        $this->post('/api/subidas/activo', $firma + ['tipo' => 'clip', 'archivo' => UploadedFile::fake()->create('virus.exe', 100)], ['Accept' => 'application/json'])->assertStatus(422)->assertJsonFragment(['success' => false]);
+        $this->post('/api/subidas/activo', ['sig' => 'falsa'] + $firma + ['tipo' => 'clip', 'archivo' => UploadedFile::fake()->create('intro.mp4', 100, 'video/mp4')], ['Accept' => 'application/json'])->assertStatus(401);
+        $clip = $this->post('/api/subidas/activo', $firma + ['tipo' => 'clip', 'duracion' => 9, 'archivo' => UploadedFile::fake()->create('intro.mp4', 100, 'video/mp4')], ['Accept' => 'application/json'])->assertOk()->json('activo');
+        $this->assertSame('7', ActivoEnVivo::find($clip['id'])->usuario_app);
+        $this->assertStringStartsWith('en-vivo/recursos/a7-clip-', ActivoEnVivo::find($clip['id'])->archivo);
+        $this->assertSame($clip['id'], $this->api('GET', '/en-vivo/estudio?usuario=7')->json('activos.0.id'));
+        $this->assertCount(0, $this->api('GET', '/en-vivo/estudio?usuario=9')->json('activos'));
+        // En la escena, desde la app solo se usan los archivos propios
+        $this->api('POST', "/en-vivo/{$t->id}/escena", ['usuario' => '7', 'activo_id' => $clip['id'], 'bucle' => true])->assertOk()->assertJsonPath('escena.recurso.bucle', true);
+        $this->api('POST', "/en-vivo/{$t->id}/escena", ['usuario' => '9', 'activo_id' => $clip['id']])->assertStatus(422);
+        $this->api('POST', '/en-vivo/activos/' . $clip['id'] . '/borrar', ['usuario' => '9'])->assertForbidden();
+        $this->api('POST', '/en-vivo/activos/' . $clip['id'] . '/borrar', ['usuario' => '7'])->assertOk();
+        // Notas y comentarios
+        $this->api('POST', "/en-vivo/{$t->id}/notas", ['usuario' => '7', 'notas' => 'Guion'])->assertOk();
+        $this->assertSame('Guion', $t->refresh()->notas);
+        $this->api('POST', "/en-vivo/{$t->id}/notas", ['usuario' => '9', 'notas' => 'x'])->assertForbidden();
+        $this->api('GET', "/en-vivo/{$t->id}/comentarios?usuario=7")->assertOk()->assertJsonPath('estado', 'sala');
+        // Sin token de integración: nada
+        $this->flushHeaders();
+        $this->getJson('/api/en-vivo/estudio?usuario=7')->assertUnauthorized();
     }
 
     public function test_invitado_tiene_chat_privado(): void

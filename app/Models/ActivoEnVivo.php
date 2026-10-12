@@ -17,7 +17,7 @@ class ActivoEnVivo extends Model
     public const AUDIO = ['sonido', 'musica'];
 
     protected $table = 'activos_en_vivo';
-    protected $fillable = ['user_id', 'tipo', 'nombre', 'archivo', 'mime', 'bytes', 'duracion'];
+    protected $fillable = ['user_id', 'usuario_app', 'tipo', 'nombre', 'archivo', 'mime', 'bytes', 'duracion'];
     protected $casts = ['bytes' => 'integer', 'duracion' => 'integer'];
 
     public function url(): string
@@ -35,6 +35,6 @@ class ActivoEnVivo extends Model
     public function paraApi(): array
     {
         return ['id' => $this->id, 'tipo' => $this->tipo, 'nombre' => $this->nombre, 'url' => $this->url(), 'mime' => $this->mime,
-            'bytes' => $this->bytes, 'duracion' => $this->duracion, 'propio' => $this->user_id !== null];
+            'bytes' => $this->bytes, 'duracion' => $this->duracion, 'propio' => $this->user_id !== null || $this->usuario_app !== null];
     }
 }

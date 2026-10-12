@@ -462,7 +462,8 @@
     if (!livekit) { try { const j = await pedir('GET', url('estado')); livekit = j.livekit; monitor = j.monitor; aplicarEstado(j); } catch (e) { fallo(e); } }
     if (monitor && monitor.url) g('ev-monitor').src = monitor.url;
     // Si la transmisión aún no tiene marca, se usa la primera (logo, colores y fondo guardados)
-    if (T && !T.marca_id && MARCAS[0]) { try { const j = await pedir('POST', url('marca'), { marca_id: MARCAS[0].id }); T.plantilla = j.plantilla; T.marca_id = MARCAS[0].id; } catch (e) {} }
+    // (una marca recién creada adopta el aspecto que ya tiene la transmisión)
+    if (T && !T.marca_id && MARCAS[0]) { try { const j = await pedir('POST', url('marca'), { marca_id: MARCAS[0].id, adoptar: true }); T.plantilla = j.plantilla; T.marca_id = MARCAS[0].id; if (j.marca) Object.assign(MARCAS[0], j.marca); } catch (e) {} }
     pintarTodo();
     if (livekit) conectar(livekit);
     clearInterval(sondeo); sondeo = setInterval(sondear, 5000); sondear();

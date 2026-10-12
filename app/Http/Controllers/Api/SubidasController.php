@@ -104,6 +104,32 @@ class SubidasController extends Controller
         return response()->json(['success' => true, 'recurso' => $r->paraApi()]);
     }
 
+    /**
+     * Archivo propio del estudio en vivo (logo, superposición, fondo, clip, sonido o música)
+     * desde la app, con la misma firma del backend. Queda a nombre del usuario de la app.
+     */
+    public function activo(Request $request, \App\Services\EstudioEnVivoService $estudio): JsonResponse
+    {
+        $u = (string) $request->input('u', '');
+        $exp = (int) $request->input('exp', 0);
+        $sig = (string) $request->input('sig', '');
+        $token = (string) config('services.editus.ingest_token');
+        if ($token === '' || $u === '' || $exp <= 0 || $sig === '') return response()->json(['success' => false, 'error' => 'Subida no autorizada'], 401);
+        if ($exp < time()) return response()->json(['success' => false, 'error' => 'La autorización de subida venció: vuelve a intentarlo'], 401);
+        if (!hash_equals(hash_hmac('sha256', "{$u}|{$exp}", $token), $sig)) return response()->json(['success' => false, 'error' => 'Firma de subida inválida'], 401);
+        if (!\App\Services\EstudioEnVivoService::disponible()) return response()->json(['success' => false, 'error' => 'editus aún no tiene el estudio: falta php artisan migrate --force'], 422);
+        $request->validate([
+            'tipo' => ['required', 'string'], 'archivo' => ['required', 'file'],
+            'nombre' => ['nullable', 'string', 'max:120'], 'duracion' => ['nullable', 'integer', 'min:0', 'max:86400'],
+        ], ['archivo.uploaded' => 'El archivo no se pudo subir (puede superar el límite del servidor).']);
+        try {
+            $a = $estudio->subirActivo(['usuario_app' => $u], $request->file('archivo'), (string) $request->input('tipo'), $request->input('nombre'), $request->integer('duracion') ?: null);
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+        return response()->json(['success' => true, 'activo' => $a->paraApi()]);
+    }
+
     /** Ruta relativa (disco public) del temporal de un video_id, o null si no existe. */
     public static function rutaDe(string $videoId): ?string
     {

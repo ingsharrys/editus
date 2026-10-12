@@ -300,9 +300,12 @@ class EnVivoController extends Controller
             'vacio' => ['nullable', 'boolean'],
         ]);
         $ahora = (int) now()->getTimestampMs();
-        $activo = function ($id, array $tipos) {
+        $usuarioApp = trim((string) $request->input('usuario', ''));
+        $activo = function ($id, array $tipos) use ($usuarioApp) {
             $a = $id && Schema::hasTable('activos_en_vivo') ? \App\Models\ActivoEnVivo::whereIn('tipo', $tipos)->find((int) $id) : null;
-            if ($id && !$a) throw \Illuminate\Validation\ValidationException::withMessages(['activo_id' => 'Ese archivo ya no existe.']);
+            // Desde la app (llega "usuario"), solo sus propios archivos
+            if ($a && $usuarioApp !== '' && (string) $a->usuario_app !== $usuarioApp) $a = null;
+            if ($id && !$a) throw \Illuminate\Validation\ValidationException::withMessages(['activo_id' => 'Ese archivo ya no existe o no es tuyo.']);
             return $a;
         };
         $escena = ($transmision->escena ?? []) + self::escenaInicial();
