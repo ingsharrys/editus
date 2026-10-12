@@ -494,6 +494,8 @@ class EnVivoController extends Controller
             'token' => $this->livekit->tokenParticipante($t->room, $identity, $nombre, true, 4 * 3600),
             'identity' => $identity,
             'titulo' => $t->titulo,
+            // Para la pestaña "Transmisión": la misma escena que ve la audiencia (participante oculto)
+            'monitor' => $this->monitor($t)['url'],
         ]);
     }
 

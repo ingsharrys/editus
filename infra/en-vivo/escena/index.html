@@ -186,6 +186,10 @@
     const url = q.get('url'); const token = q.get('token');
     // Monitor de programa (estudio y app): misma escena, pero sin audio (evita el eco con el micrófono)
     const MONITOR = q.get('monitor') === '1';
+    // ?sonido=1: monitor CON audio (la página del invitado, para oír la transmisión con música y
+    // efectos); ?yo=identity: no se reproduce el propio micrófono de quien mira (sin eco)
+    const MUDO = MONITOR && q.get('sonido') !== '1';
+    const YO = q.get('yo') || '';
     const PRINCIPAL = 'camara-principal';
     const CUPOS = { solo: 1, dos: 2, pip: 2, cuadricula: 6, lider: 4, lateral: 2, barra: 5, cine: 1 };
     const $ = (id) => document.getElementById(id);
@@ -371,7 +375,7 @@
     // ----------------------------------------------------------- audio (efectos y música)
     let actx = null, gEfectos = null, gMusica = null;
     function audio() {
-      if (MONITOR || !window.EditusAudio) return null;
+      if (MUDO || !window.EditusAudio) return null;
       if (!actx) {
         try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
         gEfectos = actx.createGain(); gEfectos.connect(actx.destination);
@@ -389,7 +393,7 @@
       if (sonados.has(clave)) return;
       sonados.add(clave);
       if (Date.now() - s.inicio > 8000) return; // ya pasó (alguien entró tarde a la sala)
-      if (MONITOR) return;
+      if (MUDO) return;
       if (s.url) {
         try { if (elEfecto) elEfecto.pause(); elEfecto = new Audio(s.url); elEfecto.volume = volEfectos; elEfecto.play().catch(() => {}); } catch (e) {}
       } else if (audio()) { window.EditusAudio.efecto(actx, gEfectos, s.preset || s.id); }
@@ -402,7 +406,7 @@
       musicaClave = clave;
       if (musicaSint) { musicaSint.detener(); musicaSint = null; }
       if (musicaEl) { const el = musicaEl; musicaEl = null; let v = el.volume; const baja = setInterval(() => { v -= 0.05; if (v <= 0) { clearInterval(baja); el.pause(); el.remove(); } else el.volume = v; }, 60); }
-      if (!m || MONITOR) return;
+      if (!m || MUDO) return;
       if (m.url) {
         const el = new Audio(m.url); el.loop = m.bucle !== false; el.volume = volMusica; el.preload = 'auto';
         el.onloadedmetadata = () => { const pasado = (Date.now() - (m.inicio || Date.now())) / 1000; if (pasado > 1 && isFinite(el.duration) && el.duration > 0) el.currentTime = el.loop ? pasado % el.duration : Math.min(pasado, el.duration); };
@@ -489,6 +493,7 @@
       function microfonos() {
         const out = new Map();
         for (const p of room.remoteParticipants.values()) {
+          if (YO && p.identity === YO) continue;
           for (const pub of p.audioTrackPublications.values()) {
             if (!pub.track) continue;
             if (pub.source === Track.Source.Microphone) out.set(p.identity, pub.track);
@@ -516,7 +521,7 @@
           audiosDiv.appendChild(el); audios.set(id, { el, track });
           el.play && el.play().catch(() => {});
         }
-        for (const a of audios.values()) a.el.muted = silenciarCamaras || MONITOR;
+        for (const a of audios.values()) a.el.muted = silenciarCamaras || MUDO;
       }
 
       // Recurso a pantalla completa: clip de video (una vez o en bucle), imagen o pantalla prediseñada
@@ -556,7 +561,7 @@
           silenciarCamaras = true; sonar(ultimoAlAire);
         } else if (r.tipo === 'video') {
           if (r.duracion && desfase > r.duracion + 2 && !r.bucle) { terminar(); return; }
-          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MONITOR; v.loop = !!r.bucle;
+          const v = document.createElement('video'); v.src = r.url; v.autoplay = true; v.playsInline = true; v.preload = 'auto'; v.muted = MUDO; v.loop = !!r.bucle;
           v.onloadedmetadata = () => { if (desfase > 1 && isFinite(v.duration)) v.currentTime = r.bucle ? desfase % v.duration : Math.min(desfase, v.duration); };
           v.onended = () => { console.log('escena: recurso terminó ' + r.nombre); recursoActual = null; terminar(); };
           v.onerror = () => { console.log('escena: no se pudo reproducir ' + r.url); terminar(); };

@@ -38,6 +38,26 @@
   .chat form { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #1e3a5f; }
   .chat form input { flex: 1; padding: 10px; font-size: 15px; } .chat form button { flex: none; padding: 10px 16px; font-size: 15px; }
   .chat .vacio { color: #94a3b8; font-size: 13px; }
+  /* Pestañas: mi cámara / la transmisión */
+  .pestanas { display: flex; gap: 6px; margin-bottom: 8px; background: #0e2440; border-radius: 12px; padding: 4px; }
+  .pestanas button { flex: 1; padding: 10px 8px; font-size: 14px; background: transparent; color: #cbd5e1; border-radius: 9px; }
+  .pestanas button.on { background: #1e3a5f; color: #fff; }
+  .marco iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  /* Audio y personas de la sala */
+  .sala { margin-top: 16px; border: 1px solid #1e3a5f; border-radius: 12px; background: #0e2440; padding: 10px 12px; }
+  .sala h2 { margin: 0 0 8px; font-size: 14px; }
+  .modos { display: flex; gap: 6px; }
+  .modos button { flex: 1; padding: 9px 6px; font-size: 13px; background: #122b4a; color: #cbd5e1; }
+  .modos button.on { background: #2563eb; color: #fff; }
+  .personas { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .persona { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: #122b4a; font-size: 13px; color: #e2e8f0; border: 2px solid transparent; }
+  .persona.habla { border-color: #22c55e; }
+  .persona i { width: 8px; height: 8px; border-radius: 50%; background: #64748b; }
+  .persona.habla i { background: #22c55e; }
+  .nota { font-size: 12px; color: #94a3b8; margin-top: 8px; line-height: 1.35; }
+  #paso2 > .fila { flex-wrap: wrap; }
+  #paso2 > .fila button { flex: 1 1 calc(50% - 5px); }
+  .marco.programa .estado { display: none; } /* en «Transmisión» se ve la imagen limpia */
 </style>
 </head>
 <body>
@@ -52,8 +72,13 @@
   @if (!$activa && !empty($programada))
     <div class="aviso" style="margin:0 0 14px;background:#1e3a8a;color:#e0e7ff">📅 Programada para el <strong>{{ $programada->translatedFormat('l j \d\e F \a \l\a\s g:i a') }}</strong>: vuelve a este enlace unos minutos antes: cuando el director abra el estudio podrás enviar tu cámara. Mientras tanto puedes probar tu cámara aquí.</div>
   @endif
+  <div id="pestanas" class="pestanas oculto">
+    <button type="button" data-vista="camara" class="on">{{ $modo === 'pantalla' ? 'Mi pantalla' : 'Mi cámara' }}</button>
+    <button type="button" data-vista="transmision">Transmisión</button>
+  </div>
   <div class="marco">
     <video id="previa" autoplay playsinline muted></video>
+    <iframe id="monitor" class="oculto" allow="autoplay" title="La transmisión"></iframe>
     <span id="estado" class="estado">VISTA PREVIA</span>
   </div>
 
@@ -78,6 +103,17 @@
       @if ($modo !== 'pantalla')<button id="voltear2" type="button">Voltear cámara</button>@endif
       <button id="pantalla" type="button" class="oculto">Compartir pantalla</button>
       <button id="salir" type="button">Salir</button>
+    </div>
+    <div class="sala">
+      <h2>🎧 Escuchar</h2>
+      <div class="modos">
+        <button type="button" data-oir="sala" class="on">La sala en directo</button>
+        <button type="button" data-oir="transmision">La transmisión</button>
+        <button type="button" data-oir="nada">Silencio</button>
+      </div>
+      <div id="oir-nota" class="nota">Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.</div>
+      <div id="personas" class="personas"></div>
+      <div id="audios" class="oculto"></div>
     </div>
     <div class="chat">
       <h2>💬 Chat privado con el estudio</h2>
@@ -184,8 +220,16 @@
       // Entra con la misma cámara de la vista previa (frontal o trasera)
       const captura = eleccion.deviceId ? { deviceId: eleccion.deviceId } : { facingMode: frontal ? 'user' : 'environment' };
       room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { ...captura, resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
-      room.on(RoomEvent.Disconnected, () => { estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
+      room.on(RoomEvent.Disconnected, () => { verVista('camara'); document.getElementById('pestanas').classList.add('oculto'); document.getElementById('monitor').removeAttribute('src'); document.getElementById('audios').innerHTML = ''; estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
+      // Audio de los demás (director e invitados) para escucharlos en directo
+      room.on(RoomEvent.TrackSubscribed, (track, pub, p) => { if (track.kind === 'audio' && esPersona(p)) { const el = track.attach(); el.dataset.de = p.identity; document.getElementById('audios').appendChild(el); aplicarAudio(); } pintarPersonas(); });
+      room.on(RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach(el => el.remove()); pintarPersonas(); });
+      room.on(RoomEvent.ParticipantConnected, pintarPersonas);
+      room.on(RoomEvent.ParticipantDisconnected, pintarPersonas);
+      room.on(RoomEvent.ActiveSpeakersChanged, (lista) => { hablan = new Set(lista.map(x => x.identity)); pintarPersonas(); });
+      room.on(RoomEvent.AudioPlaybackStatusChanged, () => { if (!room.canPlaybackAudio) mostrar('Toca «La sala en directo» para activar el sonido.'); });
+      monitorUrl = j.monitor ? j.monitor + (j.monitor.includes('?') ? '&' : '?') + 'yo=' + encodeURIComponent(j.identity || '') : null;
       room.on(RoomEvent.DataReceived, (payload, participante, tipo, tema) => {
         if (tema !== 'chat') return;
         try { const m = JSON.parse(new TextDecoder().decode(payload)); agregarMensaje(m.nombre || (participante && participante.name) || 'Estudio', m.texto, false); } catch (e) {}
@@ -203,9 +247,11 @@
         if (cam && cam.track) cam.track.attach(previa);
       }
       document.getElementById('paso1').classList.add('oculto'); document.getElementById('paso2').classList.remove('oculto');
+      document.getElementById('pestanas').classList.toggle('oculto', !monitorUrl);
       aviso.classList.add('oculto');
       estado.textContent = 'CONECTADO · EN ESPERA';
-      alAire();
+      room.startAudio().catch(() => {});
+      alAire(); pintarPersonas(); aplicarAudio();
     } catch (e) {
       mostrar(e.message, true); btn.disabled = false; btn.textContent = 'Enviar mi cámara';
     }
@@ -217,7 +263,7 @@
     let m = {}; try { m = JSON.parse(room.metadata || '{}'); } catch (e) {}
     const e = m.escena || {}; const yo = room.localParticipant.identity;
     const ids = [yo, yo + '#pantalla'];
-    const sale = ids.includes(e.principal) || (Array.isArray(e.visibles) && e.visibles.some((v) => ids.includes(v)));
+    const sale = !e.vacio && (ids.includes(e.principal) || (Array.isArray(e.visibles) && e.visibles.some((v) => ids.includes(v))));
     estado.textContent = sale ? '● AL AIRE' : 'CONECTADO · EN ESPERA';
     estado.classList.toggle('aire', sale);
   }
@@ -265,6 +311,53 @@
       agregarMensaje(nombre, texto, true); inp.value = '';
     } catch (e) { mostrar('No se pudo enviar el mensaje: ' + e.message, true); }
   };
+
+  // ─── Pestañas: mi cámara / la transmisión (lo que ve la audiencia) ───
+  let monitorUrl = null, vista = 'camara', oir = 'sala', hablan = new Set();
+  const monitor = document.getElementById('monitor');
+  function cargarMonitor() {
+    if (!monitorUrl) return;
+    const url = monitorUrl + (oir === 'transmision' ? '&sonido=1' : '');
+    if (monitor.dataset.url !== url) { monitor.dataset.url = url; monitor.src = url; }
+  }
+  function verVista(v) {
+    vista = v;
+    document.querySelectorAll('[data-vista]').forEach(b => b.classList.toggle('on', b.dataset.vista === v));
+    previa.classList.toggle('oculto', v !== 'camara');
+    previa.parentElement.classList.toggle('programa', v === 'transmision');
+    monitor.classList.toggle('oculto', v !== 'transmision');
+    if (v === 'transmision' || oir === 'transmision') cargarMonitor();
+  }
+  document.querySelectorAll('[data-vista]').forEach(b => b.onclick = () => verVista(b.dataset.vista));
+
+  // ─── Escuchar: la sala en directo, la transmisión (con música y efectos) o nada ───
+  const NOTAS = {
+    sala: 'Oyes al director y a los demás invitados al instante. Usa audífonos para que tu micrófono no devuelva el sonido.',
+    transmision: 'Oyes lo que sale al aire, con música y efectos, unos segundos después (no te oyes a ti). Usa audífonos.',
+    nada: 'No oyes a nadie. Los demás sí te siguen oyendo.',
+  };
+  function aplicarAudio() {
+    document.querySelectorAll('#audios audio').forEach(a => { a.muted = oir !== 'sala'; if (oir === 'sala') a.play && a.play().catch(() => {}); });
+    document.querySelectorAll('[data-oir]').forEach(b => b.classList.toggle('on', b.dataset.oir === oir));
+    document.getElementById('oir-nota').textContent = NOTAS[oir];
+    if (oir === 'transmision') cargarMonitor();
+    else if (monitor.dataset.url && monitor.dataset.url.includes('sonido=1')) { if (vista === 'transmision') cargarMonitor(); else { monitor.removeAttribute('src'); monitor.dataset.url = ''; } }
+  }
+  document.querySelectorAll('[data-oir]').forEach(b => b.onclick = () => { oir = b.dataset.oir; if (room) room.startAudio().catch(() => {}); aplicarAudio(); });
+
+  // ─── Quién está en la sala (y quién habla) ───
+  const esPersona = (p) => p && !String(p.identity).startsWith('EG_') && !String(p.identity).startsWith('monitor-');
+  function pintarPersonas() {
+    const cont = document.getElementById('personas'); if (!room) { cont.innerHTML = ''; return; }
+    const lista = [room.localParticipant, ...Array.from(room.remoteParticipants.values()).filter(esPersona)];
+    cont.innerHTML = '';
+    lista.forEach(p => {
+      const d = document.createElement('span'); d.className = 'persona' + (hablan.has(p.identity) ? ' habla' : '');
+      const i = document.createElement('i'); d.appendChild(i);
+      d.appendChild(document.createTextNode(p.isLocal ? 'Tú' : (p.identity === 'camara-principal' ? (p.name || 'Estudio') + ' (estudio)' : (p.name || 'Invitado'))));
+      cont.appendChild(d);
+    });
+  }
 
   document.getElementById('salir').onclick = async () => { if (room) await room.disconnect(); };
 
