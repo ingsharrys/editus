@@ -75,6 +75,7 @@
   <div id="paso2" class="oculto">
     <div class="fila">
       <button id="mic" type="button">Silenciar micrófono</button>
+      @if ($modo !== 'pantalla')<button id="voltear2" type="button">Voltear cámara</button>@endif
       <button id="pantalla" type="button" class="oculto">Compartir pantalla</button>
       <button id="salir" type="button">Salir</button>
     </div>
@@ -103,20 +104,74 @@
 
   function mostrar(msg, error) { aviso.textContent = msg; aviso.classList.toggle('error', !!error); aviso.classList.remove('oculto'); }
 
+  // Cámara frontal o trasera. Se elige por el nombre del dispositivo ("Cámara trasera",
+  // "Back Camera", "facing back"…): es lo más confiable en iPhone y Android. Si el navegador
+  // no da los nombres, se pide por facingMode.
+  const TRASERA = /back|rear|trasera|posterior|environment|facing back/i;
+  const FRONTAL = /front|frontal|delantera|user|facing front/i;
+  async function camaraElegida(quiereFrontal) {
+    try {
+      const lista = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.label);
+      const opciones = lista.filter(d => (quiereFrontal ? FRONTAL : TRASERA).test(d.label));
+      // En iPhone hay varias traseras (gran angular, telefoto…): la principal es la de nombre más corto
+      opciones.sort((a, b) => a.label.length - b.label.length);
+      if (opciones[0]) return { deviceId: opciones[0].deviceId };
+      if (lista.length === 2) { // sin nombres reconocibles: la otra cámara
+        const actual = local && local.getVideoTracks()[0] ? local.getVideoTracks()[0].getSettings().deviceId : null;
+        const otra = lista.find(d => d.deviceId !== actual);
+        if (otra && actual) return { deviceId: otra.deviceId };
+      }
+    } catch (e) {}
+    return { facingMode: quiereFrontal ? 'user' : 'environment' };
+  }
+  async function abrirCamara(quiereFrontal) {
+    const c = await camaraElegida(quiereFrontal);
+    const base = { width: { ideal: 1280 }, height: { ideal: 720 } };
+    const intentos = c.deviceId
+      ? [{ deviceId: { exact: c.deviceId }, ...base }, { facingMode: { exact: quiereFrontal ? 'user' : 'environment' }, ...base }]
+      : [{ facingMode: { exact: c.facingMode }, ...base }, { facingMode: c.facingMode, ...base }];
+    let ultimo = null;
+    for (const video of intentos) {
+      try { return { stream: await navigator.mediaDevices.getUserMedia({ video, audio: true }), eleccion: c }; } catch (e) { ultimo = e; }
+    }
+    throw ultimo || new Error('No se pudo abrir la cámara');
+  }
+  let eleccion = { facingMode: 'user' };
+
   async function previsualizar() {
     try {
       if (local) local.getTracks().forEach(t => t.stop());
-      local = await navigator.mediaDevices.getUserMedia({ video: { facingMode: frontal ? 'user' : 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true });
+      const r = await abrirCamara(frontal);
+      local = r.stream; eleccion = r.eleccion;
       previa.srcObject = local; previa.classList.toggle('trasera', !frontal);
     } catch (e) { mostrar('No se pudo abrir la cámara: ' + e.message + '. Revisa los permisos del navegador.', true); }
   }
 
-  const btnVoltear = document.getElementById('voltear');
-  if (btnVoltear) btnVoltear.onclick = async () => {
+  async function voltear() {
     frontal = !frontal;
-    if (room) { await room.localParticipant.setCameraEnabled(false); await room.localParticipant.setCameraEnabled(true, { facingMode: frontal ? 'user' : 'environment' }); previa.classList.toggle('trasera', !frontal); }
-    else await previsualizar();
-  };
+    if (!room) return previsualizar();
+    const { Track } = LivekitClient;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+    try {
+      const c = await camaraElegida(frontal);
+      if (pub && pub.track) {
+        // Cambia la pista que ya se está enviando (el estudio no pierde la cámara)
+        await pub.track.restartTrack(c.deviceId ? { deviceId: { exact: c.deviceId }, resolution: { width: 1920, height: 1080, frameRate: 30 } } : { facingMode: c.facingMode, resolution: { width: 1920, height: 1080, frameRate: 30 } });
+        pub.track.attach(previa);
+      } else {
+        await room.localParticipant.setCameraEnabled(true, c.deviceId ? { deviceId: c.deviceId } : { facingMode: c.facingMode });
+      }
+      eleccion = c;
+      previa.classList.toggle('trasera', !frontal);
+    } catch (e) {
+      frontal = !frontal;
+      mostrar('No se pudo cambiar de cámara: ' + e.message, true);
+    }
+  }
+  const btnVoltear = document.getElementById('voltear');
+  if (btnVoltear) btnVoltear.onclick = voltear;
+  const btnVoltear2 = document.getElementById('voltear2');
+  if (btnVoltear2) btnVoltear2.onclick = voltear;
 
   document.getElementById('unirse').onclick = async () => {
     const btn = document.getElementById('unirse'); btn.disabled = true; btn.textContent = 'Conectando…';
@@ -126,7 +181,9 @@
       if (!j.success) throw new Error(j.error || 'No se pudo entrar');
       const { Room, RoomEvent, Track } = LivekitClient;
       if (local) local.getTracks().forEach(t => t.stop());
-      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { facingMode: frontal ? 'user' : 'environment', resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
+      // Entra con la misma cámara de la vista previa (frontal o trasera)
+      const captura = eleccion.deviceId ? { deviceId: eleccion.deviceId } : { facingMode: frontal ? 'user' : 'environment' };
+      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { ...captura, resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
       room.on(RoomEvent.Disconnected, () => { estado.textContent = 'DESCONECTADO'; estado.classList.remove('aire'); mostrar('Te desconectaron de la transmisión.'); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = 'Enviar mi cámara'; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
       room.on(RoomEvent.DataReceived, (payload, participante, tipo, tema) => {
