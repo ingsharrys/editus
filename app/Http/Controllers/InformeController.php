@@ -20,7 +20,7 @@ class InformeController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        abort_unless($user->isAdmin(), 403);
+        abort_unless($user->tienePermiso('informe_admin'), 403);
 
         // Filtros
         $q = trim((string) $request->query('q', '')); // texto en mensaje
@@ -92,7 +92,7 @@ class InformeController extends Controller
     public function show(string $key, Request $request)
     {
         $user = Auth::user();
-        abort_unless($user->isAdmin(), 403);
+        abort_unless($user->tienePermiso('informe_admin'), 403);
 
         // Traer posts del grupo (single-{id} o batch_uuid)
         $postsQ = MetaPost::query()
@@ -179,7 +179,7 @@ class InformeController extends Controller
         @set_time_limit(120);
 
         $user = Auth::user();
-        abort_unless($user->isAdmin(), 403);
+        abort_unless($user->tienePermiso('informe_admin'), 403);
 
         // === Traer posts (solo meta_posts) ===
         $query = MetaPost::query()

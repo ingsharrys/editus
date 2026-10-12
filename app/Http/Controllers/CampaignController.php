@@ -19,9 +19,9 @@ class CampaignController extends Controller
 {
     public function __construct(private CampanasService $campanas)
     {
-        // Toda la gestión de campañas es de administradores
+        // La gestión de campañas es para los roles con el permiso «Campañas»
         $this->middleware(function ($request, $next) {
-            abort_unless(Auth::user()?->isAdmin(), 403);
+            abort_unless(Auth::user()?->tienePermiso('campanas'), 403);
             return $next($request);
         });
     }

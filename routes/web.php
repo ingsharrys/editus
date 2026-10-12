@@ -88,16 +88,23 @@ Route::middleware('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| Zonas por rol (ejemplos)
+| Administración: usuarios y roles con permisos
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth', 'role:admin'])->group(function () {
-    Route::get('/admin', fn() => 'solo admins');
+Route::middleware(['auth', 'permiso:usuarios'])->group(function () {
+    Route::get('/admin/usuarios', [\App\Http\Controllers\Admin\UsuariosController::class, 'index'])->name('usuarios.index');
+    Route::post('/admin/usuarios', [\App\Http\Controllers\Admin\UsuariosController::class, 'store'])->name('usuarios.store');
+    Route::put('/admin/usuarios/{usuario}', [\App\Http\Controllers\Admin\UsuariosController::class, 'update'])->name('usuarios.update');
+    Route::post('/admin/usuarios/{usuario}/activo', [\App\Http\Controllers\Admin\UsuariosController::class, 'activo'])->name('usuarios.activo');
+    Route::delete('/admin/usuarios/{usuario}', [\App\Http\Controllers\Admin\UsuariosController::class, 'destroy'])->name('usuarios.destroy');
+});
+Route::middleware(['auth', 'permiso:roles'])->group(function () {
+    Route::get('/admin/roles', [\App\Http\Controllers\Admin\RolesController::class, 'index'])->name('roles.index');
+    Route::post('/admin/roles', [\App\Http\Controllers\Admin\RolesController::class, 'store'])->name('roles.store');
+    Route::put('/admin/roles/{rol}', [\App\Http\Controllers\Admin\RolesController::class, 'update'])->name('roles.update');
+    Route::delete('/admin/roles/{rol}', [\App\Http\Controllers\Admin\RolesController::class, 'destroy'])->name('roles.destroy');
 });
 
-Route::middleware(['auth', 'role:user'])->group(function () {
-    Route::get('/panel', fn() => 'usuarios normales');
-});
 
 
 /*
@@ -108,164 +115,164 @@ Route::middleware(['auth', 'role:user'])->group(function () {
 */
 Route::middleware(['auth'])->group(function () {
     // Mi suscripción (planes, pago con Wompi, páginas del plan, licencia SharryStreem)
-    Route::get('/suscripcion', [\App\Http\Controllers\SuscripcionController::class, 'index'])->name('suscripcion.index');
-    Route::post('/suscripcion/pagar', [\App\Http\Controllers\SuscripcionController::class, 'pagar'])->name('suscripcion.pagar');
-    Route::get('/suscripcion/resultado', [\App\Http\Controllers\SuscripcionController::class, 'resultado'])->name('suscripcion.resultado');
-    Route::post('/suscripcion/paginas', [\App\Http\Controllers\SuscripcionController::class, 'paginas'])->name('suscripcion.paginas');
-    Route::post('/suscripcion/licencia', [\App\Http\Controllers\SuscripcionController::class, 'regenerarLicencia'])->name('suscripcion.licencia');
-    Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->name('suscripcion.sitio.liberar');
+    Route::get('/suscripcion', [\App\Http\Controllers\SuscripcionController::class, 'index'])->middleware('permiso:suscripcion')->name('suscripcion.index');
+    Route::post('/suscripcion/pagar', [\App\Http\Controllers\SuscripcionController::class, 'pagar'])->middleware('permiso:suscripcion')->name('suscripcion.pagar');
+    Route::get('/suscripcion/resultado', [\App\Http\Controllers\SuscripcionController::class, 'resultado'])->middleware('permiso:suscripcion')->name('suscripcion.resultado');
+    Route::post('/suscripcion/paginas', [\App\Http\Controllers\SuscripcionController::class, 'paginas'])->middleware('permiso:suscripcion')->name('suscripcion.paginas');
+    Route::post('/suscripcion/licencia', [\App\Http\Controllers\SuscripcionController::class, 'regenerarLicencia'])->middleware('permiso:suscripcion')->name('suscripcion.licencia');
+    Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->middleware('permiso:suscripcion')->name('suscripcion.sitio.liberar');
     // Estudio de transmisión en vivo en la web (mismo flujo que la app del editor)
-    Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->name('en-vivo.web');
+    Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->middleware('permiso:en_vivo')->name('en-vivo.web');
     // Videos pregrabados que salen en vivo a una hora programada
-    Route::get('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'index'])->name('pregrabados.index');
-    Route::get('/en-vivo/pregrabados/estado', [\App\Http\Controllers\Web\PregrabadosController::class, 'estado'])->name('pregrabados.estado');
-    Route::post('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'store'])->middleware('throttle:20,1')->name('pregrabados.store');
-    Route::post('/en-vivo/pregrabados/{emision}/reanudar', [\App\Http\Controllers\Web\PregrabadosController::class, 'reanudar'])->name('pregrabados.reanudar');
-    Route::post('/en-vivo/pregrabados/{emision}/subido', [\App\Http\Controllers\Web\PregrabadosController::class, 'subido'])->name('pregrabados.subido');
-    Route::post('/en-vivo/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Web\PregrabadosController::class, 'cancelar'])->name('pregrabados.cancelar');
-    Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->name('pregrabados.ahora');
-    Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->name('pregrabados.destroy');
+    Route::get('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'index'])->middleware('permiso:en_vivo')->name('pregrabados.index');
+    Route::get('/en-vivo/pregrabados/estado', [\App\Http\Controllers\Web\PregrabadosController::class, 'estado'])->middleware('permiso:en_vivo')->name('pregrabados.estado');
+    Route::post('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'store'])->middleware('throttle:20,1')->middleware('permiso:en_vivo')->name('pregrabados.store');
+    Route::post('/en-vivo/pregrabados/{emision}/reanudar', [\App\Http\Controllers\Web\PregrabadosController::class, 'reanudar'])->middleware('permiso:en_vivo')->name('pregrabados.reanudar');
+    Route::post('/en-vivo/pregrabados/{emision}/subido', [\App\Http\Controllers\Web\PregrabadosController::class, 'subido'])->middleware('permiso:en_vivo')->name('pregrabados.subido');
+    Route::post('/en-vivo/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Web\PregrabadosController::class, 'cancelar'])->middleware('permiso:en_vivo')->name('pregrabados.cancelar');
+    Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->middleware('permiso:en_vivo')->name('pregrabados.ahora');
+    Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->middleware('permiso:en_vivo')->name('pregrabados.destroy');
     // Panel del estudio: marcas, archivos propios, notas y comentarios en vivo
-    Route::post('/en-vivo/marcas', [\App\Http\Controllers\Web\EstudioController::class, 'marcaCrear'])->name('en-vivo.marcas.crear');
-    Route::post('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaGuardar'])->name('en-vivo.marcas.guardar');
-    Route::delete('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaBorrar'])->name('en-vivo.marcas.borrar');
-    Route::post('/en-vivo/activos', [\App\Http\Controllers\Web\EstudioController::class, 'activoSubir'])->middleware('throttle:60,1')->name('en-vivo.activos.subir');
-    Route::delete('/en-vivo/activos/{activo}', [\App\Http\Controllers\Web\EstudioController::class, 'activoBorrar'])->name('en-vivo.activos.borrar');
-    Route::post('/en-vivo/{transmision}/marca', [\App\Http\Controllers\Web\EstudioController::class, 'marcaAplicar'])->name('en-vivo.web.marca');
-    Route::post('/en-vivo/{transmision}/notas', [\App\Http\Controllers\Web\EstudioController::class, 'notas'])->name('en-vivo.web.notas');
-    Route::get('/en-vivo/{transmision}/comentarios', [\App\Http\Controllers\Web\EstudioController::class, 'comentarios'])->middleware('throttle:40,1')->name('en-vivo.web.comentarios');
-    Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->name('en-vivo.web.preparar');
-    Route::post('/en-vivo/programar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'programar'])->middleware('throttle:20,1')->name('en-vivo.web.programar');
-    Route::post('/en-vivo/{transmision}/abrir', [\App\Http\Controllers\Web\EnVivoWebController::class, 'abrir'])->name('en-vivo.web.abrir');
-    Route::post('/en-vivo/{transmision}/cancelar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'cancelarProgramada'])->name('en-vivo.web.cancelar');
-    Route::post('/en-vivo/{transmision}/aire', [\App\Http\Controllers\Web\EnVivoWebController::class, 'aire'])->name('en-vivo.web.aire');
-    Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Web\EnVivoWebController::class, 'escena'])->name('en-vivo.web.escena');
-    Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Web\EnVivoWebController::class, 'plantilla'])->name('en-vivo.web.plantilla');
-    Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Web\EnVivoWebController::class, 'invitacion'])->name('en-vivo.web.invitacion');
-    Route::get('/en-vivo/{transmision}/participantes', [\App\Http\Controllers\Web\EnVivoWebController::class, 'participantes'])->name('en-vivo.web.participantes');
-    Route::post('/en-vivo/{transmision}/participantes/{identity}/expulsar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'expulsar'])->name('en-vivo.web.expulsar');
-    Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Web\EnVivoWebController::class, 'estado'])->name('en-vivo.web.estado');
-    Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'terminar'])->name('en-vivo.web.terminar');
-    Route::get('/meta/pages', [FacebookPageController::class, 'index'])->name('meta.pages.index');
+    Route::post('/en-vivo/marcas', [\App\Http\Controllers\Web\EstudioController::class, 'marcaCrear'])->middleware('permiso:en_vivo')->name('en-vivo.marcas.crear');
+    Route::post('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaGuardar'])->middleware('permiso:en_vivo')->name('en-vivo.marcas.guardar');
+    Route::delete('/en-vivo/marcas/{marca}', [\App\Http\Controllers\Web\EstudioController::class, 'marcaBorrar'])->middleware('permiso:en_vivo')->name('en-vivo.marcas.borrar');
+    Route::post('/en-vivo/activos', [\App\Http\Controllers\Web\EstudioController::class, 'activoSubir'])->middleware('throttle:60,1')->middleware('permiso:en_vivo')->name('en-vivo.activos.subir');
+    Route::delete('/en-vivo/activos/{activo}', [\App\Http\Controllers\Web\EstudioController::class, 'activoBorrar'])->middleware('permiso:en_vivo')->name('en-vivo.activos.borrar');
+    Route::post('/en-vivo/{transmision}/marca', [\App\Http\Controllers\Web\EstudioController::class, 'marcaAplicar'])->middleware('permiso:en_vivo')->name('en-vivo.web.marca');
+    Route::post('/en-vivo/{transmision}/notas', [\App\Http\Controllers\Web\EstudioController::class, 'notas'])->middleware('permiso:en_vivo')->name('en-vivo.web.notas');
+    Route::get('/en-vivo/{transmision}/comentarios', [\App\Http\Controllers\Web\EstudioController::class, 'comentarios'])->middleware('throttle:40,1')->middleware('permiso:en_vivo')->name('en-vivo.web.comentarios');
+    Route::post('/en-vivo/preparar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'preparar'])->middleware('permiso:en_vivo')->name('en-vivo.web.preparar');
+    Route::post('/en-vivo/programar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'programar'])->middleware('throttle:20,1')->middleware('permiso:en_vivo')->name('en-vivo.web.programar');
+    Route::post('/en-vivo/{transmision}/abrir', [\App\Http\Controllers\Web\EnVivoWebController::class, 'abrir'])->middleware('permiso:en_vivo')->name('en-vivo.web.abrir');
+    Route::post('/en-vivo/{transmision}/cancelar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'cancelarProgramada'])->middleware('permiso:en_vivo')->name('en-vivo.web.cancelar');
+    Route::post('/en-vivo/{transmision}/aire', [\App\Http\Controllers\Web\EnVivoWebController::class, 'aire'])->middleware('permiso:en_vivo')->name('en-vivo.web.aire');
+    Route::post('/en-vivo/{transmision}/escena', [\App\Http\Controllers\Web\EnVivoWebController::class, 'escena'])->middleware('permiso:en_vivo')->name('en-vivo.web.escena');
+    Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Web\EnVivoWebController::class, 'plantilla'])->middleware('permiso:en_vivo')->name('en-vivo.web.plantilla');
+    Route::post('/en-vivo/{transmision}/invitacion', [\App\Http\Controllers\Web\EnVivoWebController::class, 'invitacion'])->middleware('permiso:en_vivo')->name('en-vivo.web.invitacion');
+    Route::get('/en-vivo/{transmision}/participantes', [\App\Http\Controllers\Web\EnVivoWebController::class, 'participantes'])->middleware('permiso:en_vivo')->name('en-vivo.web.participantes');
+    Route::post('/en-vivo/{transmision}/participantes/{identity}/expulsar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'expulsar'])->middleware('permiso:en_vivo')->name('en-vivo.web.expulsar');
+    Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Web\EnVivoWebController::class, 'estado'])->middleware('permiso:en_vivo')->name('en-vivo.web.estado');
+    Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Web\EnVivoWebController::class, 'terminar'])->middleware('permiso:en_vivo')->name('en-vivo.web.terminar');
+    Route::get('/meta/pages', [FacebookPageController::class, 'index'])->middleware('permiso:paginas')->name('meta.pages.index');
     Route::resource('facebook-pages', FacebookPageController::class)
-        ->only(['index', 'show']);
-    Route::post('/meta/pages/sync', [FacebookPageController::class, 'sync'])->name('meta.pages.sync');
+        ->only(['index', 'show'])->middleware('permiso:paginas');
+    Route::post('/meta/pages/sync', [FacebookPageController::class, 'sync'])->middleware('permiso:paginas')->name('meta.pages.sync');
     Route::post('/meta/pages/publish', [FacebookPageController::class, 'publish'])
-        ->middleware('role:admin')->name('meta.pages.publish');
+        ->middleware('permiso:paginas.publicar')->name('meta.pages.publish');
 
     // Vincular página con un medio de esnoticia (publicación automática)
     Route::post('/meta/pages/{metaPage}/medio', [FacebookPageController::class, 'updateMedio'])
-        ->middleware('role:admin')->name('meta.pages.medio');
+        ->middleware('permiso:paginas.medio')->name('meta.pages.medio');
 
     // reparar tokens caducados o inválidos
     Route::post('/meta/pages/repair-tokens/start', [FacebookPageController::class, 'startRepairTokens'])
-        ->name('meta.pages.repairTokens.start');
+        ->middleware('permiso:paginas')->name('meta.pages.repairTokens.start');
     Route::post('/meta/pages/repair-tokens/step', [FacebookPageController::class, 'repairTokensStep'])
-        ->name('meta.pages.repairTokens.step');
+        ->middleware('permiso:paginas')->name('meta.pages.repairTokens.step');
 
-    Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->name('facebook.connect');
+    Route::get('/auth/facebook/connect', [FacebookPageController::class, 'linkRedirect'])->middleware('permiso:paginas')->name('facebook.connect');
 
     // Aliases de compatibilidad
-    Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])->name('facebook.link.redirect');
+    Route::get('/auth/facebook/link', [FacebookPageController::class, 'linkRedirect'])->middleware('permiso:paginas')->name('facebook.link.redirect');
 
     // Desvincular cuenta/página
-    Route::delete('/auth/facebook/unlink', [FacebookPageController::class, 'unlinkAccount'])->name('facebook.unlink');
-    Route::delete('/meta/pages/{metaPage}/unlink', [FacebookPageController::class, 'unlinkPage'])->name('meta.pages.unlink');
-    Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])->name('meta.pages.link');
+    Route::delete('/auth/facebook/unlink', [FacebookPageController::class, 'unlinkAccount'])->middleware('permiso:paginas')->name('facebook.unlink');
+    Route::delete('/meta/pages/{metaPage}/unlink', [FacebookPageController::class, 'unlinkPage'])->middleware('permiso:paginas')->name('meta.pages.unlink');
+    Route::post('/meta/pages/{metaPage}/link', [FacebookPageController::class, 'linkSinglePage'])->middleware('permiso:paginas')->name('meta.pages.link');
 
     // Estadísticas (dashboard)
-    Route::get('/estadisticas', [\App\Http\Controllers\StatsController::class, 'index'])->name('stats.index');
-    Route::post('/estadisticas/collect', [\App\Http\Controllers\StatsController::class, 'collect'])->name('stats.collect');
+    Route::get('/estadisticas', [\App\Http\Controllers\StatsController::class, 'index'])->middleware('permiso:estadisticas')->name('stats.index');
+    Route::post('/estadisticas/collect', [\App\Http\Controllers\StatsController::class, 'collect'])->middleware('permiso:estadisticas')->name('stats.collect');
 
     // Informe de publicaciones (explorador con filtros y exportación)
-    Route::get('/informes/publicaciones', [\App\Http\Controllers\ReportsController::class, 'posts'])->name('reports.posts');
-    Route::get('/informes/publicaciones/csv', [\App\Http\Controllers\ReportsController::class, 'exportCsv'])->name('reports.posts.csv');
-    Route::get('/informes/analisis', [\App\Http\Controllers\ReportsController::class, 'analytics'])->name('reports.analytics');
+    Route::get('/informes/publicaciones', [\App\Http\Controllers\ReportsController::class, 'posts'])->middleware('permiso:informes')->name('reports.posts');
+    Route::get('/informes/publicaciones/csv', [\App\Http\Controllers\ReportsController::class, 'exportCsv'])->middleware('permiso:informes')->name('reports.posts.csv');
+    Route::get('/informes/analisis', [\App\Http\Controllers\ReportsController::class, 'analytics'])->middleware('permiso:informes')->name('reports.analytics');
 
     // Campañas (gestión, solo admin — validado en el controlador)
-    Route::get('/campanas', [\App\Http\Controllers\CampaignController::class, 'index'])->name('campaigns.index');
-        Route::get('/campanas/nueva', [\App\Http\Controllers\CampaignController::class, 'create'])->name('campaigns.create');
-        Route::get('/campanas/{campaign}/editar', [\App\Http\Controllers\CampaignController::class, 'edit'])->name('campaigns.edit');
-    Route::post('/campanas', [\App\Http\Controllers\CampaignController::class, 'store'])->name('campaigns.store');
-    Route::post('/campanas/{campaign}', [\App\Http\Controllers\CampaignController::class, 'update'])->name('campaigns.update');
-    Route::post('/campanas/{campaign}/toggle', [\App\Http\Controllers\CampaignController::class, 'toggle'])->name('campaigns.toggle');
+    Route::get('/campanas', [\App\Http\Controllers\CampaignController::class, 'index'])->middleware('permiso:campanas')->name('campaigns.index');
+        Route::get('/campanas/nueva', [\App\Http\Controllers\CampaignController::class, 'create'])->middleware('permiso:campanas')->name('campaigns.create');
+        Route::get('/campanas/{campaign}/editar', [\App\Http\Controllers\CampaignController::class, 'edit'])->middleware('permiso:campanas')->name('campaigns.edit');
+    Route::post('/campanas', [\App\Http\Controllers\CampaignController::class, 'store'])->middleware('permiso:campanas')->name('campaigns.store');
+    Route::post('/campanas/{campaign}', [\App\Http\Controllers\CampaignController::class, 'update'])->middleware('permiso:campanas')->name('campaigns.update');
+    Route::post('/campanas/{campaign}/toggle', [\App\Http\Controllers\CampaignController::class, 'toggle'])->middleware('permiso:campanas')->name('campaigns.toggle');
 
     // Posts de Meta (vista general)
-    Route::get('/meta/posts', [MetaPostController::class, 'index'])->name('meta.posts.index');
-    Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->name('meta.posts.show');
+    Route::get('/meta/posts', [MetaPostController::class, 'index'])->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.index');
+    Route::get('/meta/posts/{batch}', [MetaPostController::class, 'show'])->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.show');
 
 
     Route::post('/meta-posts/{batch}/metrics/start-sync', [MetaPostController::class, 'startMetricsSync'])
-        ->name('meta.posts.metrics.startSync');
+        ->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.metrics.startSync');
 
     Route::post('/meta-posts/{batch}/metrics/step', [MetaPostController::class, 'metricsStep'])
-        ->name('meta.posts.metrics.step');
+        ->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.metrics.step');
 
     // Módulo: Mis publicaciones (user)
-    Route::get('/mis-publicaciones', [MyPostsController::class, 'index'])->name('mis-posts.index');
-    Route::get('/mis-publicaciones/{post}', [MyPostsController::class, 'show'])->name('mis-posts.show');
-    Route::put('/mis-publicaciones/{post}', [MyPostsController::class, 'update'])->name('mis-posts.update');
+    Route::get('/mis-publicaciones', [MyPostsController::class, 'index'])->middleware('permiso:mis_publicaciones')->name('mis-posts.index');
+    Route::get('/mis-publicaciones/{post}', [MyPostsController::class, 'show'])->middleware('permiso:mis_publicaciones')->name('mis-posts.show');
+    Route::put('/mis-publicaciones/{post}', [MyPostsController::class, 'update'])->middleware('permiso:mis_publicaciones')->name('mis-posts.update');
 
     // Módulo: Informe (admin)
-    Route::middleware('role:admin')->group(function () {
-        Route::get('/admin/informe', [InformeController::class, 'index'])->name('informe.index');
-        Route::get('/admin/informe/{key}', [InformeController::class, 'show'])->name('informe.show');
-        Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->name('informe.pdf'); // << NUEVO
+    Route::group([], function () { // cada módulo con su permiso (config/permisos.php)
+        Route::get('/admin/informe', [InformeController::class, 'index'])->middleware('permiso:informe_admin')->name('informe.index');
+        Route::get('/admin/informe/{key}', [InformeController::class, 'show'])->middleware('permiso:informe_admin')->name('informe.show');
+        Route::get('/admin/informe/{key}/pdf', [InformeController::class, 'pdf'])->middleware('permiso:informe_admin')->name('informe.pdf'); // << NUEVO
 
         // Módulo: App del editor (páginas visibles en la app móvil + plantillas de imagen)
-        Route::get('/admin/app-editor', [EditorAppController::class, 'index'])->name('editor-app.index');
-        Route::post('/admin/app-editor/paginas', [EditorAppController::class, 'paginas'])->name('editor-app.paginas');
-        Route::get('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillas'])->name('editor-app.plantillas.index');
-        Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->name('editor-app.plantillas.store');
-        Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->name('editor-app.plantillas.update');
-        Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->name('editor-app.plantillas.destroy');
+        Route::get('/admin/app-editor', [EditorAppController::class, 'index'])->middleware('permiso:app_editor')->name('editor-app.index');
+        Route::post('/admin/app-editor/paginas', [EditorAppController::class, 'paginas'])->middleware('permiso:app_editor')->name('editor-app.paginas');
+        Route::get('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillas'])->middleware('permiso:plantillas')->name('editor-app.plantillas.index');
+        Route::post('/admin/app-editor/plantillas', [EditorAppController::class, 'plantillaStore'])->middleware('permiso:plantillas')->name('editor-app.plantillas.store');
+        Route::put('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaUpdate'])->middleware('permiso:plantillas')->name('editor-app.plantillas.update');
+        Route::delete('/admin/app-editor/plantillas/{plantilla}', [EditorAppController::class, 'plantillaDestroy'])->middleware('permiso:plantillas')->name('editor-app.plantillas.destroy');
         // YouTube Live: conectar canales (OAuth de Google), visibilidad en la app y desconexión
-        Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->name('youtube.connect');
-        Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->name('youtube.visible');
-        Route::post('/admin/youtube/{canal}/usuarios', [\App\Http\Controllers\Admin\YoutubeController::class, 'usuarios'])->name('youtube.usuarios');
-        Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->name('youtube.desconectar');
-        Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->name('editor-app.recursos.store');
-        Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->name('editor-app.recursos.destroy');
+        Route::get('/auth/youtube/connect', [\App\Http\Controllers\Admin\YoutubeController::class, 'conectar'])->middleware('permiso:app_editor')->name('youtube.connect');
+        Route::post('/admin/youtube/{canal}/visible', [\App\Http\Controllers\Admin\YoutubeController::class, 'visible'])->middleware('permiso:app_editor')->name('youtube.visible');
+        Route::post('/admin/youtube/{canal}/usuarios', [\App\Http\Controllers\Admin\YoutubeController::class, 'usuarios'])->middleware('permiso:app_editor')->name('youtube.usuarios');
+        Route::delete('/admin/youtube/{canal}', [\App\Http\Controllers\Admin\YoutubeController::class, 'desconectar'])->middleware('permiso:app_editor')->name('youtube.desconectar');
+        Route::post('/admin/app-editor/recursos', [EditorAppController::class, 'recursoStore'])->middleware('permiso:app_editor')->name('editor-app.recursos.store');
+        Route::delete('/admin/app-editor/recursos/{recurso}', [EditorAppController::class, 'recursoDestroy'])->middleware('permiso:app_editor')->name('editor-app.recursos.destroy');
 
         // Inteligencia de audiencia (campañas, temas, tablero, informes)
-        Route::get('/admin/suscripciones', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'index'])->name('admin.suscripciones');
-        Route::post('/admin/suscripciones/{user}/activar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'activar'])->name('admin.suscripciones.activar');
-        Route::post('/admin/suscripciones/{user}/cancelar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'cancelar'])->name('admin.suscripciones.cancelar');
-        Route::post('/admin/suscripciones/{user}/exento', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'exento'])->name('admin.suscripciones.exento');
-        Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->name('inteligencia.index');
-        Route::get('/admin/inteligencia/general', [\App\Http\Controllers\Admin\InteligenciaController::class, 'general'])->name('inteligencia.general');
-        Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->name('inteligencia.general.recolectar.iniciar');
-        Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->name('inteligencia.general.recolectar.paso');
-        Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->name('inteligencia.consultar');
-        Route::post('/admin/inteligencia/diagnostico', [\App\Http\Controllers\Admin\InteligenciaController::class, 'diagnosticar'])->name('inteligencia.diagnostico');
-        Route::get('/admin/inteligencia/simular', [\App\Http\Controllers\Admin\InteligenciaController::class, 'simular'])->name('inteligencia.simular');
-        Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
-        Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->name('inteligencia.temas.store');
-        Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->name('inteligencia.temas.update');
-        Route::delete('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaDestroy'])->name('inteligencia.temas.destroy');
-        Route::post('/admin/inteligencia/{campana}/publicaciones/{publicacion}/tema', [\App\Http\Controllers\Admin\InteligenciaController::class, 'publicacionTema'])->name('inteligencia.publicacion.tema');
-        Route::post('/admin/inteligencia/{campana}/recolectar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectar'])->name('inteligencia.recolectar');
-        Route::post('/admin/inteligencia/{campana}/analizar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizar'])->name('inteligencia.analizar');
-        Route::post('/admin/inteligencia/{campana}/analizar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizarPaso'])->name('inteligencia.analizar.paso');
-        Route::post('/admin/inteligencia/{campana}/radar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarIniciar'])->name('inteligencia.radar.iniciar');
-        Route::post('/admin/inteligencia/{campana}/radar/{radar}/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarPaso'])->name('inteligencia.radar.paso');
-        Route::post('/admin/inteligencia/{campana}/informes', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informeGenerar'])->name('inteligencia.informes.generar');
-        Route::get('/admin/inteligencia/{campana}/informes/{informe}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informe'])->name('inteligencia.informe');
-        Route::get('/admin/inteligencia/{campana}/proyeccion', [\App\Http\Controllers\Admin\InteligenciaController::class, 'proyeccion'])->name('inteligencia.proyeccion');
+        Route::get('/admin/suscripciones', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'index'])->middleware('permiso:suscripciones_admin')->name('admin.suscripciones');
+        Route::post('/admin/suscripciones/{user}/activar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'activar'])->middleware('permiso:suscripciones_admin')->name('admin.suscripciones.activar');
+        Route::post('/admin/suscripciones/{user}/cancelar', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'cancelar'])->middleware('permiso:suscripciones_admin')->name('admin.suscripciones.cancelar');
+        Route::post('/admin/suscripciones/{user}/exento', [\App\Http\Controllers\Admin\SuscripcionesController::class, 'exento'])->middleware('permiso:suscripciones_admin')->name('admin.suscripciones.exento');
+        Route::get('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'index'])->middleware('permiso:inteligencia')->name('inteligencia.index');
+        Route::get('/admin/inteligencia/general', [\App\Http\Controllers\Admin\InteligenciaController::class, 'general'])->middleware('permiso:inteligencia')->name('inteligencia.general');
+        Route::post('/admin/inteligencia/general/recolectar/iniciar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarIniciar'])->middleware('permiso:inteligencia')->name('inteligencia.general.recolectar.iniciar');
+        Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->middleware('permiso:inteligencia')->name('inteligencia.general.recolectar.paso');
+        Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->middleware('permiso:inteligencia')->name('inteligencia.consultar');
+        Route::post('/admin/inteligencia/diagnostico', [\App\Http\Controllers\Admin\InteligenciaController::class, 'diagnosticar'])->middleware('permiso:inteligencia')->name('inteligencia.diagnostico');
+        Route::get('/admin/inteligencia/simular', [\App\Http\Controllers\Admin\InteligenciaController::class, 'simular'])->middleware('permiso:inteligencia')->name('inteligencia.simular');
+        Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->middleware('permiso:inteligencia')->name('inteligencia.show');
+        Route::post('/admin/inteligencia/{campana}/temas', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaStore'])->middleware('permiso:inteligencia')->name('inteligencia.temas.store');
+        Route::put('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaUpdate'])->middleware('permiso:inteligencia')->name('inteligencia.temas.update');
+        Route::delete('/admin/inteligencia/{campana}/temas/{tema}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'temaDestroy'])->middleware('permiso:inteligencia')->name('inteligencia.temas.destroy');
+        Route::post('/admin/inteligencia/{campana}/publicaciones/{publicacion}/tema', [\App\Http\Controllers\Admin\InteligenciaController::class, 'publicacionTema'])->middleware('permiso:inteligencia')->name('inteligencia.publicacion.tema');
+        Route::post('/admin/inteligencia/{campana}/recolectar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectar'])->middleware('permiso:inteligencia')->name('inteligencia.recolectar');
+        Route::post('/admin/inteligencia/{campana}/analizar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizar'])->middleware('permiso:inteligencia')->name('inteligencia.analizar');
+        Route::post('/admin/inteligencia/{campana}/analizar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'analizarPaso'])->middleware('permiso:inteligencia')->name('inteligencia.analizar.paso');
+        Route::post('/admin/inteligencia/{campana}/radar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarIniciar'])->middleware('permiso:inteligencia')->name('inteligencia.radar.iniciar');
+        Route::post('/admin/inteligencia/{campana}/radar/{radar}/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'radarPaso'])->middleware('permiso:inteligencia')->name('inteligencia.radar.paso');
+        Route::post('/admin/inteligencia/{campana}/informes', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informeGenerar'])->middleware('permiso:inteligencia')->name('inteligencia.informes.generar');
+        Route::get('/admin/inteligencia/{campana}/informes/{informe}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'informe'])->middleware('permiso:inteligencia')->name('inteligencia.informe');
+        Route::get('/admin/inteligencia/{campana}/proyeccion', [\App\Http\Controllers\Admin\InteligenciaController::class, 'proyeccion'])->middleware('permiso:inteligencia')->name('inteligencia.proyeccion');
     });
 });
 // routes/web.php
 Route::middleware(['auth'])->group(function () {
     Route::post('/meta/posts/{post}/retry', [MetaPostController::class, 'retry'])
-        ->name('meta.posts.retry');
+        ->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.retry');
 
     Route::post('/meta/posts/batch/{batch}/retry-fails', [MetaPostController::class, 'retryFails'])
-        ->name('meta.posts.retryFails');
+        ->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.retryFails');
 });
 
 // routes/web.php
 Route::post('/meta/pages/favorites/save', [FacebookPageController::class, 'saveFavorites'])
-    ->name('meta.pages.favorites.save')
+    ->middleware('permiso:paginas')->name('meta.pages.favorites.save')
     ->middleware('auth');
 
 

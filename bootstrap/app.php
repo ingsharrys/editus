@@ -14,8 +14,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
+            'permiso' => \App\Http\Middleware\PermisoMiddleware::class,
             'editus.token' => \App\Http\Middleware\EditusApiToken::class,
         ]);
+        // Usuarios desactivados: se cierra su sesión; a los demás se les anota el último acceso
+        $middleware->appendToGroup('web', \App\Http\Middleware\UsuarioActivo::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

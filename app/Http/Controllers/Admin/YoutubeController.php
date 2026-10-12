@@ -36,7 +36,7 @@ class YoutubeController extends Controller
         if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
             return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackYoutube($request, (array) $vinculo, $youtube);
         }
-        if (!auth()->check() || !auth()->user()->isAdmin()) {
+        if (!auth()->check() || !auth()->user()->tienePermiso('app_editor')) {
             return redirect()->route('login')->with('error', 'Inicia sesión como administrador para conectar canales.');
         }
         if ($request->has('error')) {

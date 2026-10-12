@@ -21,6 +21,11 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'role_id',
+        'activo',
+        'telefono',
+        'cargo',
+        'avatar',
     ];
 
     /**
@@ -44,6 +49,8 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'exento_planes' => 'boolean',
+            'activo' => 'boolean',
+            'ultimo_acceso' => 'datetime',
         ];
     }
     public function role()
@@ -59,6 +66,44 @@ class User extends Authenticatable
     public function isAdmin(): bool
     {
         return $this->hasRole('admin');
+    }
+
+    /** ¿Puede usar este módulo? (permisos del rol; el administrador puede todo). */
+    public function tienePermiso(string $permiso): bool
+    {
+        if ($this->isAdmin()) return true;
+        $rol = $this->role;
+        // Sin rol asignado: lo mismo que un usuario normal
+        if (!$rol) return in_array($permiso, (array) config('permisos.por_defecto', []), true);
+        // Rol "user" de una instalación sin migrar: los permisos de siempre
+        if ($rol->permisos === null && $rol->slug === 'user') return in_array($permiso, (array) config('permisos.por_defecto', []), true);
+        return $rol->tiene($permiso);
+    }
+
+    /** @return string[] */
+    public function permisos(): array
+    {
+        if ($this->isAdmin()) return Role::claves();
+        $rol = $this->role;
+        if (!$rol || ($rol->permisos === null && $rol->slug === 'user')) return array_values(array_intersect(Role::claves(), (array) config('permisos.por_defecto', [])));
+        return $rol->listaPermisos();
+    }
+
+    public function estaActivo(): bool
+    {
+        return ($this->activo ?? true) !== false;
+    }
+
+    /** Foto de perfil (o iniciales si no hay). */
+    public function avatarUrl(): ?string
+    {
+        return $this->avatar ? \Illuminate\Support\Facades\Storage::disk('public')->url($this->avatar) : null;
+    }
+
+    public function iniciales(): string
+    {
+        $partes = preg_split('/\s+/', trim((string) $this->name)) ?: [];
+        return mb_strtoupper(mb_substr($partes[0] ?? '?', 0, 1) . mb_substr($partes[1] ?? '', 0, 1));
     }
     public function socialAccounts()
     {

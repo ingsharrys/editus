@@ -27,7 +27,7 @@
 
 <body class="font-sans antialiased">
 @auth
-@php $roleId = auth()->user()->role_id; @endphp
+@php $roleId = auth()->user()->role_id; $u = auth()->user(); @endphp
 
         
     <!-- Wrapper -->
@@ -96,6 +96,7 @@
                             <!-- Menú -->
                             <ul class="mt-6 space-y-2 px-3">
                     
+                                @if ($u->tienePermiso('paginas'))
                                 <!-- Mis páginas -->
                                 <li>
                                     <a href="{{ route('meta.pages.index') }}"
@@ -113,7 +114,9 @@
                                         </span>
                                     </a>
                                 </li>
+                                @endif
 
+                                @if ($u->tienePermiso('en_vivo'))
                                 <!-- En vivo -->
                                 <li>
                                     <a href="{{ route('en-vivo.web') }}"
@@ -127,24 +130,26 @@
                                         </span>
                                     </a>
                                 </li>
+                                @endif
 
                                 <!-- Suscripción -->
+                                @if ($u->tienePermiso('suscripciones_admin') || $u->tienePermiso('suscripcion'))
                                 <li>
-                                    <a href="{{ auth()->user()?->isAdmin() ? route('admin.suscripciones') : route('suscripcion.index') }}"
+                                    <a href="{{ $u->tienePermiso('suscripciones_admin') ? route('admin.suscripciones') : route('suscripcion.index') }}"
                                        class="flex items-center gap-4 rounded-xl px-4 py-3
                                               hover:bg-[#00024f] transition-all">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
                                         <span class="whitespace-nowrap
                                                      opacity-0 group-hover:opacity-100
                                                      hidden group-hover:block text-sm transition-all duration-300">
-                                            {{ auth()->user()?->isAdmin() ? 'Suscripciones' : 'Mi suscripción' }}
+                                            {{ $u->tienePermiso('suscripciones_admin') ? 'Suscripciones' : 'Mi suscripción' }}
                                         </span>
                                     </a>
                                 </li>
+                                @endif
                     
-                                @if ($roleId === 1)
-                    
-                                    <!-- Publicaciones -->
+                                    @if ($u->tienePermiso('publicaciones'))
+                                <!-- Publicaciones -->
                                     <li>
                                         <a href="{{ route('meta.posts.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -159,8 +164,10 @@
                                             </span>
                                         </a>
                                     </li>
+                                @endif
                     
-                                    <!-- Informes -->
+                                    @if ($u->tienePermiso('informe_admin'))
+                                <!-- Informes -->
                                     <li>
                                         <a href="{{ route('informe.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -175,8 +182,10 @@
                                             </span>
                                         </a>
                                     </li>
+                                @endif
 
-                                    <!-- App del editor -->
+                                    @if ($u->tienePermiso('app_editor'))
+                                <!-- App del editor -->
                                     <li>
                                         <a href="{{ route('editor-app.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -191,8 +200,10 @@
                                             </span>
                                         </a>
                                     </li>
+                                @endif
 
-                                    <!-- Plantillas de imagen (app) -->
+                                    @if ($u->tienePermiso('plantillas'))
+                                <!-- Plantillas de imagen (app) -->
                                     <li>
                                         <a href="{{ route('editor-app.plantillas.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -205,8 +216,10 @@
                                             </span>
                                         </a>
                                     </li>
+                                @endif
 
-                                    <!-- Inteligencia de audiencia -->
+                                    @if ($u->tienePermiso('inteligencia'))
+                                <!-- Inteligencia de audiencia -->
                                     <li>
                                         <a href="{{ route('inteligencia.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -221,22 +234,16 @@
                                             </span>
                                         </a>
                                     </li>
+                                @endif
                     
-                                @elseif ($roleId === 2)
-                    
+                                    <!-- Mis publicaciones (si no ve todas) -->
+                                    @if ($u->tienePermiso('mis_publicaciones') && !$u->tienePermiso('publicaciones'))
                                     <li>
                                         <a href="{{ route('mis-posts.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
                                                   hover:bg-[#00024f] transition-all">
                     
-                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                 width="22"
-                                                 height="22"
-                                                 fill="currentColor"
-                                                 class="shrink-0"
-                                                 viewBox="0 0 16 16">
-                                                <path d="M11 8h2V6h-2z"/>
-                                            </svg>
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="shrink-0" color="white" viewBox="0 0 16 16"> <path d="M11 8h2V6h-2z" /> <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm8.5.5a.5.5 0 0 0-1 0v7a.5.5 0 0 0 1 0zM2 5.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5M2.5 7a.5.5 0 0 0 0 1H6a.5.5 0 0 0 0-1zM2 9.5a.5.5 0 0 0 .5.5H6a.5.5 0 0 0 0-1H2.5a.5.5 0 0 0-.5.5m8-4v3a.5.5 0 0 0 .5.5h3a.5.5 0 0 0 .5-.5v-3a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5" /> </svg>
                     
                                             <span class="whitespace-nowrap
                                                          opacity-0 group-hover:opacity-100
@@ -245,11 +252,10 @@
                                             </span>
                                         </a>
                                     </li>
-                    
-                                @endif
+                                    @endif
 
-                                @if ($roleId === 1)
                                     <!-- Campañas -->
+                                    @if ($u->tienePermiso('campanas'))
                                     <li>
                                         <a href="{{ route('campaigns.index') }}"
                                            class="flex items-center gap-4 rounded-xl px-4 py-3
@@ -266,6 +272,7 @@
                                     </li>
                                 @endif
 
+                                @if ($u->tienePermiso('estadisticas'))
                                 <!-- Estadísticas -->
                                 <li>
                                     <a href="{{ route('stats.index') }}"
@@ -281,7 +288,9 @@
                                         </span>
                                     </a>
                                 </li>
+                                @endif
 
+                                @if ($u->tienePermiso('informes'))
                                 <!-- Informe de publicaciones -->
                                 <li>
                                     <a href="{{ route('reports.posts') }}"
@@ -297,7 +306,9 @@
                                         </span>
                                     </a>
                                 </li>
+                                @endif
 
+                                @if ($u->tienePermiso('informes'))
                                 <!-- Análisis de rendimiento -->
                                 <li>
                                     <a href="{{ route('reports.analytics') }}"
@@ -313,6 +324,26 @@
                                         </span>
                                     </a>
                                 </li>
+                                @endif
+
+                                @if ($u->tienePermiso('usuarios'))
+                                <!-- Usuarios -->
+                                <li>
+                                    <a href="{{ route('usuarios.index') }}" class="flex items-center gap-4 rounded-xl px-4 py-3 hover:bg-[#00024f] transition-all">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">Usuarios</span>
+                                    </a>
+                                </li>
+                                @endif
+                                @if ($u->tienePermiso('roles'))
+                                <!-- Roles y permisos -->
+                                <li>
+                                    <a href="{{ route('roles.index') }}" class="flex items-center gap-4 rounded-xl px-4 py-3 hover:bg-[#00024f] transition-all">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+                                        <span class="whitespace-nowrap opacity-0 group-hover:opacity-100 hidden group-hover:block text-sm transition-all duration-300">Roles y permisos</span>
+                                    </a>
+                                </li>
+                                @endif
 
                             </ul>
                         </div>
@@ -326,8 +357,11 @@
                                        hover:bg-[#00024f] transition-all">
                     
                                 <!-- Avatar -->
-                                <img src="{{ asset('img/icon-blanco.png') }}"
-                                     class="w-11 h-11 rounded-full object-cover shrink-0">
+                                @if ($u->avatarUrl())
+                                    <img src="{{ $u->avatarUrl() }}" alt="" class="w-11 h-11 rounded-full object-cover shrink-0 ring-2 ring-white/40">
+                                @else
+                                    <span class="w-11 h-11 rounded-full shrink-0 bg-white/15 ring-2 ring-white/30 grid place-items-center text-sm font-bold">{{ $u->iniciales() }}</span>
+                                @endif
                     
                                 <!-- Info -->
                                 <div class="opacity-0 group-hover:opacity-100
