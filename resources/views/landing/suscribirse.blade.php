@@ -2,7 +2,8 @@
     $usd = $moneda === 'USD';
     $fmt = fn($n) => $usd ? '$' . number_format((float) $n, fmod((float) $n, 1.0) == 0.0 ? 0 : 2) : '$' . number_format((int) $n, 0, ',', '.');
     $valor = fn($p, $periodo) => $usd ? ($p['usd'][$periodo] ?? 0) : ($p[$periodo] ?? 0);
-    $pasarela = $usd ? 'Square' : 'Wompi';
+    $codigoPasarela = $pasarela ?? ($usd ? 'paypal' : 'wompi');
+    $pasarela = \App\Services\CobrosService::nombre($codigoPasarela);
     $activa = $suscripcion && $suscripcion->activa();
 @endphp
 <!doctype html>
@@ -73,7 +74,7 @@
                 </div>
             @endforeach
         </div>
-        <p style="margin-top:auto;padding-top:28px;font-size:13px">{{ $usd ? __('Pago con tarjeta de crédito o débito, Apple Pay o Google Pay a través de Square. editus no guarda los datos de tu tarjeta.') : __('Pago con tarjeta, PSE, Nequi o botón Bancolombia a través de Wompi. editus no guarda los datos de tu tarjeta.') }}</p>
+        <p style="margin-top:auto;padding-top:28px;font-size:13px">{{ match ($codigoPasarela) { 'paypal' => __('Pago con tu cuenta PayPal o con tarjeta de crédito o débito a través de PayPal. editus no guarda los datos de tu tarjeta.'), 'square' => __('Pago con tarjeta de crédito o débito, Apple Pay o Google Pay a través de Square. editus no guarda los datos de tu tarjeta.'), default => __('Pago con tarjeta, PSE, Nequi o botón Bancolombia a través de Wompi. editus no guarda los datos de tu tarjeta.') } }}</p>
     </aside>
 
     <main class="formulario">

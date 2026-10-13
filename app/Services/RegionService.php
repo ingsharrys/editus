@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Idioma y país del visitante (config/region.php). El país decide la moneda:
- * Colombia → COP con Wompi; el resto → USD con Square.
+ * Colombia → COP con Wompi; el resto → USD con la pasarela internacional (PayPal o Square).
  */
 class RegionService
 {

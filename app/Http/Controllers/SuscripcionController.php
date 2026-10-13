@@ -14,7 +14,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
- * «Mi suscripción»: planes, pago (Wompi en COP desde Colombia, Square en USD desde el exterior),
+ * «Mi suscripción»: planes, pago (Wompi en COP desde Colombia, PayPal o Square en USD desde el exterior),
  * páginas del plan y licencia del plugin SharryStreem.
  */
 class SuscripcionController extends Controller
@@ -37,12 +37,13 @@ class SuscripcionController extends Controller
             'permitidas' => $this->planes->paginasPermitidas($user)?->pluck('id')->map(fn($v) => (int) $v)->all() ?? [],
             'pagos' => PagoSuscripcion::where('user_id', $user->id)->latest()->limit(12)->get(),
             'moneda' => $moneda,
+            'pasarela' => $cobros->pasarelaDe($moneda),
             'pagosListos' => $cobros->disponible($moneda),
             'licenciaNueva' => session('licencia_nueva'),
         ]);
     }
 
-    /** Crea el pago pendiente y lleva a la pasarela de la moneda del cliente (Wompi o Square). */
+    /** Crea el pago pendiente y lleva a la pasarela de la moneda del cliente (Wompi, PayPal o Square). */
     public function pagar(Request $request, CobrosService $cobros): RedirectResponse
     {
         $datos = $request->validate([
@@ -76,6 +77,27 @@ class SuscripcionController extends Controller
         $pago = PagoSuscripcion::where('referencia', (string) $request->query('ref', ''))->where('pasarela', 'square')->first();
         if (!$pago || (int) $pago->user_id !== (int) Auth::id()) return redirect()->route('suscripcion.index')->with('error', __('El pago no corresponde a tu cuenta.'));
         return $this->mensajeResultado($cobros->procesarSquare($pago), 'Square');
+    }
+
+    /** Retorno de PayPal (?ref=referencia de editus&token=orden): se consulta y se captura la orden en la API de PayPal. */
+    public function resultadoPaypal(Request $request, CobrosService $cobros): RedirectResponse
+    {
+        $pago = PagoSuscripcion::where('referencia', (string) $request->query('ref', ''))->where('pasarela', 'paypal')->first();
+        if (!$pago || (int) $pago->user_id !== (int) Auth::id()) return redirect()->route('suscripcion.index')->with('error', __('El pago no corresponde a tu cuenta.'));
+        try {
+            $pago = $cobros->procesarPaypal($pago);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+        return $this->mensajeResultado($pago, 'PayPal');
+    }
+
+    /** La persona canceló en PayPal: el pago queda anulado (puede volver a intentarlo). */
+    public function cancelarPaypal(Request $request): RedirectResponse
+    {
+        $pago = PagoSuscripcion::where('referencia', (string) $request->query('ref', ''))->where('pasarela', 'paypal')->where('user_id', Auth::id())->first();
+        if ($pago && $pago->estado === 'PENDING') $pago->fill(['estado' => 'VOIDED'])->save();
+        return redirect()->route('suscripcion.index')->with('error', __('Cancelaste el pago en PayPal. Puedes intentarlo de nuevo cuando quieras.'));
     }
 
     private function mensajeResultado(PagoSuscripcion $pago, string $pasarela): RedirectResponse

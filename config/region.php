@@ -9,7 +9,8 @@
 | el resto → inglés), el idioma del navegador y, si no hay nada, el de por defecto.
 |
 | El país decide la moneda y la pasarela: Colombia paga en pesos con Wompi y
-| el resto del mundo en dólares con Square. Se lee de las cabeceras del proxy
+| el resto del mundo en dólares con PayPal (o Square, ver PASARELA_INTERNACIONAL).
+| Se lee de las cabeceras del proxy
 | (Cloudflare: CF-IPCountry; Apache/LiteSpeed con GeoIP: GEOIP_COUNTRY_CODE)
 | y, si no vienen, se consulta GEOIP_URL una vez por IP (queda en caché 7 días).
 | Deja GEOIP_URL vacío para no consultar ningún servicio externo.

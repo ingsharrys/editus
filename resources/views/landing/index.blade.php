@@ -1,5 +1,7 @@
 @php
     $usd = $moneda === 'USD';
+    $pasarela = $pasarela ?? ($usd ? 'paypal' : 'wompi');
+    $nombrePasarela = \App\Services\CobrosService::nombre($pasarela);
     // Monto sin código de moneda (el código va aparte en el precio grande)
     $fmt = fn($n) => $usd ? '$' . number_format((float) $n, fmod((float) $n, 1.0) == 0.0 ? 0 : 2) : '$' . number_format((int) $n, 0, ',', '.');
     $valor = fn($p, $periodo) => $usd ? ($p['usd'][$periodo] ?? 0) : ($p[$periodo] ?? 0);
@@ -198,7 +200,7 @@
                 </div>
             @endforeach
         </div>
-        <p class="pagos">{!! $usd ? __('Pago seguro con <strong>Square</strong>: tarjeta de crédito o débito, Apple Pay y Google Pay.') : __('Pago seguro con <strong>Wompi</strong> (Bancolombia): tarjeta débito o crédito, PSE, Nequi y botón Bancolombia.') !!}</p>
+        <p class="pagos">{!! match ($pasarela) { 'paypal' => __('Pago seguro con <strong>PayPal</strong>: con tu cuenta PayPal o con tarjeta de crédito o débito.'), 'square' => __('Pago seguro con <strong>Square</strong>: tarjeta de crédito o débito, Apple Pay y Google Pay.'), default => __('Pago seguro con <strong>Wompi</strong> (Bancolombia): tarjeta débito o crédito, PSE, Nequi y botón Bancolombia.') } !!}</p>
 
         <div class="comparar">
             <table>
@@ -221,7 +223,7 @@
     <div class="contenedor">
         <div class="seccion-titulo"><div class="eyebrow">{{ __('Cómo empezar') }}</div><h2 style="margin-top:10px">{{ __('En minutos estás publicando') }}</h2></div>
         <div class="pasos">
-            <div class="paso"><h3>{{ __('Elige tu plan') }}</h3><p>{{ __('Crea tu cuenta y paga con :pasarela. Tu plan se activa apenas se aprueba el pago.', ['pasarela' => $usd ? 'Square' : 'Wompi']) }}</p></div>
+            <div class="paso"><h3>{{ __('Elige tu plan') }}</h3><p>{{ __('Crea tu cuenta y paga con :pasarela. Tu plan se activa apenas se aprueba el pago.', ['pasarela' => $nombrePasarela]) }}</p></div>
             <div class="paso"><h3>{{ __('Conecta tus páginas') }}</h3><p>{{ __('Inicia sesión con Facebook y elige las páginas e Instagram en las que vas a publicar.') }}</p></div>
             <div class="paso"><h3>{{ __('Publica y transmite') }}</h3><p>{{ __('Desde la web de editus o con el plugin en tu WordPress. Sal en vivo cuando quieras.') }}</p></div>
         </div>
@@ -232,7 +234,7 @@
     <div class="contenedor">
         <div class="seccion-titulo"><div class="eyebrow">{{ __('Preguntas frecuentes') }}</div><h2 style="margin-top:10px">{{ __('Lo que suelen preguntarnos') }}</h2></div>
         <div class="faq">
-            <details><summary>{{ __('¿Cómo pago?') }}</summary><p>{{ $usd ? __('Fuera de Colombia pagas en dólares con Square: tarjeta de crédito o débito, Apple Pay o Google Pay. El pago es mensual o anual; el anual trae un mes gratis.') : __('Con Wompi, la pasarela de Bancolombia: tarjeta débito o crédito, PSE, Nequi o botón Bancolombia. El pago es mensual o anual; el anual trae un mes gratis.') }}</p></details>
+            <details><summary>{{ __('¿Cómo pago?') }}</summary><p>{{ match ($pasarela) { 'paypal' => __('Fuera de Colombia pagas en dólares con PayPal: con tu cuenta PayPal o con tarjeta de crédito o débito. El pago es mensual o anual; el anual trae un mes gratis.'), 'square' => __('Fuera de Colombia pagas en dólares con Square: tarjeta de crédito o débito, Apple Pay o Google Pay. El pago es mensual o anual; el anual trae un mes gratis.'), default => __('Con Wompi, la pasarela de Bancolombia: tarjeta débito o crédito, PSE, Nequi o botón Bancolombia. El pago es mensual o anual; el anual trae un mes gratis.') } }}</p></details>
             <details><summary>{{ __('¿Qué pasa cuando vence mi plan?') }}</summary><p>{{ __('Antes de la fecha de vencimiento puedes renovarlo desde «Mi suscripción». Si vence, se pausan las publicaciones, las transmisiones y el plugin; al renovar vuelven a funcionar sin perder tu configuración.') }}</p></details>
             <details><summary>{{ __('¿Puedo cambiar de plan?') }}</summary><p>{{ __('Sí. Al pasar al otro plan empieza un periodo nuevo desde ese día con los límites del plan elegido.') }}</p></details>
             <details><summary>{{ __('¿Qué páginas puedo usar?') }}</summary><p>{{ __('Las páginas de Facebook que administras y sus cuentas de Instagram profesionales vinculadas. Eliges cuáles usa tu plan: :b en el Básico y :f en el Full.', ['b' => $b['paginas'] ?? 2, 'f' => $f['paginas'] ?? 10]) }}</p></details>

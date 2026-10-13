@@ -73,7 +73,7 @@
                 </div>
             @endforeach
         </div>
-        <p class="text-xs text-gray-500 mb-6">{!! $usd ? __('Pagos seguros con <strong>Square</strong>: tarjeta de crédito o débito, Apple Pay o Google Pay.') : __('Pagos seguros con <strong>Wompi</strong> (Bancolombia): tarjeta, PSE, Nequi o botón Bancolombia.') !!} @unless ($pagosListos)<span class="text-amber-700">{{ __('Los pagos en línea aún no están configurados.') }}</span>@endunless</p>
+        <p class="text-xs text-gray-500 mb-6">{!! match ($pasarela ?? ($usd ? 'paypal' : 'wompi')) { 'paypal' => __('Pagos seguros con <strong>PayPal</strong>: con tu cuenta PayPal o con tarjeta de crédito o débito.'), 'square' => __('Pagos seguros con <strong>Square</strong>: tarjeta de crédito o débito, Apple Pay o Google Pay.'), default => __('Pagos seguros con <strong>Wompi</strong> (Bancolombia): tarjeta, PSE, Nequi o botón Bancolombia.') } !!} @unless ($pagosListos)<span class="text-amber-700">{{ __('Los pagos en línea aún no están configurados.') }}</span>@endunless</p>
     @endunless
 
     @if ($activa && !$sinLimites)
@@ -131,7 +131,7 @@
             <table class="w-full text-sm"><thead><tr class="text-left text-[11px] uppercase tracking-wide text-gray-400"><th class="py-1.5">{{ __('Fecha') }}</th><th>{{ __('Plan') }}</th><th>{{ __('Monto') }}</th><th>{{ __('Pasarela') }}</th><th>{{ __('Estado') }}</th><th>{{ __('Referencia') }}</th></tr></thead><tbody>
                 @foreach ($pagos as $p)
                     <tr class="border-t border-gray-100"><td class="py-1.5">{{ $p->created_at->format($fecha . ' H:i') }}</td><td>{{ __($planes[$p->plan]['nombre'] ?? $p->plan) }} · {{ __($p->periodo) }}</td><td class="whitespace-nowrap">{{ $p->montoTexto() }}</td>
-                        <td>{{ ucfirst($p->pasarela ?? 'wompi') }}</td>
+                        <td>{{ \App\Services\CobrosService::nombre($p->pasarela) }}</td>
                         <td><span class="rounded-full px-2 py-0.5 text-[11px] font-semibold {{ $p->estado === 'APPROVED' ? 'bg-emerald-50 text-emerald-700' : ($p->estado === 'PENDING' ? 'bg-amber-50 text-amber-800' : 'bg-rose-50 text-rose-700') }}">{{ $estados[$p->estado] ?? $p->estado }}</span></td>
                         <td class="font-mono text-[11px] text-gray-500">{{ $p->referencia }}</td></tr>
                 @endforeach

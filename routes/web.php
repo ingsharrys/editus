@@ -38,6 +38,9 @@ Route::post('/webhooks/emisor', \App\Http\Controllers\EmisorWebhookController::c
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:240,1')->name('webhooks.emisor');
 Route::post('/webhooks/wompi', \App\Http\Controllers\WompiWebhookController::class)
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.wompi');
+// Eventos de pagos de PayPal (sin sesión; se verifican con la API de PayPal y PAYPAL_WEBHOOK_ID)
+Route::post('/webhooks/paypal', \App\Http\Controllers\PayPalWebhookController::class)
+    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.paypal');
 // Eventos de pagos de Square (sin sesión; se valida la firma con SQUARE_WEBHOOK_SIGNATURE_KEY)
 Route::post('/webhooks/square', \App\Http\Controllers\SquareWebhookController::class)
     ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])->middleware('throttle:120,1')->name('webhooks.square');
@@ -125,6 +128,8 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/suscripcion/pagar', [\App\Http\Controllers\SuscripcionController::class, 'pagar'])->middleware('permiso:suscripcion')->name('suscripcion.pagar');
     Route::get('/suscripcion/resultado', [\App\Http\Controllers\SuscripcionController::class, 'resultado'])->middleware('permiso:suscripcion')->name('suscripcion.resultado');
     Route::get('/suscripcion/square', [\App\Http\Controllers\SuscripcionController::class, 'resultadoSquare'])->middleware('permiso:suscripcion')->name('suscripcion.square');
+    Route::get('/suscripcion/paypal', [\App\Http\Controllers\SuscripcionController::class, 'resultadoPaypal'])->middleware('permiso:suscripcion')->name('suscripcion.paypal');
+    Route::get('/suscripcion/paypal/cancelar', [\App\Http\Controllers\SuscripcionController::class, 'cancelarPaypal'])->middleware('permiso:suscripcion')->name('suscripcion.paypal.cancelar');
     Route::post('/suscripcion/paginas', [\App\Http\Controllers\SuscripcionController::class, 'paginas'])->middleware('permiso:suscripcion')->name('suscripcion.paginas');
     Route::post('/suscripcion/licencia', [\App\Http\Controllers\SuscripcionController::class, 'regenerarLicencia'])->middleware('permiso:suscripcion')->name('suscripcion.licencia');
     Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->middleware('permiso:suscripcion')->name('suscripcion.sitio.liberar');

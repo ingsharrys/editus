@@ -20,7 +20,7 @@ use Illuminate\View\View;
 /**
  * Landing comercial de editus (dominio principal editus.online) y suscripción en un paso:
  * el cliente elige plan y periodo, crea su cuenta (o entra con la suya) y paga:
- * en Colombia en pesos con Wompi, desde el exterior en dólares con Square.
+ * en Colombia en pesos con Wompi, desde el exterior en dólares con PayPal (o Square).
  */
 class LandingController extends Controller
 {
@@ -28,11 +28,13 @@ class LandingController extends Controller
     {
     }
 
-    public function index(Request $request): View
+    public function index(Request $request, CobrosService $cobros): View
     {
+        $moneda = $this->region->moneda($request, Auth::user());
         return view('landing.index', [
             'planes' => $this->planes->planes(),
-            'moneda' => $this->region->moneda($request, Auth::user()),
+            'moneda' => $moneda,
+            'pasarela' => $cobros->pasarelaDe($moneda),
             'email' => (string) config('planes.contacto_email'),
             'whatsapp' => preg_replace('/\D/', '', (string) config('planes.contacto_whatsapp')),
         ]);
@@ -52,11 +54,12 @@ class LandingController extends Controller
             'user' => $user, 'sinLimites' => $user && $this->planes->sinLimites($user),
             'suscripcion' => $user ? $this->planes->suscripcion($user) : null,
             'moneda' => $moneda,
+            'pasarela' => $cobros->pasarelaDe($moneda),
             'pagosListos' => $cobros->disponible($moneda),
         ]);
     }
 
-    /** Crea la cuenta (si no hay sesión) y lleva al pago (Wompi o Square según la moneda). */
+    /** Crea la cuenta (si no hay sesión) y lleva al pago (Wompi, PayPal o Square según la moneda). */
     public function suscribir(Request $request, CobrosService $cobros): RedirectResponse
     {
         // Campo trampa para bots: los humanos no lo ven

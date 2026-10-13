@@ -71,7 +71,18 @@ return [
         'events_secret' => env('WOMPI_EVENTS_SECRET', ''),
     ],
 
-    // Square: cobros fuera de Colombia, en dólares (enlaces de pago + webhook firmado)
+    // Pasarela para los pagos en dólares (fuera de Colombia): paypal | square
+    'pasarela_internacional' => env('PASARELA_INTERNACIONAL', 'paypal'),
+
+    // PayPal: cobros fuera de Colombia en dólares; el dinero se retira a una cuenta bancaria de Colombia
+    'paypal' => [
+        'env' => env('PAYPAL_ENV', 'sandbox'), // sandbox | live
+        'client_id' => env('PAYPAL_CLIENT_ID', ''),
+        'client_secret' => env('PAYPAL_CLIENT_SECRET', ''),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID', ''),
+    ],
+
+    // Square (opcional; solo para negocios de EE. UU., Canadá, Europa…): enlaces de pago + webhook firmado
     'square' => [
         'env' => env('SQUARE_ENV', 'sandbox'), // sandbox | production
         'access_token' => env('SQUARE_ACCESS_TOKEN', ''),

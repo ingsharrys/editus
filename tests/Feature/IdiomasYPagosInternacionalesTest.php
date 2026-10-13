@@ -28,6 +28,7 @@ class IdiomasYPagosInternacionalesTest extends TestCase
         parent::setUp();
         config([
             'services.wompi.env' => 'sandbox', 'services.wompi.public_key' => 'pub_test_abc', 'services.wompi.integrity_secret' => 'test_integrity', 'services.wompi.events_secret' => 'test_events',
+            'services.pasarela_internacional' => 'square',
             'services.square.env' => 'sandbox', 'services.square.access_token' => 'EAAA-prueba', 'services.square.location_id' => 'LOC1',
             'services.square.webhook_signature_key' => 'firma-square-prueba', 'services.square.webhook_url' => 'https://app.editus.online/webhooks/square',
             'region.geoip_url' => 'https://geo.prueba/{ip}/country/',
