@@ -49,7 +49,7 @@
                     <path :class="{'hidden': ! open, 'inline-flex': open }" class="hidden" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
-            <div class="flex items-center gap-3"><x-idioma /><img src="/img/logo-editus.png" class="w-20" alt="editus"></div>
+            <div class="flex items-center gap-3"><x-idioma /><img src="/img/editus-logo-2026.png" class="w-20" alt="editus"></div>
         </header>
 
         <!-- Main -->
@@ -62,7 +62,7 @@
                 <!-- Logo -->
                 <div class="flex justify-center items-center">
                   <img
-                    src="/img/isotipo-editus.png"
+                    src="/img/editus-logo-2026.png"
                     alt="Editus"
                     class="w-[100px]"
                   />
@@ -70,7 +70,7 @@
                 <div class="flex items-center gap-3">
                     <x-idioma />
                     <p class="inline-block px-5 py-1.5 text-[#1b1b18] rounded-sm text-sm leading-normal">
-                        {{ __('Estrategia profesional en medios digitales') }}
+                        {{ __('Gestiona | Conecta | Crece') }}
                     </p>
                 </div>
             </nav>

@@ -178,5 +178,12 @@
     "¿Desvincular Facebook de tu cuenta?": "Unlink Facebook from your account?",
     "¿Desvincular «:nombre»?": "Unlink “:nombre”?",
     "— Selecciona la campaña de esta publicación —": "— Select the campaign for this post —",
-    "— Sin medio —": "— No outlet —"
+    "— Sin medio —": "— No outlet —",
+    "Facebook no devolvió el parámetro \"code\".": "Facebook didn’t return the \"code\" parameter.",
+    "Fallo al obtener el usuario de FB: :detalle": "Couldn’t get the Facebook user: :detalle",
+    "Usuario conectado, pero falló la sincronización: :detalle": "User connected, but syncing failed: :detalle",
+    "¡Conexión exitosa! Páginas sincronizadas: :n": "Connected! Pages synced: :n",
+    "No se pudieron obtener las páginas: :detalle": "Couldn’t get the pages: :detalle",
+    "No se encontraron páginas.\n- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.\n- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.\n- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s).": "No pages found.\n- Make sure you accepted these permissions: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.\n- Check that your account manages at least one page or has pages assigned in Business Manager.\n- In Facebook > Settings > Business integrations, check that the app has access to those pages.",
+    "error desconocido": "unknown error"
 }

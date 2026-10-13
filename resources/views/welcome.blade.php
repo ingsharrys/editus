@@ -22,7 +22,7 @@
                     <!-- Logo -->
                     <div class="flex justify-center items-center">
                       <img
-                        src="/img/editus-logo.png"
+                        src="/img/editus-logo-2026.png"
                         alt="Editus"
                         class="w-[100px]"
                       />

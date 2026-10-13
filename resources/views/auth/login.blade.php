@@ -28,7 +28,7 @@
                     <!-- Logo -->
                     <div class="flex justify-center items-center">
                       <img
-                        src="/img/editus-logo.png"
+                        src="/img/editus-logo-2026.png"
                         alt="Editus"
                         class="w-[100px]"
                       />
@@ -62,9 +62,8 @@
         class="flex max-w-5xl w-full rounded-[25px] p-10 text-white" style="background: url('../img/Rectangle-fondo.png'); background-size: cover; background-repeat: no-repeat; background-position: center;"
       >
 
-        <div class="hidden md:block md:w-1/2 content-center justify-items-center">
-            <img src="/img/logo-transparente-home.png"
-                alt="" class="object-cover" style="width: 400px;">
+        <div class="hidden md:flex md:w-1/2 justify-center items-center">
+            <img src="/img/editus-logo-blanco-2026.png" alt="Editus" class="w-full" style="max-width: 400px;"/>
         </div>
         <!-- Login Form - Left Side -->
         <div class="w-full md:w-1/2 flex items-center justify-center px-6 py-12">
