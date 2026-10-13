@@ -98,12 +98,31 @@ class IdiomasYPagosInternacionalesTest extends TestCase
         $this->limpio()->actingAs($this->cliente->fresh())->patch('/profile', ['name' => '', 'email' => 'cliente@prueba.co'])->assertSessionHasErrors(['name' => 'nombre es obligatorio.']);
     }
 
+    public function test_el_idioma_sale_del_pais_si_la_persona_no_eligio_otro(): void
+    {
+        // Países de habla hispana → español (aunque el navegador esté en inglés)
+        foreach (['CO', 'MX', 'ES', 'AR', 'PE', 'CL'] as $pais) {
+            $this->limpio()->withHeader('CF-IPCountry', $pais)->withHeader('Accept-Language', 'en-US')->get('/planes')->assertSee('<html lang="es">', false);
+        }
+        // El resto del mundo → inglés (aunque el navegador esté en español)
+        foreach (['US', 'BR', 'DE', 'FR', 'GB', 'CA'] as $pais) {
+            $this->limpio()->withHeader('CF-IPCountry', $pais)->get('/planes')->assertSee('<html lang="en">', false)->assertSee('Choose your plan and start today');
+        }
+        // Si eligió el idioma con el selector, eso manda sobre el país
+        $this->limpio()->withHeader('CF-IPCountry', 'US')->withCookie(RegionService::COOKIE_IDIOMA, 'es')->get('/planes')->assertSee('<html lang="es">', false);
+        $this->limpio()->withHeader('CF-IPCountry', 'MX')->withCookie(RegionService::COOKIE_IDIOMA, 'en')->get('/planes')->assertSee('<html lang="en">', false);
+        // País por IP (sin cabecera del proxy): MX → español
+        $this->square();
+        $this->limpio()->withServerVariables(['REMOTE_ADDR' => '201.141.1.1'])->withHeader('Accept-Language', 'en-US')->get('/planes')->assertSee('<html lang="es">', false);
+    }
+
     public function test_fuera_de_colombia_los_precios_salen_en_dolares(): void
     {
         $this->limpio()->get('/planes')->assertSee('$60.000')->assertSee('COP / mes')->assertSee('Wompi');
         $this->limpio()->withHeader('CF-IPCountry', 'CO')->get('/planes')->assertSee('$60.000');
-        $this->limpio()->withHeader('CF-IPCountry', 'US')->get('/planes')->assertSee('$15')->assertSee('USD / mes')->assertSee('Square')->assertDontSee('$60.000');
-        $this->limpio()->withHeader('CF-IPCountry', 'US')->withHeader('Accept-Language', 'en')->get('/planes')->assertSee('USD / month')->assertSee('$275');
+        $this->limpio()->withHeader('CF-IPCountry', 'US')->get('/planes')->assertSee('$15')->assertSee('USD / month')->assertSee('Square')->assertDontSee('$60.000')->assertSee('$275');
+        // Otro país de habla hispana: dólares, pero en español
+        $this->limpio()->withHeader('CF-IPCountry', 'MX')->get('/planes')->assertSee('$15')->assertSee('USD / mes')->assertSee('Square');
 
         // Sin cabecera del proxy: se consulta el país por IP una vez (queda en caché)
         $this->square();

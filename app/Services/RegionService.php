@@ -30,12 +30,16 @@ class RegionService
         return in_array($idioma, $this->idiomas(), true) ? $idioma : null;
     }
 
-    /** Idioma de esta petición: el elegido (cookie o perfil) → el del navegador → el de por defecto. */
+    /**
+     * Idioma de esta petición: el elegido (cookie o perfil) → el del país (países de habla hispana
+     * en español, el resto del mundo en inglés) → el del navegador → el de por defecto.
+     */
     public function idioma(Request $request): string
     {
         $elegido = $this->idiomaValido($request->cookie(self::COOKIE_IDIOMA))
             ?? $this->idiomaValido($request->user()?->idioma);
         if ($elegido) return $elegido;
+        if ($pais = $this->pais($request)) return $this->idiomaDelPais($pais);
         $navegador = $request->getLanguages();
         if ($navegador) {
             // El primer idioma del navegador que tengamos; si no hay ninguno, inglés
@@ -45,8 +49,23 @@ class RegionService
         return $this->idiomaValido(config('region.idioma_defecto')) ?? 'es';
     }
 
+    /** «es» en los países de habla hispana (config/region.php), «en» en el resto. */
+    public function idiomaDelPais(string $pais): string
+    {
+        return in_array(strtoupper($pais), (array) config('region.paises_espanol', []), true) ? 'es' : 'en';
+    }
+
     /** País (ISO de 2 letras) o null si no se pudo saber. */
     public function pais(Request $request): ?string
+    {
+        // Se calcula una sola vez por petición (lo usan el idioma y la moneda)
+        if ($request->attributes->has('_editus_pais')) return $request->attributes->get('_editus_pais');
+        $pais = $this->detectarPais($request);
+        $request->attributes->set('_editus_pais', $pais);
+        return $pais;
+    }
+
+    private function detectarPais(Request $request): ?string
     {
         foreach (['CF-IPCountry', 'CloudFront-Viewer-Country', 'X-Country-Code', 'X-Geo-Country', 'X-AppEngine-Country'] as $h) {
             if ($p = $this->paisValido($request->header($h))) return $p;
