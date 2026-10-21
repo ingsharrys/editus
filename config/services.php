@@ -1,5 +1,9 @@
 <?php
 
+// Permisos de Facebook que NUNCA se piden aunque estén en el .env: Meta los rechaza con
+// «Invalid Scopes» y muestra una pantalla de error en el inicio de sesión.
+$scopesOmitidos = array_values(array_filter(array_map('trim', explode(',', (string) env('FACEBOOK_SCOPES_OMITIR', 'instagram_manage_insights')))));
+
 return [
 
     /*
@@ -41,10 +45,10 @@ return [
         'redirect' => env('FACEBOOK_LOGIN_REDIRECT_URI'),
         'version' => env('FACEBOOK_GRAPH_VERSION', 'v23.0'),
 
-        'login_scopes' => array_values(array_filter(array_map(
+        'login_scopes' => array_values(array_diff(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LOGIN_SCOPES', 'email,public_profile'))
-        ))),
+        )), $scopesOmitidos)),
 
         // opcional: por si luego tu app está en “Login for Business”
         'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
@@ -52,14 +56,14 @@ return [
         // Conexión/sincronización de páginas (usadas por FacebookPageController)
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
         'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
-        'link_scopes' => array_values(array_filter(array_map(
+        'link_scopes' => array_values(array_diff(array_values(array_filter(array_map(
             'trim',
-            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_insights,instagram_manage_comments,instagram_content_publish'))
-        ))),
-        'scopes' => array_values(array_filter(array_map(
+            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_comments,instagram_content_publish'))
+        ))), $scopesOmitidos)),
+        'scopes' => array_values(array_diff(array_values(array_filter(array_map(
             'trim',
-            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_insights,instagram_manage_comments,instagram_content_publish'))
-        ))),
+            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_comments,instagram_content_publish'))
+        ))), $scopesOmitidos)),
         'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
 
