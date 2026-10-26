@@ -16,6 +16,7 @@ class MetaPost extends Model
         'programa',          // pieza de la campaña (llenan el certificado del medio)
         'subprograma',
         'tipo_pieza',
+        'subcampana_id',     // subcampaña del plan de medios (p. ej. «Dengue»)
         'type',              // text|photo|video
         'network',           // facebook|instagram
         'message',
@@ -54,6 +55,10 @@ class MetaPost extends Model
     public function campaign()
     {
         return $this->belongsTo(Campaign::class);
+    }
+    public function subcampana()
+    {
+        return $this->belongsTo(Subcampana::class);
     }
     public function user()
     {

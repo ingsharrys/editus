@@ -89,14 +89,35 @@
 
         {{-- 4. Inscripción de medios y certificado --}}
         @php
-            $piezasTxt = old('cert_piezas', collect((array) ($c->piezas ?? []))->map(fn($f) => trim(($f['programa'] ?? '') . (($f['subprograma'] ?? '') !== '' ? ' | ' . $f['subprograma'] : '')))->implode("\n"));
+            $plan = (bool) old('plan_medios', $c->plan_medios);
             $tiposTxt = old('cert_tipos_pieza', implode("\n", $cert['tipos_pieza']));
             $inscAct = (bool) old('inscripcion_activa', $c->inscripcion_activa);
             $obligatorio = (bool) old('cert_obligatorio', $c->exists ? $cert['obligatorio'] : true);
         @endphp
         <div id="inscripcion" class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 space-y-4 scroll-mt-24">
-            <div class="flex items-center gap-2"><span class="h-6 w-6 rounded-full bg-[#00024f] text-white text-xs font-bold flex items-center justify-center">4</span><h2 class="text-base font-bold text-gray-900">{{ __('Inscripción de medios y certificado') }}</h2></div>
-            <p class="text-xs text-gray-500 ml-8 -mt-2">{{ __('Envía el enlace a los medios: al entrar o registrarse con él quedan inscritos solo en esta campaña, llenan sus datos y logo, aceptan los términos y firman. Su certificado se llena solo con lo que publiques en sus páginas.') }}</p>
+            <div class="flex items-center gap-2"><span class="h-6 w-6 rounded-full bg-[#00024f] text-white text-xs font-bold flex items-center justify-center">4</span><h2 class="text-base font-bold text-gray-900">{{ __('Plan de medios') }}</h2></div>
+            <label class="flex items-start gap-3 rounded-xl border border-gray-200 p-3 cursor-pointer has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40">
+                <input type="hidden" name="plan_medios" value="0">
+                <input type="checkbox" name="plan_medios" value="1" id="planMedios" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600" @checked($plan)>
+                <span>
+                    <span class="block text-sm font-semibold text-gray-900">{{ __('Esta campaña es un plan de medios') }}</span>
+                    <span class="block text-xs text-gray-500">{{ __('Activa la inscripción de medios con enlace, el certificado firmado, las subcampañas, los cupos de piezas por página y el tablero de métricas. Las demás campañas funcionan como siempre.') }}</span>
+                </span>
+            </label>
+
+            <div id="planCampos" class="space-y-4 {{ $plan ? '' : 'hidden' }}">
+            @if ($c->exists && $c->plan_medios)
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    @foreach ([['campaigns.plan', __('Tablero'), __('Métricas por subcampaña')], ['campaigns.plan.subcampanas', __('Subcampañas'), __(':n creada(s)', ['n' => $nSubs])], ['campaigns.plan.cupos', __('Cupos por página'), __('Límite por tipo de pieza')], ['campaigns.piezas', __('Clasificar'), __('Publicaciones ya hechas')]] as [$ruta, $et, $sub])
+                        <a href="{{ route($ruta, $c) }}" class="rounded-xl border border-gray-200 bg-white px-3 py-2.5 hover:border-indigo-300 hover:bg-indigo-50/40"><span class="block text-sm font-semibold text-[#00024f]">{{ $et }} →</span><span class="block text-[11px] text-gray-500">{{ $sub }}</span></a>
+                    @endforeach
+                </div>
+            @elseif ($plan)
+                <p class="text-xs text-gray-500">{{ __('Guarda la campaña para configurar sus subcampañas, cupos y tablero.') }}</p>
+            @endif
+
+            <h3 class="text-sm font-bold text-gray-900 pt-1">{{ __('Inscripción de medios y certificado') }}</h3>
+            <p class="text-xs text-gray-500 -mt-3">{{ __('Envía el enlace a los medios: al entrar o registrarse con él quedan inscritos solo en esta campaña, llenan sus datos y logo, aceptan los términos y firman. Su certificado se llena solo con lo que publiques en sus páginas.') }}</p>
 
             <label class="flex items-start gap-2 text-sm font-medium text-gray-900">
                 <input type="hidden" name="inscripcion_activa" value="0">
@@ -145,19 +166,14 @@
                 </div>
             </details>
 
-            <div class="grid sm:grid-cols-[minmax(0,1fr)_14rem] gap-3">
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Programas y subprogramas (uno por línea: Programa | Subprograma)') }}</label>
-                    <textarea name="cert_piezas" rows="6" maxlength="10000" placeholder="Programa 2. Salud Infantil | Vacunación&#10;Programa 6. ETV: Dengue y Fiebre Amarilla | Dengue&#10;Programa 9. Prevención de Lesiones por Pólvora | Pólvora" class="w-full rounded-lg border-gray-200 text-sm shadow-sm font-mono text-xs">{{ $piezasTxt }}</textarea>
-                    <p class="text-[11px] text-gray-400 mt-1">{{ __('Al publicar en la campaña eliges el programa, el subprograma y el tipo de pieza; así se llena la tabla del certificado de cada medio.') }}</p></div>
-                <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Tipos de pieza') }}</label>
-                    <textarea name="cert_tipos_pieza" rows="6" maxlength="1000" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ $tiposTxt }}</textarea></div>
-            </div>
+            <div class="sm:max-w-md"><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Tipos de pieza (uno por línea)') }}</label>
+                <textarea name="cert_tipos_pieza" rows="5" maxlength="1000" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ $tiposTxt }}</textarea>
+                <p class="text-[11px] text-gray-400 mt-1">{{ __('Al publicar en la campaña eliges la subcampaña y el tipo de pieza. Los cupos se definen por tipo.') }}</p></div>
 
             @if ($c->exists)
                 <div>
                     <div class="flex items-center justify-between gap-2 mb-2">
                         <h3 class="text-sm font-bold text-gray-900">{{ __('Medios inscritos') }} <span class="font-normal text-gray-400">({{ $participantes->count() }})</span></h3>
-                        <a href="{{ route('campaigns.piezas', $c) }}" class="text-xs font-semibold text-indigo-700 hover:underline">{{ __('Clasificar publicaciones de la campaña →') }}</a>
                     </div>
                     @if ($participantes->isEmpty())
                         <p class="text-xs text-gray-500">{{ __('Todavía no se ha inscrito ningún medio.') }}</p>
@@ -185,6 +201,7 @@
                     @endif
                 </div>
             @endif
+            </div>
         </div>
 
         <div class="flex items-center justify-end gap-2">
@@ -198,6 +215,7 @@
     @foreach ($participantes as $pt)
         <form id="quitar-{{ $pt->id }}" method="POST" action="{{ route('campaigns.participantes.quitar', [$c, $pt]) }}" class="hidden">@csrf @method('DELETE')</form>
     @endforeach
+    <script>document.getElementById('planMedios')?.addEventListener('change', e => document.getElementById('planCampos').classList.toggle('hidden', !e.target.checked));</script>
     @if (session('success'))<script>document.addEventListener('DOMContentLoaded', () => { if (location.hash === '#inscripcion') document.getElementById('inscripcion')?.scrollIntoView(); });</script>@endif
 </div>
 @endsection

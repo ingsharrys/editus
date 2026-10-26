@@ -48,6 +48,7 @@
                         <div class="flex flex-wrap items-center gap-2">
                             <h2 class="text-base font-bold text-gray-900">{{ $c->name }}</h2>
                             <span class="rounded-full px-2 py-0.5 text-[11px] font-semibold {{ $colorTipo[$tipo] ?? $colorTipo['institucional'] }}">{{ $tipo === 'sistema' ? __('Sistema') : (isset($tipos[$tipo]) ? __($tipos[$tipo]) : ucfirst($tipo)) }}</span>
+                            @if ($c->plan_medios)<span class="rounded-full px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700">{{ __('Plan de medios') }}</span>@endif
                             @if ($c->is_active)
                                 <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700"><span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>{{ __('Activa') }}</span>
                             @else
@@ -82,6 +83,9 @@
                         <a href="{{ route('inteligencia.show', $c->perfil) }}" class="inline-flex items-center gap-1.5 h-9 rounded-lg bg-indigo-50 text-indigo-800 px-3 text-xs font-semibold hover:bg-indigo-100">✦ {{ __('Analizar con IA') }}
                             @if ($c->perfil->temas_count)<span class="text-indigo-500 font-normal">· {{ __(':n temas', ['n' => $c->perfil->temas_count]) }}</span>@endif
                         </a>
+                    @endif
+                    @if ($c->plan_medios && !$c->is_system)
+                        <a href="{{ route('campaigns.plan', $c) }}" class="h-9 inline-flex items-center rounded-lg bg-emerald-50 text-emerald-800 px-3 text-xs font-semibold hover:bg-emerald-100">{{ __('Tablero del plan') }}</a>
                     @endif
                     <a href="{{ route('reports.posts', ['campaign_id' => $c->id]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Ver publicaciones') }}</a>
                     @unless ($c->is_system)

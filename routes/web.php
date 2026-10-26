@@ -217,6 +217,12 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/campanas/{campaign}/participantes/{participante}', [\App\Http\Controllers\CampaignController::class, 'quitarParticipante'])->middleware('permiso:campanas')->name('campaigns.participantes.quitar');
     Route::get('/campanas/{campaign}/piezas', [\App\Http\Controllers\CampaignController::class, 'piezas'])->middleware('permiso:campanas')->name('campaigns.piezas');
     Route::post('/campanas/{campaign}/piezas', [\App\Http\Controllers\CampaignController::class, 'guardarPiezas'])->middleware('permiso:campanas')->name('campaigns.piezas.guardar');
+    // Plan de medios: tablero, subcampañas y cupos de piezas por página
+    Route::get('/campanas/{campaign}/plan', [\App\Http\Controllers\PlanMediosController::class, 'tablero'])->middleware('permiso:campanas')->name('campaigns.plan');
+    Route::get('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'subcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas');
+    Route::post('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'guardarSubcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas.guardar');
+    Route::get('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'cupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos');
+    Route::post('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'guardarCupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos.guardar');
     // Certificado del medio inscrito (lo llena y firma el medio; el administrador también lo ve)
     Route::get('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'formulario'])->name('certificados.formulario');
     Route::post('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'guardar'])->middleware('throttle:20,1')->name('certificados.guardar');

@@ -104,6 +104,7 @@ class CampaignController extends Controller
             'paginas_extra.*' => ['integer', 'exists:meta_pages,id'],
             'temas' => ['nullable', 'string', 'max:2000'],
             // Inscripción de medios y certificado
+            'plan_medios' => ['nullable', 'boolean'],
             'inscripcion_activa' => ['nullable', 'boolean'],
             'cert_obligatorio' => ['nullable', 'boolean'],
             'cert_entidad' => ['nullable', 'string', 'max:255'],
@@ -114,7 +115,6 @@ class CampaignController extends Controller
             'cert_cierre' => ['nullable', 'string', 'max:1000'],
             'cert_terminos' => ['nullable', 'string', 'max:8000'],
             'cert_fecha_expedicion' => ['nullable', 'date'],
-            'cert_piezas' => ['nullable', 'string', 'max:10000'],
             'cert_tipos_pieza' => ['nullable', 'string', 'max:1000'],
         ], [
             'medios.required' => __('Elige al menos un medio donde se publicará la campaña.'),
@@ -135,6 +135,7 @@ class CampaignController extends Controller
             'c' => $c, 'medios' => $medios, 'porMedio' => $porMedio, 'paginas' => $paginas, 'extra' => $extra, 'tipos' => CampanasService::TIPOS,
             'cert' => $this->cert->config($c), 'participantes' => $participantes,
             'piezasPorParticipante' => $participantes->mapWithKeys(fn($p) => [$p->id => $this->cert->piezas($p->setRelation('campaign', $c))->sum('cantidad')]),
+            'nSubs' => $c->exists && \App\Services\PlanMediosService::disponible() ? $c->subcampanas()->count() : 0,
             'textoDefecto' => CertificadosService::TEXTO_DEFECTO, 'cierreDefecto' => CertificadosService::CIERRE_DEFECTO,
         ]);
     }
@@ -163,12 +164,16 @@ class CampaignController extends Controller
     {
         $q = MetaPost::with('page:id,name')->where('campaign_id', $campaign->id)->where('status', 'success')
             ->when($request->query('pagina'), fn($x, $v) => $x->where('meta_page_id', (int) $v))
-            ->when($request->query('sin'), fn($x) => $x->where(fn($y) => $y->whereNull('programa')->orWhere('programa', '')))
+            ->when($request->query('sin'), fn($x) => $x->where(fn($y) => $y->whereNull('tipo_pieza')->orWhere('tipo_pieza', '')
+                ->orWhere(fn($z) => $z->whereNull('programa')->orWhere('programa', ''))))
+            ->when($request->query('sub') !== null && $request->query('sub') !== '', fn($x) => (int) $request->query('sub') === 0
+                ? $x->whereNull('subcampana_id') : $x->where('subcampana_id', (int) $request->query('sub')))
             ->orderByDesc('published_at')->orderByDesc('id');
         $posts = $q->paginate(50)->withQueryString();
         $paginas = MetaPage::whereIn('id', MetaPost::where('campaign_id', $campaign->id)->select('meta_page_id'))->orderBy('name')->get(['id', 'name']);
         return view('campaigns.piezas', [
-            'c' => $campaign, 'posts' => $posts, 'paginas' => $paginas, 'programas' => $campaign->programas(),
+            'c' => $campaign, 'posts' => $posts, 'paginas' => $paginas,
+            'subs' => \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get() : collect(),
             'tipos' => $this->cert->config($campaign)['tipos_pieza'], 'cert' => $this->cert,
         ]);
     }
@@ -177,19 +182,30 @@ class CampaignController extends Controller
     {
         $d = $request->validate([
             'piezas' => ['required', 'array'],
+            'piezas.*.subcampana_id' => ['nullable', 'integer'],
             'piezas.*.programa' => ['nullable', 'string', 'max:190'],
             'piezas.*.subprograma' => ['nullable', 'string', 'max:190'],
             'piezas.*.tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
+        $plan = app(\App\Services\PlanMediosService::class);
+        $subs = \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get()->keyBy('id') : collect();
         $n = 0;
         foreach ($d['piezas'] as $id => $f) {
             $post = MetaPost::where('campaign_id', $campaign->id)->whereKey((int) $id)->first();
             if (!$post) continue;
-            $post->fill([
-                'programa' => trim((string) ($f['programa'] ?? '')) ?: null,
-                'subprograma' => trim((string) ($f['subprograma'] ?? '')) ?: null,
-                'tipo_pieza' => trim((string) ($f['tipo_pieza'] ?? '')) ?: null,
-            ]);
+            $tipo = trim((string) ($f['tipo_pieza'] ?? ''));
+            $post->tipo_pieza = $tipo === '' ? null : ($plan->tipoValido($campaign, $tipo) ?? mb_substr($tipo, 0, 60));
+            if (array_key_exists('subcampana_id', $f) && ($sub = $subs->get((int) $f['subcampana_id']))) {
+                $post->fill($plan->camposDe($sub));
+            } else {
+                if (array_key_exists('subcampana_id', $f)) $post->subcampana_id = null;
+                if (array_key_exists('programa', $f) || array_key_exists('subprograma', $f)) {
+                    $post->programa = trim((string) ($f['programa'] ?? '')) ?: null;
+                    $post->subprograma = trim((string) ($f['subprograma'] ?? '')) ?: null;
+                } elseif (array_key_exists('subcampana_id', $f)) {
+                    $post->programa = $post->subprograma = null;
+                }
+            }
             if ($post->isDirty()) {
                 $post->save();
                 $n++;

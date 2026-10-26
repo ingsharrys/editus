@@ -71,12 +71,6 @@ class CertificadosService
     {
         if (!Schema::hasColumn('campaigns', 'certificado')) return; // sin migrar todavía
         $lineas = fn($t) => array_values(array_filter(array_map('trim', preg_split('/\r?\n|,/', (string) $t) ?: [])));
-        $piezas = [];
-        foreach (preg_split('/\r?\n/', (string) ($d['cert_piezas'] ?? '')) ?: [] as $l) {
-            $partes = array_map('trim', explode('|', $l, 2));
-            if (($partes[0] ?? '') === '') continue;
-            $piezas[] = ['programa' => Str::limit($partes[0], 185, ''), 'subprograma' => Str::limit($partes[1] ?? '', 185, '')];
-        }
         $texto = trim((string) ($d['cert_texto'] ?? ''));
         $cierre = trim((string) ($d['cert_cierre'] ?? ''));
         $terminos = trim((string) ($d['cert_terminos'] ?? ''));
@@ -93,8 +87,9 @@ class CertificadosService
             'tipos_pieza' => $lineas($d['cert_tipos_pieza'] ?? '') ?: [],
             'obligatorio' => (bool) ($d['cert_obligatorio'] ?? false),
         ];
-        $c->piezas = $piezas;
-        $c->inscripcion_activa = (bool) ($d['inscripcion_activa'] ?? false);
+        if (Schema::hasColumn('campaigns', 'plan_medios')) $c->plan_medios = (bool) ($d['plan_medios'] ?? false);
+        // El enlace solo se abre en campañas con plan de medios
+        $c->inscripcion_activa = (bool) ($d['inscripcion_activa'] ?? false) && ($c->plan_medios ?? true);
         if ($c->inscripcion_activa && !$c->inscripcion_token) $c->inscripcion_token = $this->nuevoToken();
         $c->save();
     }
@@ -111,7 +106,8 @@ class CertificadosService
     {
         if (strlen($token) < 20) return null;
         return Campaign::where('inscripcion_token', $token)->where('inscripcion_activa', true)
-            ->where('is_active', true)->where('is_system', false)->first();
+            ->where('is_active', true)->where('is_system', false)
+            ->when(Schema::hasColumn('campaigns', 'plan_medios'), fn($q) => $q->where('plan_medios', true))->first();
     }
 
     // ───────────────────────── Inscripción ─────────────────────────
@@ -132,7 +128,8 @@ class CertificadosService
     {
         if (!self::disponible()) return null;
         return CampaignParticipante::where('user_id', $u->id)->whereNull('firmado_at')
-            ->whereHas('campaign', fn($q) => $q->where('is_active', true)->where('inscripcion_activa', true))
+            ->whereHas('campaign', fn($q) => $q->where('is_active', true)->where('inscripcion_activa', true)
+                ->when(Schema::hasColumn('campaigns', 'plan_medios'), fn($x) => $x->where('plan_medios', true)))
             ->with('campaign')->oldest()->get()
             ->first(fn($p) => $this->config($p->campaign)['obligatorio']);
     }
@@ -177,13 +174,14 @@ class CertificadosService
         if (!$ids) return collect();
         $posts = MetaPost::where('campaign_id', $p->campaign_id)->whereIn('meta_page_id', $ids)
             ->where('status', 'success')->orderBy('published_at')->orderBy('id')
-            ->get(['id', 'type', 'network', 'programa', 'subprograma', 'tipo_pieza', 'published_at']);
+            ->get(['id', 'type', 'network', 'meta_page_id', 'batch_uuid', 'programa', 'subprograma', 'tipo_pieza', 'published_at']);
         return $posts->groupBy(fn($x) => mb_strtolower(trim(($x->programa ?? '') . '|' . ($x->subprograma ?? '') . '|' . $this->tipoPieza($x))))
             ->map(fn($g) => [
                 'programa' => trim((string) $g->first()->programa) ?: '—',
                 'subprograma' => trim((string) $g->first()->subprograma) ?: '—',
                 'tipo' => $this->tipoPieza($g->first()),
-                'cantidad' => $g->count(),
+                // Una pieza publicada a la vez en Facebook e Instagram (mismo lote y página) cuenta una vez
+                'cantidad' => $g->map(fn($x) => $x->meta_page_id . '|' . ($x->batch_uuid ?: 'id' . $x->id))->unique()->count(),
             ])->values();
     }
 

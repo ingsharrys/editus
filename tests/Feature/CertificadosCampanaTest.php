@@ -22,6 +22,8 @@ use Tests\TestCase;
 /** Enlace de inscripción de medios a una campaña y certificado de publicación firmado. */
 class CertificadosCampanaTest extends TestCase
 {
+    use Concerns\EsquemaPlanMedios;
+
     private User $admin;
     private Campaign $c;
     private MetaPage $canal6;
@@ -31,31 +33,7 @@ class CertificadosCampanaTest extends TestCase
     {
         parent::setUp();
         config(['services.editus.medios' => ['opanoticias' => 'Opanoticias', 'neiva24' => 'Neiva 24'], 'services.facebook.version' => 'v23.0']);
-        Schema::dropAllTables();
-        Schema::create('roles', function (Blueprint $t) { $t->id(); $t->string('name')->unique(); $t->string('slug')->unique(); $t->timestamps(); });
-        Schema::create('users', function (Blueprint $t) { $t->id(); $t->string('name'); $t->string('email')->unique(); $t->timestamp('email_verified_at')->nullable(); $t->string('password'); $t->rememberToken(); $t->foreignId('role_id')->nullable(); $t->timestamps(); });
-        Schema::create('social_accounts', function (Blueprint $t) { $t->id(); $t->foreignId('user_id')->nullable(); $t->string('usuario_app')->nullable(); $t->string('provider'); $t->string('provider_user_id'); $t->text('access_token'); $t->text('refresh_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->json('raw')->nullable(); $t->timestamps(); });
-        Schema::create('meta_pages', function (Blueprint $t) { $t->id(); $t->string('page_id')->unique(); $t->string('name')->nullable(); $t->string('category')->nullable(); $t->string('instagram_business_account_id')->nullable(); $t->text('picture_url')->nullable(); $t->json('tasks')->nullable(); $t->boolean('visible_en_editor')->default(true); $t->string('medio_slug', 100)->nullable(); $t->text('app_usuarios')->nullable(); $t->timestamps(); });
-        Schema::create('meta_page_user', function (Blueprint $t) { $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id')->nullable(); $t->string('usuario_app', 60)->nullable(); $t->foreignId('social_account_id')->nullable(); $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps(); });
-        Schema::create('meta_page_favorites', function (Blueprint $t) { $t->id(); $t->foreignId('user_id'); $t->foreignId('meta_page_id'); $t->timestamps(); });
-        Schema::create('meta_posts', function (Blueprint $t) {
-            $t->id(); $t->foreignId('meta_page_id'); $t->foreignId('user_id'); $t->uuid('batch_uuid')->nullable(); $t->string('type'); $t->string('network')->nullable();
-            $t->text('message')->nullable(); $t->string('link')->nullable(); $t->json('local_media')->nullable(); $t->json('fb_media_ids')->nullable();
-            $t->string('fb_post_id')->nullable(); $t->string('fb_permalink_url')->nullable(); $t->string('status')->default('pending');
-            $t->unsignedInteger('alcance')->nullable(); $t->unsignedInteger('visualizaciones')->nullable(); $t->unsignedInteger('interacciones')->nullable();
-            $t->string('evidencia_path')->nullable(); $t->timestamp('last_insights_at')->nullable(); $t->text('error')->nullable();
-            $t->timestamp('published_at')->nullable(); $t->timestamps();
-        });
-        (require database_path('migrations/2026_07_26_000001_create_campaigns_table.php'))->up();
-        (require database_path('migrations/2025_10_03_100000_create_inteligencia_audiencia.php'))->up();
-        (require database_path('migrations/2025_10_09_100000_consultor_ia_y_emociones.php'))->up();
-        (require database_path('migrations/2026_10_10_000001_unificar_campanas.php'))->up();
-        Role::query()->insert([['name' => 'Admin', 'slug' => 'admin'], ['name' => 'User', 'slug' => 'user']]);
-        (require database_path('migrations/2026_10_20_000001_usuarios_roles_permisos.php'))->up();
-        $migracion = require database_path('migrations/2026_10_26_000001_inscripcion_y_certificados_campanas.php');
-        $migracion->up();
-        $migracion->up(); // idempotente
-
+        $this->crearEsquemaPlanMedios();
         Storage::fake('local');
         $this->admin = User::factory()->create(['role_id' => Role::where('slug', 'admin')->value('id')]);
         $this->c = app(CampanasService::class)->guardar(new Campaign(), [
@@ -71,12 +49,11 @@ class CertificadosCampanaTest extends TestCase
         return $extra + [
             'name' => 'Salud 2026', 'tipo' => 'institucional', 'medios' => ['opanoticias'],
             'starts_on' => '2025-11-01', 'ends_on' => '2025-11-30',
-            'inscripcion_activa' => '1', 'cert_obligatorio' => '1',
+            'plan_medios' => '1', 'inscripcion_activa' => '1', 'cert_obligatorio' => '1',
             'cert_entidad' => 'Secretaría de Salud Departamental del Huila', 'cert_orden' => 'FM-1441-963',
             'cert_contratista' => 'DIME MEDIA S.A.S.', 'cert_contratante' => 'Fondo Mixto de Cultura y Turismo del Huila – FOMCULTURA',
             'cert_texto' => CertificadosService::TEXTO_DEFECTO, 'cert_cierre' => CertificadosService::CIERRE_DEFECTO,
             'cert_fecha_expedicion' => '2025-12-01',
-            'cert_piezas' => "Programa 2. Salud Infantil | Vacunación\nPrograma 6. ETV: Dengue y Fiebre Amarilla | Dengue",
             'cert_tipos_pieza' => "Video Corto\nVideo Largo\nPost",
         ];
     }
@@ -87,7 +64,7 @@ class CertificadosCampanaTest extends TestCase
         $this->c->refresh();
         $this->assertTrue($this->c->inscripcion_activa);
         $this->assertSame(40, strlen($this->c->inscripcion_token));
-        $this->assertSame(['programa' => 'Programa 2. Salud Infantil', 'subprograma' => 'Vacunación'], $this->c->piezas[0]);
+        $this->assertTrue($this->c->plan_medios);
         $this->assertSame('', $this->c->certificado['texto'], 'el texto por defecto no se guarda');
         auth()->logout();
         return $this->c->inscripcion_token;

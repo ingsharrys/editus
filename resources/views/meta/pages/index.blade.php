@@ -357,17 +357,17 @@
                         @endforeach
                     </select>
                     <p id="campaignPagesHint" class="hidden mt-2 rounded-lg bg-indigo-50 text-indigo-800 px-3 py-2 text-xs"></p>
-                    {{-- Pieza de la campaña: llena la tabla del certificado de cada medio --}}
-                    <div id="campaignPieza" class="hidden mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3" data-piezas='@json($campaignPiezas ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)'>
-                        <p class="text-xs font-semibold text-gray-700 mb-2">{{ __('Pieza para el certificado de los medios') }} <span class="font-normal text-gray-500">({{ __('opcional') }})</span></p>
-                        <div class="grid sm:grid-cols-3 gap-2">
-                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Programa') }}</label>
-                                <input name="programa" id="piezaPrograma" list="piezaProgramas" maxlength="190" value="{{ old('programa') }}" autocomplete="off" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaProgramas"></datalist></div>
-                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Subprograma') }}</label>
-                                <input name="subprograma" id="piezaSubprograma" list="piezaSubprogramas" maxlength="190" value="{{ old('subprograma') }}" autocomplete="off" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaSubprogramas"></datalist></div>
-                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Tipo de pieza') }}</label>
-                                <input name="tipo_pieza" id="piezaTipo" list="piezaTipos" maxlength="60" value="{{ old('tipo_pieza') }}" autocomplete="off" placeholder="{{ __('Ej: Video Corto') }}" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaTipos"></datalist></div>
+                    {{-- Plan de medios: subcampaña y tipo de pieza (métricas, cupos y certificado de cada medio) --}}
+                    <div id="campaignPieza" class="hidden mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3" data-piezas='@json($campaignPiezas ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)' data-old-sub="{{ old('subcampana_id') }}" data-old-tipo="{{ old('tipo_pieza') }}">
+                        <p class="text-xs font-semibold text-emerald-900 mb-2">{{ __('Plan de medios') }}</p>
+                        <div class="grid sm:grid-cols-2 gap-2">
+                            <div id="piezaSubCaja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña') }} <span class="text-red-500">*</span></label>
+                                <select name="subcampana_id" id="piezaSub" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
+                            <div><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de pieza') }} <span class="text-red-500">*</span></label>
+                                <select name="tipo_pieza" id="piezaTipo" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
                         </div>
+                        <p id="piezaCupos" class="hidden mt-2 text-xs"></p>
+                    </div>
                     </div>
                     <p class="mt-1 text-[11px] text-gray-500">
                         {{ __('Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.') }}
@@ -677,6 +677,7 @@
                                 <input type="checkbox"
                                        name="page_ids[]"
                                        value="{{ $p->id }}"
+                                       data-name="{{ $p->name }}"
                                        class="page-checkbox rounded border-gray-300 text-blue-600 focus:ring-blue-200"
                                        {{ $ok ? '' : 'disabled' }}>
         
@@ -909,6 +910,10 @@
                     'sinToken' => __(':n página(s) de la campaña no tienen token activo.'),
                     'campanaSinPaginas' => __('La campaña no tiene páginas con token activo en esta lista. Marca a mano dónde publicar o revisa sus medios en Campañas.'),
                     'debesCampana' => __('Debes seleccionar una campaña antes de publicar.'),
+                    'eligeSub' => __('Elige la subcampaña de esta publicación.'),
+                    'eligeTipo' => __('Elige el tipo de pieza de esta publicación.'),
+                    'cupoLleno' => __('Cupo completo (no se puede publicar):'),
+                    'cupoUsado' => __('Cupo usado:'),
                     'mensajeObligatorio' => __('El mensaje es obligatorio.'),
                     'alMenosRed' => __('Selecciona al menos una red (Facebook o Instagram).'),
                     'igSoloTexto' => __('Instagram no permite publicaciones de solo texto. Agrega una foto o video, o marca también Facebook.'),
@@ -1310,36 +1315,60 @@
                     if (sel.value) setTimeout(aplicar, 0);
                 })();
 
-                // Programa / subprograma / tipo de pieza según la campaña elegida
+                // Plan de medios: subcampañas, tipos de pieza y cupos de la campaña elegida
                 (function () {
                     const sel = document.getElementById('campaignSelect');
                     const caja = document.getElementById('campaignPieza');
                     if (!sel || !caja) return;
                     let mapa = {};
                     try { mapa = JSON.parse(caja.dataset.piezas || '{}'); } catch (e) {}
-                    const prog = document.getElementById('piezaPrograma');
-                    const llenar = (id, valores) => {
-                        const dl = document.getElementById(id);
-                        dl.innerHTML = '';
-                        valores.forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
+                    const subSel = document.getElementById('piezaSub');
+                    const tipoSel = document.getElementById('piezaTipo');
+                    const hint = document.getElementById('piezaCupos');
+                    const opciones = (el, items, vacio, previo) => {
+                        el.innerHTML = '';
+                        const o0 = document.createElement('option'); o0.value = ''; o0.textContent = vacio; el.appendChild(o0);
+                        items.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if (String(v) === String(previo)) o.selected = true; el.appendChild(o); });
                     };
-                    const subprogramas = () => {
+                    const nombrePagina = cb => cb.dataset.name || ('#' + cb.value);
+                    const cupos = () => {
                         const conf = mapa[sel.value];
-                        if (!conf) return;
-                        const p = (conf.programas || []).find(x => x.programa === prog.value);
-                        llenar('piezaSubprogramas', p ? p.subprogramas : [].concat(...(conf.programas || []).map(x => x.subprogramas)));
+                        if (!conf || !tipoSel.value) { hint.classList.add('hidden'); return; }
+                        const k = tipoSel.value.toLowerCase();
+                        const llenas = [], quedan = [];
+                        checkboxes().filter(cb => cb.checked).forEach(cb => {
+                            const c = (conf.cupos[cb.value] || {})[k];
+                            if (!c) return;
+                            (c[0] >= c[1] ? llenas : quedan).push(nombrePagina(cb) + ' ' + c[0] + '/' + c[1]);
+                        });
+                        if (!llenas.length && !quedan.length) { hint.classList.add('hidden'); return; }
+                        hint.innerHTML = '';
+                        if (llenas.length) { const s = document.createElement('span'); s.className = 'block text-rose-700 font-semibold'; s.textContent = T.cupoLleno + ' ' + llenas.join(', '); hint.appendChild(s); }
+                        if (quedan.length) { const s = document.createElement('span'); s.className = 'block text-emerald-800'; s.textContent = T.cupoUsado + ' ' + quedan.join(', '); hint.appendChild(s); }
+                        hint.classList.remove('hidden');
                     };
                     const aplicar = () => {
                         const conf = mapa[sel.value];
                         caja.classList.toggle('hidden', !conf);
+                        subSel.disabled = tipoSel.disabled = !conf;
                         if (!conf) return;
-                        llenar('piezaProgramas', (conf.programas || []).map(x => x.programa));
-                        llenar('piezaTipos', conf.tipos || []);
-                        subprogramas();
+                        opciones(subSel, conf.subs.map(x => [x.id, x.nombre]), T.eligeSub, caja.dataset.oldSub);
+                        document.getElementById('piezaSubCaja').classList.toggle('hidden', !conf.subs.length);
+                        subSel.disabled = !conf.subs.length;
+                        opciones(tipoSel, conf.tipos.map(t => [t, t]), T.eligeTipo, caja.dataset.oldTipo);
+                        cupos();
                     };
                     sel.addEventListener('change', aplicar);
-                    prog.addEventListener('input', subprogramas);
+                    tipoSel.addEventListener('change', cupos);
+                    document.addEventListener('change', e => { if (e.target.matches && e.target.matches('input[type=checkbox]')) cupos(); });
                     aplicar();
+                    window.__validarPlan = () => {
+                        const conf = mapa[sel.value];
+                        if (!conf) return true;
+                        if (conf.subs.length && !subSel.value) { alert(T.eligeSub); subSel.focus(); return false; }
+                        if (!tipoSel.value) { alert(T.eligeTipo); tipoSel.focus(); return false; }
+                        return true;
+                    };
                 })();
 
                 form && form.addEventListener('submit', function(e) {
@@ -1351,6 +1380,7 @@
                         campaignSelect.focus();
                         return;
                     }
+                    if (window.__validarPlan && !window.__validarPlan()) { e.preventDefault(); return; }
 
                     const hasMsg = (msg?.value || '').trim().length > 0;
                     if (!hasMsg) {

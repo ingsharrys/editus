@@ -24,6 +24,7 @@ class Campaign extends Model
         'inscripcion_activa',
         'certificado',
         'piezas',
+        'plan_medios',
     ];
 
     protected $casts = [
@@ -35,7 +36,20 @@ class Campaign extends Model
         'inscripcion_activa' => 'boolean',
         'certificado' => 'array',
         'piezas' => 'array',
+        'plan_medios' => 'boolean',
     ];
+
+    /** Subcampañas del plan de medios (p. ej. «Dengue»), en su orden. */
+    public function subcampanas()
+    {
+        return $this->hasMany(Subcampana::class)->orderBy('orden')->orderBy('id');
+    }
+
+    /** Cupos de piezas por tipo (por defecto y por página). */
+    public function cupos()
+    {
+        return $this->hasMany(CampaignCupo::class);
+    }
 
     /** Medios inscritos con el enlace de la campaña (cada uno firma su certificado). */
     public function participantes()
@@ -47,20 +61,6 @@ class Campaign extends Model
     public function enlaceInscripcion(): ?string
     {
         return $this->inscripcion_token ? route('inscripcion.mostrar', $this->inscripcion_token) : null;
-    }
-
-    /** Programas de la campaña: [['programa' => ..., 'subprogramas' => [...]], ...]. */
-    public function programas(): array
-    {
-        $out = [];
-        foreach ((array) $this->piezas as $f) {
-            $p = trim((string) ($f['programa'] ?? ''));
-            if ($p === '') continue;
-            $out[$p] ??= [];
-            $sub = trim((string) ($f['subprograma'] ?? ''));
-            if ($sub !== '' && !in_array($sub, $out[$p], true)) $out[$p][] = $sub;
-        }
-        return array_map(fn($p, $subs) => ['programa' => $p, 'subprogramas' => $subs], array_keys($out), $out);
     }
 
     public function posts()
