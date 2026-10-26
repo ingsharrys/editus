@@ -20,6 +20,10 @@ class Campaign extends Model
         'is_system',
         'is_active',
         'created_by',
+        'inscripcion_token',
+        'inscripcion_activa',
+        'certificado',
+        'piezas',
     ];
 
     protected $casts = [
@@ -28,7 +32,36 @@ class Campaign extends Model
         'medios' => 'array',
         'starts_on' => 'date',
         'ends_on' => 'date',
+        'inscripcion_activa' => 'boolean',
+        'certificado' => 'array',
+        'piezas' => 'array',
     ];
+
+    /** Medios inscritos con el enlace de la campaña (cada uno firma su certificado). */
+    public function participantes()
+    {
+        return $this->hasMany(CampaignParticipante::class);
+    }
+
+    /** Enlace de inscripción que se envía a los medios (null si aún no tiene token). */
+    public function enlaceInscripcion(): ?string
+    {
+        return $this->inscripcion_token ? route('inscripcion.mostrar', $this->inscripcion_token) : null;
+    }
+
+    /** Programas de la campaña: [['programa' => ..., 'subprogramas' => [...]], ...]. */
+    public function programas(): array
+    {
+        $out = [];
+        foreach ((array) $this->piezas as $f) {
+            $p = trim((string) ($f['programa'] ?? ''));
+            if ($p === '') continue;
+            $out[$p] ??= [];
+            $sub = trim((string) ($f['subprograma'] ?? ''));
+            if ($sub !== '' && !in_array($sub, $out[$p], true)) $out[$p][] = $sub;
+        }
+        return array_map(fn($p, $subs) => ['programa' => $p, 'subprogramas' => $subs], array_keys($out), $out);
+    }
 
     public function posts()
     {

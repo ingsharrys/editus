@@ -66,7 +66,7 @@ class CampanasService
 
     /**
      * Crea o actualiza el perfil de análisis de la campaña (nombre, contexto, fechas, estado)
-     * y recalcula sus páginas: las de sus medios (origen = medio) + las manuales.
+     * y recalcula sus páginas: las de sus medios (origen = medio) + las manuales + las de los medios inscritos (origen = inscrito).
      * $paginasExtra: si se pasa, reemplaza las páginas agregadas a mano.
      */
     public function sincronizarPerfil(Campaign $c, ?array $paginasExtra = null): Campana
@@ -84,8 +84,14 @@ class CampanasService
 
         $conOrigen = Schema::hasColumn('campana_pagina', 'origen');
         $deMedios = $this->paginasDeMedios($c)->pluck('id')->all();
+        // Páginas de los medios inscritos con el enlace de la campaña (ver CertificadosService)
+        $inscritas = [];
+        if ($c->exists && \App\Services\CertificadosService::disponible()) {
+            $cert = app(\App\Services\CertificadosService::class);
+            foreach ($c->participantes()->get() as $p) foreach ($cert->paginas($p) as $pg) $inscritas[] = (int) $pg->id;
+        }
 
-        DB::transaction(function () use ($perfil, $deMedios, $paginasExtra, $conOrigen) {
+        DB::transaction(function () use ($perfil, $deMedios, $paginasExtra, $conOrigen, $inscritas) {
             if (!$conOrigen) {
                 $perfil->paginas()->sync(array_values(array_unique(array_merge($deMedios, (array) $paginasExtra))));
                 return;
@@ -96,6 +102,7 @@ class CampanasService
             $filas = [];
             foreach ($deMedios as $id) $filas[$id] = ['origen' => 'medio'];
             foreach ($manuales as $id) if (!isset($filas[$id])) $filas[$id] = ['origen' => 'manual'];
+            foreach ($inscritas as $id) if (!isset($filas[$id])) $filas[$id] = ['origen' => 'inscrito'];
             $perfil->paginas()->sync($filas);
         });
         return $perfil;

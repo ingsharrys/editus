@@ -357,6 +357,18 @@
                         @endforeach
                     </select>
                     <p id="campaignPagesHint" class="hidden mt-2 rounded-lg bg-indigo-50 text-indigo-800 px-3 py-2 text-xs"></p>
+                    {{-- Pieza de la campaña: llena la tabla del certificado de cada medio --}}
+                    <div id="campaignPieza" class="hidden mt-3 rounded-xl border border-gray-200 bg-gray-50 p-3" data-piezas='@json($campaignPiezas ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)'>
+                        <p class="text-xs font-semibold text-gray-700 mb-2">{{ __('Pieza para el certificado de los medios') }} <span class="font-normal text-gray-500">({{ __('opcional') }})</span></p>
+                        <div class="grid sm:grid-cols-3 gap-2">
+                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Programa') }}</label>
+                                <input name="programa" id="piezaPrograma" list="piezaProgramas" maxlength="190" value="{{ old('programa') }}" autocomplete="off" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaProgramas"></datalist></div>
+                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Subprograma') }}</label>
+                                <input name="subprograma" id="piezaSubprograma" list="piezaSubprogramas" maxlength="190" value="{{ old('subprograma') }}" autocomplete="off" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaSubprogramas"></datalist></div>
+                            <div><label class="block text-[11px] text-gray-500 mb-0.5">{{ __('Tipo de pieza') }}</label>
+                                <input name="tipo_pieza" id="piezaTipo" list="piezaTipos" maxlength="60" value="{{ old('tipo_pieza') }}" autocomplete="off" placeholder="{{ __('Ej: Video Corto') }}" class="w-full h-9 rounded-lg border-gray-200 text-sm"><datalist id="piezaTipos"></datalist></div>
+                        </div>
+                    </div>
                     <p class="mt-1 text-[11px] text-gray-500">
                         {{ __('Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.') }}
                         @if (auth()->user()->isAdmin())
@@ -1296,6 +1308,38 @@
                     };
                     sel.addEventListener('change', aplicar);
                     if (sel.value) setTimeout(aplicar, 0);
+                })();
+
+                // Programa / subprograma / tipo de pieza según la campaña elegida
+                (function () {
+                    const sel = document.getElementById('campaignSelect');
+                    const caja = document.getElementById('campaignPieza');
+                    if (!sel || !caja) return;
+                    let mapa = {};
+                    try { mapa = JSON.parse(caja.dataset.piezas || '{}'); } catch (e) {}
+                    const prog = document.getElementById('piezaPrograma');
+                    const llenar = (id, valores) => {
+                        const dl = document.getElementById(id);
+                        dl.innerHTML = '';
+                        valores.forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
+                    };
+                    const subprogramas = () => {
+                        const conf = mapa[sel.value];
+                        if (!conf) return;
+                        const p = (conf.programas || []).find(x => x.programa === prog.value);
+                        llenar('piezaSubprogramas', p ? p.subprogramas : [].concat(...(conf.programas || []).map(x => x.subprogramas)));
+                    };
+                    const aplicar = () => {
+                        const conf = mapa[sel.value];
+                        caja.classList.toggle('hidden', !conf);
+                        if (!conf) return;
+                        llenar('piezaProgramas', (conf.programas || []).map(x => x.programa));
+                        llenar('piezaTipos', conf.tipos || []);
+                        subprogramas();
+                    };
+                    sel.addEventListener('change', aplicar);
+                    prog.addEventListener('input', subprogramas);
+                    aplicar();
                 })();
 
                 form && form.addEventListener('submit', function(e) {

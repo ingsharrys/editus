@@ -21,6 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', \App\Http\Middleware\Idioma::class);
         // Usuarios desactivados: se cierra su sesión; a los demás se les anota el último acceso
         $middleware->appendToGroup('web', \App\Http\Middleware\UsuarioActivo::class);
+        // Enlace de inscripción a una campaña y certificado obligatorio de los medios inscritos
+        $middleware->appendToGroup('web', \App\Http\Middleware\InscripcionCampana::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

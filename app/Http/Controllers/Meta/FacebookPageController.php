@@ -114,12 +114,19 @@ class FacebookPageController extends Controller
         // que se marcan solas al elegir la campaña (el usuario puede desmarcar las que quiera excluir)
         $campaigns = \App\Models\Campaign::selectable()->with('perfil.paginas')->get();
         $campaignPages = app(\App\Services\CampanasService::class)->mapaPaginas($campaigns);
+        // Programas y tipos de pieza de cada campaña (para el certificado de los medios)
+        $cert = app(\App\Services\CertificadosService::class);
+        $campaignPiezas = $campaigns->mapWithKeys(fn($c) => [$c->id => [
+            'programas' => $c->programas(),
+            'tipos' => $cert->config($c)['tipos_pieza'],
+            'certificado' => (bool) $c->inscripcion_activa,
+        ]])->filter(fn($x) => $x['programas'] || $x['certificado'])->all();
 
         $planes = app(\App\Services\PlanService::class);
         $esCliente = !$planes->sinLimites($user);
         $planInfo = $esCliente ? ['limites' => $planes->limites($user), 'permitidas' => $planes->paginasPermitidas($user)->pluck('id')->map(fn($v) => (int) $v)->all()] : null;
         if ($esCliente) $campaigns = collect();
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages', 'esCliente', 'planInfo'));
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages', 'campaignPiezas', 'esCliente', 'planInfo'));
     }
     public function saveFavorites(Request $request)
     {
@@ -170,6 +177,14 @@ class FacebookPageController extends Controller
 
 
 
+
+    /** Programa, subprograma y tipo de pieza elegidos al publicar (solo si hay campaña). */
+    private function piezaDe(Request $request): array
+    {
+        if (!$request->filled('campaign_id')) return [];
+        $v = fn($k, $max) => ($t = trim((string) $request->input($k, ''))) !== '' ? mb_substr($t, 0, $max) : null;
+        return array_filter(['programa' => $v('programa', 190), 'subprograma' => $v('subprograma', 190), 'tipo_pieza' => $v('tipo_pieza', 60)], fn($x) => $x !== null);
+    }
 
     /**
      * Obtiene permalink_url si es posible (no es fatal si falla).
@@ -307,6 +322,10 @@ class FacebookPageController extends Controller
             'page_ids.*' => [Rule::exists('meta_pages', 'id')],
             'message' => ['nullable', 'string', 'max:63206'],
             'link' => ['nullable', 'url'],
+            // Pieza de la campaña (llena la tabla del certificado de cada medio)
+            'programa' => ['nullable', 'string', 'max:190'],
+            'subprograma' => ['nullable', 'string', 'max:190'],
+            'tipo_pieza' => ['nullable', 'string', 'max:60'],
 
             'photos' => ['nullable', 'array', 'max:50'],
             'photos.*' => ['file', 'image', 'max:10240'], // 10MB
@@ -384,6 +403,7 @@ class FacebookPageController extends Controller
                 'user_id' => auth()->id(),
                 'campaign_id' => $request->filled('campaign_id') ? (int) $request->campaign_id : null,
                 'meta_page_id' => $page->id,
+                ...$this->piezaDe($request),
                 'type' => $request->type,
                 'network' => 'facebook',
                 'message' => $request->message,
@@ -688,6 +708,7 @@ class FacebookPageController extends Controller
             'user_id' => auth()->id(),
             'campaign_id' => $request->filled('campaign_id') ? (int) $request->campaign_id : null,
             'meta_page_id' => $page->id,
+            ...$this->piezaDe($request),
             'type' => $request->type,
             'network' => 'instagram',
             'message' => $request->message,

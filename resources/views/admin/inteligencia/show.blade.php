@@ -281,7 +281,7 @@
                 <p class="text-xs text-gray-500 mb-3">{{ __(':n página(s): las de sus medios y las agregadas a mano en la campaña.', ['n' => $campana->paginas->count()]) }}</p>
                 <div class="max-h-96 overflow-y-auto divide-y divide-gray-100">
                     @foreach ($campana->paginas->sortBy('name') as $p)
-                        <div class="flex items-center justify-between gap-2 py-1.5"><span class="truncate">{{ $p->name }}</span><span class="text-[11px] text-gray-400 shrink-0">{{ ($p->pivot->origen ?? 'manual') === 'medio' ? ($p->medio_slug ?: __('medio')) : __('manual') }}</span></div>
+                        <div class="flex items-center justify-between gap-2 py-1.5"><span class="truncate">{{ $p->name }}</span><span class="text-[11px] text-gray-400 shrink-0">{{ ($p->pivot->origen ?? 'manual') === 'medio' ? ($p->medio_slug ?: __('medio')) : (($p->pivot->origen ?? '') === 'inscrito' ? __('inscrito') : __('manual')) }}</span></div>
                     @endforeach
                 </div>
             </div>

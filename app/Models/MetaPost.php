@@ -13,6 +13,9 @@ class MetaPost extends Model
         'meta_page_id',
         'user_id',
         'campaign_id',
+        'programa',          // pieza de la campaña (llenan el certificado del medio)
+        'subprograma',
+        'tipo_pieza',
         'type',              // text|photo|video
         'network',           // facebook|instagram
         'message',

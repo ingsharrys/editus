@@ -1,4 +1,7 @@
 <x-guest-layout>
+    @if ($inv = session('inscripcion_campana'))
+        <div class="rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-900 px-4 py-3 text-sm mb-4">{!! __('Te estás inscribiendo en la campaña <strong>:nombre</strong>. Entra o crea tu cuenta para firmar el certificado.', ['nombre' => e($inv['nombre'] ?? '')]) !!}</div>
+    @endif
     <form method="POST" action="{{ route('register') }}">
         @csrf
 

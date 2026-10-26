@@ -65,6 +65,10 @@ Route::get('/auth/app/youtube', [\App\Http\Controllers\Web\CuentasAppController:
 
 Route::view('/terms', 'terms')->name('terms');
 
+// Enlace de inscripción de un medio a una campaña (con sesión inscribe; sin sesión pide entrar o registrarse)
+Route::get('/inscripcion/{token}', [\App\Http\Controllers\CertificadoController::class, 'inscripcion'])
+    ->where('token', '[A-Za-z0-9]{20,64}')->middleware('throttle:30,1')->name('inscripcion.mostrar');
+
 Route::view('/data-deletion', 'data-deletion')->name('data-deletion');
 
 Route::get('/dashboard', fn() => view('dashboard'))
@@ -208,6 +212,16 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/campanas', [\App\Http\Controllers\CampaignController::class, 'store'])->middleware('permiso:campanas')->name('campaigns.store');
     Route::post('/campanas/{campaign}', [\App\Http\Controllers\CampaignController::class, 'update'])->middleware('permiso:campanas')->name('campaigns.update');
     Route::post('/campanas/{campaign}/toggle', [\App\Http\Controllers\CampaignController::class, 'toggle'])->middleware('permiso:campanas')->name('campaigns.toggle');
+    // Inscripción de medios y certificados de publicación de la campaña
+    Route::post('/campanas/{campaign}/inscripcion/regenerar', [\App\Http\Controllers\CampaignController::class, 'regenerarEnlace'])->middleware('permiso:campanas')->name('campaigns.inscripcion.regenerar');
+    Route::delete('/campanas/{campaign}/participantes/{participante}', [\App\Http\Controllers\CampaignController::class, 'quitarParticipante'])->middleware('permiso:campanas')->name('campaigns.participantes.quitar');
+    Route::get('/campanas/{campaign}/piezas', [\App\Http\Controllers\CampaignController::class, 'piezas'])->middleware('permiso:campanas')->name('campaigns.piezas');
+    Route::post('/campanas/{campaign}/piezas', [\App\Http\Controllers\CampaignController::class, 'guardarPiezas'])->middleware('permiso:campanas')->name('campaigns.piezas.guardar');
+    // Certificado del medio inscrito (lo llena y firma el medio; el administrador también lo ve)
+    Route::get('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'formulario'])->name('certificados.formulario');
+    Route::post('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'guardar'])->middleware('throttle:20,1')->name('certificados.guardar');
+    Route::get('/certificados/{participante}', [\App\Http\Controllers\CertificadoController::class, 'ver'])->name('certificados.ver');
+    Route::get('/certificados/{participante}/pdf', [\App\Http\Controllers\CertificadoController::class, 'pdf'])->name('certificados.pdf');
 
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.index');
