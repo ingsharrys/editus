@@ -240,6 +240,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/campanas/{campaign}/productos/{producto}/publicaciones', [$P, 'guardarPublicacion'])->name('campaigns.productos.publicaciones.guardar');
         Route::post('/campanas/{campaign}/productos/{producto}/publicaciones/{publicacion}', [$P, 'guardarPublicacion'])->name('campaigns.productos.publicaciones.actualizar');
         Route::delete('/campanas/{campaign}/productos/{producto}/publicaciones/{publicacion}', [$P, 'borrarPublicacion'])->name('campaigns.productos.publicaciones.borrar');
+        $S = \App\Http\Controllers\SubcampanaController::class;
+        Route::get('/campanas/{campaign}/subcampanas/{subcampana}', [$S, 'ver'])->whereNumber('subcampana')->name('campaigns.subcampanas.ver');
+        Route::get('/campanas/{campaign}/subcampanas/{subcampana}/publicar', [$S, 'publicar'])->whereNumber('subcampana')->name('campaigns.subcampanas.publicar');
+        Route::get('/campanas/{campaign}/banners/nuevo', [$S, 'banner'])->name('campaigns.banners.crear');
+        Route::post('/campanas/{campaign}/banners', [$S, 'guardarBanner'])->name('campaigns.banners.guardar');
         Route::get('/campanas/{campaign}/programas', [$P, 'programas'])->name('campaigns.plan.programas');
         Route::post('/campanas/{campaign}/programas', [$P, 'guardarProgramas'])->name('campaigns.plan.programas.guardar');
         Route::get('/campanas/{campaign}/archivo', [$P, 'archivo'])->name('campaigns.archivo');

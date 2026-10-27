@@ -17,11 +17,15 @@
 
     <div class="flex flex-wrap items-end justify-between gap-3 mb-4">
         <div>
-            <a href="{{ route('campaigns.productos', $c) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Productos') }}</a>
+            @if ($p->subcampana)
+                <a href="{{ route('campaigns.subcampanas.ver', [$c, $p->subcampana]) }}" class="text-xs text-indigo-700 hover:underline">← {{ $p->subcampana->nombre }}</a>
+            @else
+                <a href="{{ route('campaigns.plan.subcampanas', $c) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Subcampañas') }}</a>
+            @endif
             <h2 class="text-xl font-bold text-gray-900 mt-0.5">{{ $p->exists ? $p->nombre : __('Nueva pieza') }}</h2>
             @if ($p->exists)<p class="text-xs text-gray-500">{{ $p->codigo() }}{{ $p->subcampana ? ' · ' . __('Subcampaña') . ' ' . $p->subcampana->nombre : '' }}</p>@endif
         </div>
-        @if ($p->exists)
+        @if ($p->exists && $pubs->where('origen', 'editus')->isEmpty())
             <form method="POST" action="{{ route('campaigns.productos.borrar', [$c, $p]) }}" onsubmit="return confirm(@js(__('¿Borrar esta pieza? Sus publicaciones de editus quedan sin pieza.')))">@csrf @method('DELETE')
                 <button class="h-9 rounded-lg px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50">{{ __('Borrar pieza') }}</button></form>
         @endif
@@ -32,37 +36,28 @@
         @csrf
         <div class="grid lg:grid-cols-[minmax(0,1fr)_16rem] gap-5">
             <div class="space-y-3">
-                <div class="grid sm:grid-cols-3 gap-3">
+                {{-- Campos del control de productos que no se editan aquí (se conservan) --}}
+                @foreach (['estado' => $p->estado ?: 'Publicado / Entregado', 'responsable' => $p->responsable, 'fecha_solicitud' => $p->fecha_solicitud?->toDateString(),
+                    'fecha_entrega' => $p->fecha_entrega?->toDateString(), 'link_archivo' => $p->link_archivo, 'observaciones' => $p->observaciones] as $k => $v)
+                    <input type="hidden" name="{{ $k }}" value="{{ old($k, $v) }}">
+                @endforeach
+                <div class="grid sm:grid-cols-2 gap-3">
                     <div><label class="{{ $lbl }}">{{ __('Subcampaña') }}</label>
-                        <select name="subcampana_id" id="subSel" class="{{ $inp }}"><option value="">—</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
+                        <select name="subcampana_id" id="subSel" class="{{ $inp }}"><option value="">{{ __('— Sin subcampaña —') }}</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombre }}</option>@endforeach</select>
+                        <p class="text-[11px] text-gray-400 mt-1">{{ __('El programa y el subprograma salen de la subcampaña.') }}</p></div>
                     <div><label class="{{ $lbl }}">{{ __('Tipo de publicación') }} *</label>
                         <select name="tipo_id" id="tipoSel" required class="{{ $inp }}"><option value="">—</option>@foreach ($tipos as $t)<option value="{{ $t->id }}" @selected((int) old('tipo_id', $p->tipo_id) === $t->id)>{{ $t->nombre }}</option>@endforeach</select></div>
-                    <div><label class="{{ $lbl }}">{{ __('Estado') }} *</label>
-                        <select name="estado" class="{{ $inp }}">@foreach ($estados as $e)<option value="{{ $e }}" @selected(old('estado', $p->estado) === $e)>{{ __($e) }}</option>@endforeach</select></div>
                 </div>
-                <div><label class="{{ $lbl }}">{{ __('Nombre de la pieza') }} *</label><input name="nombre" required maxlength="255" value="{{ old('nombre', $p->nombre) }}" placeholder="{{ __('Ej: P2 Salud Infantil Sp2 Vacunación') }}" class="{{ $inp }}"></div>
-                <div class="grid sm:grid-cols-2 gap-3">
-                    <div><label class="{{ $lbl }}">{{ __('Programa') }}</label>
-                        <select name="programa_id" id="progSel" class="{{ $inp }}"><option value="">—</option>@foreach ($programas as $x)<option value="{{ $x->id }}" @selected((int) old('programa_id', $p->programa_id) === $x->id)>{{ $x->etiqueta() }}</option>@endforeach</select></div>
-                    <div><label class="{{ $lbl }}">{{ __('Subprograma') }}</label>
-                        <input name="subprograma" list="dlSubprog" maxlength="190" value="{{ old('subprograma', $p->subprograma) }}" placeholder="{{ __('Ej: Vacunación') }}" class="{{ $inp }}"><datalist id="dlSubprog"></datalist></div>
-                </div>
+                <div><label class="{{ $lbl }}">{{ __('Nombre de la pieza') }} *</label><input name="nombre" required maxlength="255" value="{{ old('nombre', $p->nombre) }}" placeholder="{{ __('Ej: Video vacunación 0-6 meses') }}" class="{{ $inp }}"></div>
                 <div class="grid sm:grid-cols-4 gap-3">
-                    <div><label class="{{ $lbl }}">{{ __('Solicitud') }}</label><input type="date" name="fecha_solicitud" value="{{ old('fecha_solicitud', $p->fecha_solicitud?->toDateString()) }}" class="{{ $inp }}"></div>
-                    <div><label class="{{ $lbl }}">{{ __('Entrega') }}</label><input type="date" name="fecha_entrega" value="{{ old('fecha_entrega', $p->fecha_entrega?->toDateString()) }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}" title="{{ __('Vacía = la de su primera publicación') }}">{{ __('Publicación / emisión') }}</label><input type="date" name="fecha_publicacion" value="{{ old('fecha_publicacion', $p->fecha_publicacion?->toDateString()) }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}" title="{{ __('Para banners: hasta cuándo estuvo publicado') }}">{{ __('Publicado hasta') }}</label><input type="date" name="fecha_fin" value="{{ old('fecha_fin', $p->fecha_fin?->toDateString()) }}" class="{{ $inp }}"></div>
-                </div>
-                <div class="grid sm:grid-cols-3 gap-3">
                     <div><label class="{{ $lbl }}">{{ __('Acta de aprobación No.') }}</label><input name="acta_aprobacion" maxlength="60" value="{{ old('acta_aprobacion', $p->acta_aprobacion) }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}">{{ __('Acta de publicación No.') }}</label><input name="acta_publicacion" maxlength="60" value="{{ old('acta_publicacion', $p->acta_publicacion) }}" class="{{ $inp }}"></div>
-                    <div><label class="{{ $lbl }}">{{ __('Responsable') }}</label><input name="responsable" maxlength="120" value="{{ old('responsable', $p->responsable) }}" class="{{ $inp }}"></div>
                 </div>
-                <div><label class="{{ $lbl }}">{{ __('Link a la carpeta / archivo') }}</label><input type="url" name="link_archivo" maxlength="500" value="{{ old('link_archivo', $p->link_archivo) }}" placeholder="https://drive.google.com/…" class="{{ $inp }}"></div>
                 <div><label class="{{ $lbl }}">{{ __('Descripción en el informe') }}</label>
                     <textarea name="descripcion" rows="3" maxlength="5000" placeholder="{{ $descripcion ?: __('Vacía = la del tipo de publicación, p. ej. «Publicación de un (1) video largo en quince (15) medios digitales.»') }}" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ old('descripcion', $p->descripcion) }}</textarea>
                     <p class="text-[11px] text-gray-400 mt-1">{{ __('Para un en vivo escribe de qué trató, p. ej. «Transmisión de un (1) en vivo realizado en la Secretaría de Salud… con la participación de…».') }}</p></div>
-                <div><label class="{{ $lbl }}">{{ __('Observaciones') }}</label><textarea name="observaciones" rows="2" maxlength="5000" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ old('observaciones', $p->observaciones) }}</textarea></div>
             </div>
             <div>
                 <label class="{{ $lbl }}">{{ __('Muestra') }}</label>
@@ -83,7 +78,7 @@
             </div>
         </div>
         <div class="flex justify-end gap-2">
-            <a href="{{ route('campaigns.productos', $c) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">{{ __('Cancelar') }}</a>
+            <a href="{{ $p->subcampana ? route('campaigns.subcampanas.ver', [$c, $p->subcampana]) : route('campaigns.plan.subcampanas', $c) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 hover:bg-gray-50">{{ __('Cancelar') }}</a>
             <button class="h-10 rounded-xl bg-[#00024f] text-white px-5 text-sm font-semibold shadow-sm hover:opacity-90">{{ $p->exists ? __('Guardar pieza') : __('Crear pieza') }}</button>
         </div>
     </form>
@@ -196,26 +191,16 @@
 </div>
 <script>
 (function () {
-    const mapa = @json($mapaSubprog);
-    const sel = document.getElementById('progSel'), dl = document.getElementById('dlSubprog');
-    const llenar = () => { dl.innerHTML = ''; (mapa[sel.value] || []).forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); }); };
-    sel.addEventListener('change', llenar); llenar();
-    // Al elegir la subcampaña: solo sus tipos de publicación y, si están vacíos, su programa y subprograma
-    const porSub = @json($tiposPorSub), progSub = @json($progPorSub);
+    // Al elegir la subcampaña: solo sus tipos de publicación
+    const porSub = @json($tiposPorSub);
     const subSel = document.getElementById('subSel'), tipoSel = document.getElementById('tipoSel');
-    const subInp = document.querySelector('input[name="subprograma"]');
     const filtrar = () => {
         const ids = (porSub[subSel.value] || []).map(String);
         Array.from(tipoSel.options).forEach(o => { if (o.value) o.hidden = ids.length > 0 && !ids.includes(o.value); });
         if (tipoSel.selectedOptions[0]?.hidden) tipoSel.value = '';
         if (ids.length === 1 && !tipoSel.value) tipoSel.value = ids[0];
     };
-    subSel.addEventListener('change', () => {
-        filtrar();
-        const d = progSub[subSel.value];
-        if (d && d.programa && !sel.value) { sel.value = d.programa; llenar(); }
-        if (d && d.subprograma && !subInp.value) subInp.value = d.subprograma;
-    });
+    subSel.addEventListener('change', filtrar);
     filtrar();
 })();
 </script>

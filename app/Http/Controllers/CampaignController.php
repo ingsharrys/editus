@@ -162,6 +162,20 @@ class CampaignController extends Controller
     /** Publicaciones de la campaña para clasificar su programa, subprograma y tipo de pieza (llenan los certificados). */
     public function piezas(Request $request, Campaign $campaign)
     {
+        // Plan de medios: se mueven piezas completas (una publicación en varias páginas) entre subcampañas y tipos
+        if ($campaign->plan_medios && \App\Services\ProductosService::disponible() && \App\Services\PlanMediosService::conTipos()) {
+            $prod = app(\App\Services\ProductosService::class);
+            $prod->asegurarPiezas($campaign);
+            $sub = $request->query('sub', '0');
+            $piezas = \App\Models\Producto::with('tipo', 'subcampana', 'posts.page:id,name')->withCount('publicaciones')->where('campaign_id', $campaign->id)
+                ->when($sub !== '' && $sub !== 'todas', fn($q) => (int) $sub === 0 ? $q->whereNull('subcampana_id') : $q->where('subcampana_id', (int) $sub))
+                ->when($request->query('tipo'), fn($q, $v) => (int) $v === -1 ? $q->whereNull('tipo_id') : $q->where('tipo_id', (int) $v))
+                ->orderByDesc('fecha_publicacion')->orderByDesc('id')->paginate(40)->withQueryString();
+            return view('campaigns.plan.mover', [
+                'c' => $campaign, 'piezas' => $piezas, 'subs' => $campaign->subcampanas()->get(), 'tipos' => $campaign->tiposPublicacion()->get(), 'sub' => $sub,
+                'sinSub' => \App\Models\Producto::where('campaign_id', $campaign->id)->whereNull('subcampana_id')->count(),
+            ]);
+        }
         $q = MetaPost::with('page:id,name')->where('campaign_id', $campaign->id)->where('status', 'success')
             ->when($request->query('pagina'), fn($x, $v) => $x->where('meta_page_id', (int) $v))
             ->when($request->query('sin') && \App\Services\ProductosService::disponible() && $campaign->productos()->exists(), fn($x) => $x->whereNull('producto_id'))
@@ -182,6 +196,21 @@ class CampaignController extends Controller
 
     public function guardarPiezas(Request $request, Campaign $campaign)
     {
+        if ($request->has('mover')) {
+            $d = $request->validate(['mover' => ['required', 'array'], 'mover.*.subcampana_id' => ['nullable', 'integer'], 'mover.*.tipo_id' => ['nullable', 'integer']]);
+            $prod = app(\App\Services\ProductosService::class);
+            $subs = $campaign->subcampanas()->get()->keyBy('id');
+            $tipos = $campaign->tiposPublicacion()->get()->keyBy('id');
+            $n = 0;
+            foreach ($d['mover'] as $id => $f) {
+                $p = \App\Models\Producto::where('campaign_id', $campaign->id)->find((int) $id);
+                if (!$p) continue;
+                $sub = !empty($f['subcampana_id']) ? $subs->get((int) $f['subcampana_id']) : null;
+                $tipo = !empty($f['tipo_id']) ? $tipos->get((int) $f['tipo_id']) : null;
+                if ($prod->mover($p, $sub, $tipo)) $n++;
+            }
+            return back()->with('success', __(':n pieza(s) movida(s).', ['n' => $n]));
+        }
         $d = $request->validate([
             'piezas' => ['required', 'array'],
             'piezas.*.subcampana_id' => ['nullable', 'integer'],

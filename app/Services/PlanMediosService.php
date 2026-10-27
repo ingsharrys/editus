@@ -102,7 +102,12 @@ class PlanMediosService
                     'orden' => $orden++,
                 ];
                 if (array_key_exists('subprograma', $f)) $datos['subprograma'] = mb_substr(trim((string) $f['subprograma']), 0, 190) ?: null;
-                if ($conTipos && array_key_exists('programa_id', $f)) {
+                if ($conTipos && array_key_exists('programa_texto', $f)) {
+                    // Programa escrito a mano («6-1. ETV: dengue…»): se busca o se crea en el catálogo
+                    $prog = app(ProductosService::class)->programaDesdeTexto($c, $f['programa_texto']);
+                    $datos['programa_id'] = $prog?->id;
+                    $datos['programa'] = $prog ? app(ProductosService::class)->textoPrograma($prog) : null;
+                } elseif ($conTipos && array_key_exists('programa_id', $f)) {
                     $prog = $progs->get((int) $f['programa_id']);
                     $datos['programa_id'] = $prog?->id;
                     $datos['programa'] = $prog ? app(ProductosService::class)->textoPrograma($prog) : null;
@@ -112,7 +117,17 @@ class PlanMediosService
                 $sub->fill($datos);
                 $cambioCert = $sub->exists && $sub->isDirty(['programa', 'subprograma']);
                 $sub->save();
-                if ($cambioCert) $this->copiarAPublicaciones($sub);
+                if ($cambioCert) {
+                    $this->copiarAPublicaciones($sub);
+                    // Las piezas de la subcampaña toman su programa y subprograma (y sus publicaciones, para el certificado)
+                    if ($conTipos && ProductosService::disponible()) {
+                        $prod = app(ProductosService::class);
+                        foreach (\App\Models\Producto::where('subcampana_id', $sub->id)->get() as $pz) {
+                            $pz->forceFill(['programa_id' => $sub->programa_id, 'subprograma' => $sub->subprograma])->save();
+                            $prod->aplicarAPosts($pz);
+                        }
+                    }
+                }
                 if ($conTipos && array_key_exists('tipos', $f)) {
                     $sync = [];
                     foreach ((array) $f['tipos'] as $tipoId => $t) {

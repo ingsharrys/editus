@@ -125,32 +125,91 @@ class ProductosInformeTest extends TestCase
             ->assertSessionHasErrors(['tipo_id', 'programa_id']);
     }
 
-    public function test_publicar_eligiendo_la_pieza_llena_tipo_programa_y_respeta_cupos(): void
+    public function test_publicar_dentro_de_la_subcampana_crea_la_pieza_y_respeta_cupos(): void
     {
-        $p = $this->pieza();
         $this->actingAs($this->admin)->post(route('campaigns.plan.cupos.guardar', $this->c), ['cupos' => ['defecto' => [0 => '1']]])->assertRedirect();
-        Http::fake(['graph.facebook.com/*' => Http::response(['id' => '1_1', 'permalink_url' => 'https://fb.com/x'], 200)]);
-        $pub = fn(array $d) => $this->actingAs($this->admin)->post(route('meta.pages.publish'), $d + ['campaign_id' => $this->c->id, 'type' => 'text', 'networks' => ['facebook'], 'message' => 'Vacúnate', 'page_ids' => [$this->canal4->id]]);
+        Http::fake(['graph.facebook.com/*' => Http::response(['id' => '1_1', 'post_id' => '1_1', 'permalink_url' => 'https://fb.com/x'], 200)]);
+        $otra = MetaPage::create(['page_id' => '999', 'name' => 'Ajena a la campaña']);
+        $otra->users()->attach($this->admin->id, ['page_access_token' => 'tok', 'is_active' => true]);
 
-        // Con piezas en el control, hay que elegir la pieza (la subcampaña sola no basta)
-        $pub(['subcampana_id' => $this->vacunacion->id, 'tipo_pieza' => 'Video Largo'])->assertSessionHasErrors('producto_id');
-        $pub(['producto_id' => 99999])->assertSessionHasErrors('producto_id');
-        $r = $this->actingAs($this->admin)->get(route('meta.pages.index'))->assertOk()->assertSee('id="piezaProd"', false);
+        // La pantalla de publicar de la subcampaña: campaña y subcampaña fijas, solo las páginas de la campaña
+        $r = $this->actingAs($this->admin)->get(route('campaigns.subcampanas.publicar', [$this->c, $this->vacunacion]))->assertOk()
+            ->assertSee('Publicando en')->assertSee('Vacunación')->assertSee('Canal 4')->assertDontSee('Ajena a la campaña');
+        $this->assertStringContainsString('data-old-sub="' . $this->vacunacion->id . '"', $r->getContent());
         preg_match("/data-piezas='([^']*)'/", $r->getContent(), $mm);
         $conf = json_decode(html_entity_decode($mm[1] ?? '{}'), true)[$this->c->id];
-        $this->assertSame([$p->id, 'Vacunación', 'Video Largo'], [$conf['productos'][0]['id'], $conf['productos'][0]['grupo'], $conf['productos'][0]['tipo']]);
+        $this->assertSame([], $conf['productos'], 'no se elige una pieza: cada publicación es una pieza nueva');
+        $this->assertSame(['Video Largo', 'Banner', 'En vivo'], $conf['subs'][0]['tipos']);
 
-        $pub(['producto_id' => $p->id])->assertSessionHasNoErrors();
-        $x = MetaPost::latest('id')->first();
-        $this->assertSame([$p->id, $this->vacunacion->id, 'Video Largo', 'Programa 2. Salud infantil', 'Vacunación'], [(int) $x->producto_id, (int) $x->subcampana_id, $x->tipo_pieza, $x->programa, $x->subprograma]);
+        $pub = fn(array $d) => $this->actingAs($this->admin)->post(route('meta.pages.publish'), $d + ['campaign_id' => $this->c->id, 'subcampana_id' => $this->vacunacion->id,
+            'type' => 'text', 'networks' => ['facebook'], 'message' => 'Vacúnate en tu IPS más cercana', 'page_ids' => [$this->canal4->id, $this->clic->id]]);
+        $pub(['tipo_pieza' => ''])->assertSessionHasErrors('tipo_pieza');
+        $pub(['tipo_pieza' => 'Video Largo'])->assertSessionHasNoErrors();
+
+        // Un lote = una pieza de la subcampaña, con el programa de la subcampaña
+        $this->assertSame(1, Producto::count());
+        $pieza = Producto::first();
+        $this->assertSame([$this->vacunacion->id, $this->largos->id, $this->p2->id, 'Vacunación', 'Publicado / Entregado'], [(int) $pieza->subcampana_id, (int) $pieza->tipo_id, (int) $pieza->programa_id, $pieza->subprograma, $pieza->estado]);
+        $this->assertSame([2, 'Programa 2. Salud infantil'], [MetaPost::where('producto_id', $pieza->id)->count(), MetaPost::first()->programa]);
+
         // Cupo de 1 «Video Largo» por página
-        $pub(['producto_id' => $p->id])->assertSessionHasErrors('page_ids');
+        $pub(['tipo_pieza' => 'Video Largo'])->assertSessionHasErrors('page_ids');
 
-        // Cambiar el programa de la pieza actualiza sus publicaciones (y el certificado)
+        // La subcampaña muestra su avance y la pieza; el tablero, el cuadro por subcampaña
+        $this->actingAs($this->admin)->get(route('campaigns.subcampanas.ver', [$this->c, $this->vacunacion]))->assertOk()
+            ->assertSee('Publicar en Vacunación')->assertSee('Vacúnate en tu IPS')->assertSee('1 pieza(s) publicadas en 2 página(s)', false);
+        $this->assertSame(['piezas' => 1, 'publicaciones' => 2, 'planeadas' => 4], app(ProductosService::class)->matrizSubcampanas($this->c)[$this->vacunacion->id][$this->largos->id]);
+        $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertOk()->assertSee('Publicado por subcampaña')->assertSee('/ 4');
+    }
+
+    public function test_banner_en_paginas_web_con_pantallazos_y_mover_piezas(): void
+    {
+        $this->actingAs($this->admin)->get(route('campaigns.banners.crear', [$this->c, 'subcampana' => $this->vacunacion->id]))->assertOk()->assertSee('Páginas web donde salió');
+        $this->actingAs($this->admin)->post(route('campaigns.banners.guardar', $this->c), ['tipo_id' => $this->banner->id, 'fecha_publicacion' => '2025-12-01',
+            'paginas' => [['medio' => ''], ['medio' => '']]])->assertSessionHasErrors('paginas');
+        $this->actingAs($this->admin)->post(route('campaigns.banners.guardar', $this->c), [
+            'subcampana_id' => $this->vacunacion->id, 'tipo_id' => $this->banner->id, 'fecha_publicacion' => '2025-12-01', 'fecha_fin' => '2025-12-30', 'acta_aprobacion' => '095',
+            'muestra' => UploadedFile::fake()->image('banner.png', 1600, 185),
+            'paginas' => [
+                ['medio' => 'Neiva al Día', 'url' => 'https://neivaaldia.com/', 'captura' => UploadedFile::fake()->image('a.png', 900, 600)],
+                ['medio' => '', 'url' => ''],
+                ['medio' => 'La Surco', 'url' => 'https://lasurco.co/', 'captura' => UploadedFile::fake()->image('b.png', 900, 600)],
+            ],
+        ])->assertRedirect(route('campaigns.subcampanas.ver', [$this->c, $this->vacunacion]));
+        $b = Producto::where('tipo_id', $this->banner->id)->first();
+        $this->assertSame(['Banner en 2 páginas web', '095', '2025-12-30'], [$b->nombre, $b->acta_aprobacion, $b->fecha_fin->toDateString()]);
+        $pubs = app(ProductosService::class)->publicaciones($b);
+        $this->assertSame(['Neiva al Día', 'La Surco'], $pubs->pluck('medio')->all());
+        $this->assertSame(['local', 'local'], $pubs->map(fn($x) => $x['evidencia'][0])->all());
+        $d = app(InformeMetricasService::class)->datos($this->c, []);
+        $banner = collect($d['capitulos'][0]['secciones'])->firstWhere('titulo', 'BANNER 1.600 X 185 PX')['piezas'][0];
+        $this->assertSame('Publicación de un (1) banner de 1.600x185 px en dos (2) páginas web.', $banner['descripcion']);
+        $this->assertContains(['FECHA', '01 al 30 de Diciembre de 2025.'], $banner['datos']);
+
+        // Mover: una publicación sin subcampaña se pasa completa a la subcampaña
+        $lote = (string) Str::uuid();
+        foreach ([$this->canal4, $this->clic] as $pg) MetaPost::create(['meta_page_id' => $pg->id, 'user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'batch_uuid' => $lote,
+            'type' => 'video', 'network' => 'facebook', 'status' => 'success', 'published_at' => '2025-12-17', 'message' => 'Video sin subcampaña', 'tipo_pieza' => 'Video Largo']);
+        $this->actingAs($this->admin)->get(route('campaigns.piezas', $this->c))->assertOk()->assertSee('Video sin subcampaña')->assertSee('2 medio(s)', false);
+        $suelta = Producto::where('nombre', 'Video sin subcampaña')->first();
+        $this->assertSame([null, $this->largos->id], [$suelta->subcampana_id, (int) $suelta->tipo_id], 'se agrupó como pieza con su tipo');
+        $this->actingAs($this->admin)->post(route('campaigns.piezas.guardar', $this->c), ['mover' => [$suelta->id => ['subcampana_id' => $this->vacunacion->id, 'tipo_id' => $this->largos->id]]])->assertRedirect();
+        $this->assertSame([$this->vacunacion->id, $this->p2->id], [(int) $suelta->fresh()->subcampana_id, (int) $suelta->fresh()->programa_id]);
+        $this->assertSame([$this->vacunacion->id, $this->vacunacion->id], MetaPost::where('batch_uuid', $lote)->pluck('subcampana_id')->map(fn($v) => (int) $v)->all());
+        $this->assertSame('Programa 2. Salud infantil', MetaPost::where('batch_uuid', $lote)->value('programa'));
+    }
+
+    public function test_el_programa_de_la_subcampana_se_escribe_y_lo_heredan_sus_piezas(): void
+    {
+        $p = $this->pieza();
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['id' => $this->vacunacion->id, 'nombre' => 'Vacunación', 'programa_texto' => '9. Prevención de lesiones por pólvora', 'subprograma' => 'Pólvora', 'is_active' => '1'],
+            ['nombre' => 'Sexualidad', 'programa_texto' => '4. Salud sexual y reproductiva', 'is_active' => '1'],
+        ]])->assertRedirect();
         $p9 = Programa::where('codigo', '9')->first();
-        $this->actingAs($this->admin)->post(route('campaigns.productos.actualizar', [$this->c, $p]), ['tipo_id' => $this->largos->id, 'subcampana_id' => $this->vacunacion->id, 'programa_id' => $p9->id,
-            'subprograma' => 'Pólvora', 'nombre' => $p->nombre, 'estado' => 'Publicado / Entregado'])->assertRedirect();
-        $this->assertSame(['Programa 9. Prevención de lesiones por pólvora', 'Pólvora'], [$x->fresh()->programa, $x->fresh()->subprograma]);
+        $this->assertSame($p9->id, (int) $this->vacunacion->fresh()->programa_id, 'usa el programa que ya existía');
+        $this->assertSame(['4', 'Salud sexual y reproductiva'], [Programa::where('codigo', '4')->value('codigo'), Programa::where('codigo', '4')->value('nombre')], 'y crea el nuevo');
+        $this->assertSame([$p9->id, 'Pólvora'], [(int) $p->fresh()->programa_id, $p->fresh()->subprograma], 'las piezas de la subcampaña lo heredan');
     }
 
     public function test_publicaciones_de_la_pieza_editus_mas_registradas_con_captura_y_correcciones(): void

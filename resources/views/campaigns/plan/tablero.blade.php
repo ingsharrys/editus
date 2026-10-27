@@ -29,6 +29,49 @@
         @endforeach
     </div>
 
+    {{-- Publicado por subcampaña y tipo de publicación (piezas publicadas / planeadas) --}}
+    @if ($tiposPub->isNotEmpty() && ($m['subcampanas']->isNotEmpty() || $matriz))
+        @php $filasMatriz = $m['subcampanas']->map(fn($s) => [$s, $matriz[$s->id] ?? []]); if (!empty($matriz[0])) $filasMatriz->push([null, $matriz[0]]); @endphp
+        <div class="rounded-2xl border border-gray-200 bg-white shadow-sm mb-6 overflow-hidden">
+            <div class="px-4 py-3 border-b border-gray-100">
+                <h3 class="text-sm font-bold text-gray-900">{{ __('Publicado por subcampaña') }}</h3>
+                <p class="text-[11px] text-gray-500">{{ __('Piezas publicadas / planeadas de cada tipo; debajo, en cuántas páginas o sitios web salieron.') }}</p>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500"><tr>
+                        <th class="px-3 py-2 text-left sticky left-0 bg-gray-50">{{ __('Subcampaña') }}</th>
+                        @foreach ($tiposPub as $t)<th class="px-3 py-2 text-center whitespace-nowrap">{{ $t->nombre }}</th>@endforeach
+                        <th class="px-3 py-2 text-center">{{ __('Total') }}</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach ($filasMatriz as [$s, $fila])
+                            <tr class="border-t border-gray-100">
+                                <td class="px-3 py-2 sticky left-0 bg-white">
+                                    @if ($s)<a href="{{ route('campaigns.subcampanas.ver', [$c, $s]) }}" class="font-semibold text-gray-900 hover:text-indigo-700">{{ $s->nombre }}</a>@else<span class="font-semibold text-gray-500">{{ __('Sin subcampaña') }}</span>@endif
+                                </td>
+                                @foreach ($tiposPub as $t)
+                                    @php $x = $fila[$t->id] ?? null; @endphp
+                                    <td class="px-3 py-2 text-center min-w-[6.5rem]">
+                                        @if ($x)
+                                            @php $lleno = $x['planeadas'] !== null && $x['piezas'] >= $x['planeadas']; @endphp
+                                            <div class="tabular-nums font-semibold {{ $lleno ? 'text-emerald-700' : ($x['piezas'] ? 'text-gray-900' : 'text-gray-400') }}">{{ $x['piezas'] }}@if ($x['planeadas'] !== null)<span class="text-gray-400 font-normal"> / {{ $x['planeadas'] }}</span>@endif</div>
+                                            @if ($x['planeadas'])<div class="h-1 mt-1 rounded-full bg-gray-100"><div class="h-1 rounded-full {{ $lleno ? 'bg-emerald-500' : 'bg-indigo-500' }}" style="width: {{ min(100, (int) round($x['piezas'] * 100 / max(1, $x['planeadas']))) }}%"></div></div>@endif
+                                            @if ($x['publicaciones'])<div class="text-[10px] text-gray-400 mt-0.5">{{ __(':n publ.', ['n' => $x['publicaciones']]) }}</div>@endif
+                                        @else
+                                            <span class="text-gray-200">—</span>
+                                        @endif
+                                    </td>
+                                @endforeach
+                                <td class="px-3 py-2 text-center tabular-nums font-bold">{{ collect($fila)->sum('piezas') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @endif
+
     {{-- Por subcampaña (siempre de toda la campaña) --}}
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm mb-6 overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">

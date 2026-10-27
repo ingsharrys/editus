@@ -26,7 +26,11 @@ class PlanMediosController extends Controller
         $sub = $request->query('sub');
         $subId = $sub === null || $sub === '' ? null : (int) $sub;
         if ($subId) abort_unless($campaign->subcampanas()->whereKey($subId)->exists(), 404);
+        $conPiezas = \App\Services\ProductosService::disponible() && PlanMediosService::conTipos();
+        if ($conPiezas) app(\App\Services\ProductosService::class)->asegurarPiezas($campaign);
         return view('campaigns.plan.tablero', [
+            'matriz' => $conPiezas ? app(\App\Services\ProductosService::class)->matrizSubcampanas($campaign) : [],
+            'tiposPub' => $conPiezas ? $campaign->tiposPublicacion()->get() : collect(),
             'c' => $campaign, 'm' => $this->plan->metricas($campaign, $subId), 'subId' => $subId,
             'avance' => $this->plan->avance($campaign, $subId ?: null), 'tipos' => $this->plan->tipos($campaign),
             'hayCupos' => (bool) $this->plan->cupos($campaign),
@@ -55,6 +59,7 @@ class PlanMediosController extends Controller
             'subs.*.id' => ['nullable', 'integer'],
             'subs.*.nombre' => ['nullable', 'string', 'max:120'],
             'subs.*.programa_id' => ['nullable', 'integer'],
+            'subs.*.programa_texto' => ['nullable', 'string', 'max:200'],
             'subs.*.programa' => ['nullable', 'string', 'max:190'],
             'subs.*.subprograma' => ['nullable', 'string', 'max:190'],
             'subs.*.descripcion' => ['nullable', 'string', 'max:500'],

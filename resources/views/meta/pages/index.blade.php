@@ -10,6 +10,17 @@
             </div>
         </x-slot>
 
+        {{-- Publicando desde una subcampaña del plan de medios --}}
+        @if (!empty($fijo))
+            <div class="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                    <a href="{{ route('campaigns.subcampanas.ver', [$fijo['campana'], $fijo['sub']]) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Volver a la subcampaña') }}</a>
+                    <div class="text-lg font-bold text-[#00024f]">{{ __('Publicando en') }} {{ $fijo['campana']->name }} › {{ $fijo['sub']->nombre }}</div>
+                    <p class="text-xs text-indigo-900/70">{{ __('Elige el tipo de publicación, escribe el mensaje y marca las páginas. Cada publicación queda como una pieza de la subcampaña para el informe.') }}</p>
+                </div>
+            </div>
+        @endif
+
         {{-- Alertas --}}
         @if ($errors->any())
             <div class="rounded-lg border border-red-200 bg-red-50 text-red-800 p-3 mb-3">
@@ -342,7 +353,7 @@
                     </div>
                 @else
                 <!-- CAMPAÑA (obligatoria) -->
-                <div>
+                <div @if (!empty($fijo)) class="[&>h3]:hidden [&>select]:hidden [&>p]:hidden" @endif>
                     <h3 class="text-sm font-semibold text-gray-800 mb-2">
                         {{ __('Campaña') }} <span class="text-red-500">*</span>
                     </h3>
@@ -351,14 +362,14 @@
                             class="w-full sm:max-w-md rounded-xl border-gray-200 text-sm">
                         <option value="">{{ __('— Selecciona la campaña de esta publicación —') }}</option>
                         @foreach ($campaigns ?? [] as $c)
-                            <option value="{{ $c->id }}" {{ (string) old('campaign_id') === (string) $c->id ? 'selected' : '' }}>
+                            <option value="{{ $c->id }}" {{ (string) old('campaign_id', !empty($fijo) ? $fijo['campana']->id : null) === (string) $c->id ? 'selected' : '' }}>
                                 {{ $c->name }}{{ $c->medios ? ' · ' . implode(', ', $c->nombresMedios()) : '' }}
                             </option>
                         @endforeach
                     </select>
                     <p id="campaignPagesHint" class="hidden mt-2 rounded-lg bg-indigo-50 text-indigo-800 px-3 py-2 text-xs"></p>
                     {{-- Plan de medios: subcampaña y tipo de pieza (métricas, cupos y certificado de cada medio) --}}
-                    <div id="campaignPieza" class="hidden mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3" data-piezas='@json($campaignPiezas ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)' data-old-sub="{{ old('subcampana_id') }}" data-old-tipo="{{ old('tipo_pieza') }}" data-old-prod="{{ old('producto_id') }}">
+                    <div id="campaignPieza" class="hidden mt-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-3" data-piezas='@json($campaignPiezas ?? [], JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT)' data-old-sub="{{ old('subcampana_id', !empty($fijo) ? $fijo['sub']->id : null) }}" data-fijo="{{ !empty($fijo) ? 1 : 0 }}" data-old-tipo="{{ old('tipo_pieza') }}" data-old-prod="{{ old('producto_id') }}">
                         <p class="text-xs font-semibold text-emerald-900 mb-2">{{ __('Plan de medios') }}</p>
                         <div class="grid sm:grid-cols-2 gap-2">
                             <div id="piezaProdCaja" class="sm:col-span-2"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Pieza que se publica') }} <span class="text-red-500">*</span></label>
@@ -1365,7 +1376,7 @@
                         [prodSel, subSel, tipoSel].forEach(x => x.disabled = true);
                         if (!conf) return;
                         const m = modo(conf);
-                        mostrar('piezaProdCaja', m === 'producto'); mostrar('piezaSubCaja', m === 'sub'); mostrar('piezaTipoCaja', m !== 'producto');
+                        mostrar('piezaProdCaja', m === 'producto'); mostrar('piezaSubCaja', m === 'sub' && caja.dataset.fijo !== '1'); mostrar('piezaTipoCaja', m !== 'producto');
                         if (m === 'producto') {
                             prodSel.disabled = false;
                             prodSel.innerHTML = ''; opcion(prodSel, '', T.eligePieza);

@@ -120,22 +120,24 @@ class FacebookPageController extends Controller
             $plan = app(\App\Services\PlanMediosService::class);
             foreach ($campaigns->where('plan_medios', true) as $c) {
                 $campaignPiezas[$c->id] = [
-                    'productos' => \App\Services\ProductosService::disponible()
-                        ? $c->productos()->with('tipo:id,nombre,etiqueta', 'subcampana:id,nombre,orden')->orderBy('subcampana_id')->orderBy('tipo_id')->orderByDesc('numero')->get()
-                            ->map(fn($x) => ['id' => $x->id, 'nombre' => $x->codigo() . ' · ' . $x->nombre, 'grupo' => $x->subcampana?->nombre ?? __('Sin subcampaña'),
-                                'tipo' => $x->tipo?->etiquetaSingular(), 'estado' => $x->estado])->values()->all()
-                        : [],
+                    'productos' => [], // cada publicación es una pieza nueva (se crea sola al publicar)
                     'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
                     'tipos' => $plan->tipos($c),
                     'cupos' => $plan->cuposParaPublicar($c),
                 ];
             }
         }
+        // Publicar desde una subcampaña: la campaña y la subcampaña quedan fijas y solo salen las páginas de la campaña
+        $fijo = $request->attributes->get('plan_fijo');
+        if ($fijo) {
+            $idsCampana = $campaignPages[$fijo['campana']->id] ?? [];
+            $pages = $pages->whereIn('id', $idsCampana)->values();
+        }
         $planes = app(\App\Services\PlanService::class);
         $esCliente = !$planes->sinLimites($user);
         $planInfo = $esCliente ? ['limites' => $planes->limites($user), 'permitidas' => $planes->paginasPermitidas($user)->pluck('id')->map(fn($v) => (int) $v)->all()] : null;
         if ($esCliente) $campaigns = collect();
-        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages', 'campaignPiezas', 'esCliente', 'planInfo'));
+        return view('meta.pages.index', compact('pages', 'owners', 'ownerId', 'favIds', 'campaigns', 'campaignPages', 'campaignPiezas', 'esCliente', 'planInfo', 'fijo'));
     }
     public function saveFavorites(Request $request)
     {
@@ -200,8 +202,8 @@ class FacebookPageController extends Controller
     }
 
     /**
-     * En campañas con plan de medios hay que decir qué se publica: la pieza (si la campaña tiene piezas en el
-     * control de productos); si no, la subcampaña (tema) y uno de sus tipos de publicación. Ninguna página
+     * En campañas con plan de medios hay que decir en qué subcampaña (tema) y de qué tipo de publicación es.
+     * Cada publicación queda como una pieza nueva del informe (se crea al terminar de publicar). Ninguna página
      * puede pasarse de su cupo de ese tipo. Deja en la petición los datos normalizados. Devuelve los errores o null.
      */
     private function validarPlanDeMedios(Request $request): ?array
@@ -214,30 +216,19 @@ class FacebookPageController extends Controller
             return null;
         }
         $plan = app(\App\Services\PlanMediosService::class);
-        $campos = [];
-        $conProductos = \App\Services\ProductosService::disponible() && $c->productos()->exists();
-        if ($conProductos) {
-            $prod = $request->filled('producto_id') ? $c->productos()->with('tipo', 'programa')->find((int) $request->input('producto_id')) : null;
-            if (!$prod) return ['producto_id' => __('Elige la pieza que vas a publicar.')];
-            $campos = app(\App\Services\ProductosService::class)->camposDe($prod);
-            $tipo = $campos['tipo_pieza'] ?? null;
-        } else {
-            $subs = $c->subcampanas()->where('is_active', true)->get();
-            $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
-            if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
-            $tipo = null;
-            foreach ($plan->tiposDe($c, $sub) as $t) if (\App\Services\PlanMediosService::clave($t) === \App\Services\PlanMediosService::clave($request->input('tipo_pieza'))) $tipo = $t;
-            if (!$tipo) return ['tipo_pieza' => __('Elige el tipo de pieza de esta publicación.')];
-            $campos = $plan->camposDe($sub, $tipo) + ['subcampana_id' => null];
+        $subs = $c->subcampanas()->where('is_active', true)->get();
+        $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
+        if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
+        $tipo = null;
+        foreach ($plan->tiposDe($c, $sub) as $t) if (\App\Services\PlanMediosService::clave($t) === \App\Services\PlanMediosService::clave($request->input('tipo_pieza'))) $tipo = $t;
+        if (!$tipo) return ['tipo_pieza' => __('Elige el tipo de pieza de esta publicación.')];
+        $excedidos = $plan->excedidos($c, (array) $request->input('page_ids', []), $tipo);
+        if ($excedidos) {
+            $lista = collect($excedidos)->map(fn($e) => __(':pagina (:usados de :cupo)', $e))->implode(', ');
+            return ['page_ids' => __('Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.', ['tipo' => $tipo, 'lista' => $lista])];
         }
-        if ($tipo) {
-            $excedidos = $plan->excedidos($c, (array) $request->input('page_ids', []), $tipo);
-            if ($excedidos) {
-                $lista = collect($excedidos)->map(fn($e) => __(':pagina (:usados de :cupo)', $e))->implode(', ');
-                return ['page_ids' => __('Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.', ['tipo' => $tipo, 'lista' => $lista])];
-            }
-        }
-        $request->merge(['tipo_pieza' => $tipo, 'producto_id' => $campos['producto_id'] ?? null] + $campos);
+        $request->request->remove('producto_id');
+        $request->merge(['tipo_pieza' => $tipo] + $plan->camposDe($sub, $tipo) + ['subcampana_id' => null]);
         return null;
     }
 
@@ -686,6 +677,22 @@ class FacebookPageController extends Controller
             ->count();
 
         $fails = collect($results)->where('ok', false)->count();
+
+        // Plan de medios: el lote publicado queda como una pieza del informe (con la primera foto como muestra)
+        if ($request->filled('campaign_id') && \App\Services\ProductosService::disponible()) {
+            try {
+                $camp = \App\Models\Campaign::find((int) $request->campaign_id);
+                if ($camp?->plan_medios) {
+                    $prod = app(\App\Services\ProductosService::class);
+                    $prod->asegurarPiezas($camp);
+                    $pieza = \App\Models\Producto::whereIn('id', MetaPost::where('batch_uuid', $batch)->whereNotNull('producto_id')->select('producto_id'))->first();
+                    $foto = $request->file('photos')[0] ?? null;
+                    if ($pieza && !$pieza->muestra_path && $foto instanceof \Illuminate\Http\UploadedFile && $foto->isValid()) $prod->guardarMuestra($pieza, $foto);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[plan de medios] no se pudo crear la pieza del lote', ['batch' => $batch, 'error' => $e->getMessage()]);
+            }
+        }
 
         $mensaje = match (true) {
             $published > 0 && $queued > 0 => __('Listo: publicados :publicados y en cola :cola. Fallidos: :fallidos.', ['publicados' => $published, 'cola' => $queued, 'fallidos' => $fails]),

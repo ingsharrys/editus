@@ -280,6 +280,97 @@ class ProductosService
         });
     }
 
+    /**
+     * Cada vez que se publica en la campaña (un lote = la misma pieza en varias páginas) queda una pieza para el informe.
+     * Agrupa en piezas las publicaciones exitosas de la campaña que aún no tienen. Devuelve cuántas piezas creó.
+     */
+    public function asegurarPiezas(Campaign $c): int
+    {
+        if (!self::disponible()) return 0;
+        $sueltas = MetaPost::where('campaign_id', $c->id)->whereNull('producto_id')->where('status', 'success')
+            ->orderBy('published_at')->orderBy('id')->get(['id', 'batch_uuid', 'subcampana_id', 'tipo_pieza', 'message', 'type', 'published_at']);
+        if ($sueltas->isEmpty()) return 0;
+        $tipos = TipoPublicacion::where('campaign_id', $c->id)->get();
+        $subs = Subcampana::where('campaign_id', $c->id)->get()->keyBy('id');
+        $n = 0;
+        foreach ($sueltas->groupBy(fn($x) => $x->batch_uuid ?: 'post-' . $x->id) as $lote) {
+            $primero = $lote->first();
+            $tipo = $tipos->first(fn($t) => PlanMediosService::clave($t->etiquetaSingular()) === PlanMediosService::clave($primero->tipo_pieza))
+                ?? $tipos->first(fn($t) => PlanMediosService::clave($t->nombre) === PlanMediosService::clave($primero->tipo_pieza));
+            $sub = $subs->get((int) $primero->subcampana_id);
+            $p = $this->guardar($c, [
+                'tipo_id' => $tipo?->id, 'subcampana_id' => $sub?->id,
+                'nombre' => Str::limit(trim(preg_replace('/\s+/', ' ', (string) $primero->message)), 120, '…') ?: ($tipo?->etiquetaSingular() ?? 'Publicación'),
+                'estado' => 'Publicado / Entregado', 'fecha_publicacion' => $primero->published_at?->toDateString(),
+            ]);
+            // Solo se vinculan: las publicaciones ya tienen su subcampaña, tipo y programa
+            MetaPost::whereIn('id', $lote->pluck('id'))->update(['producto_id' => $p->id]);
+            $n++;
+        }
+        return $n;
+    }
+
+    /** Mueve una pieza (con todas sus publicaciones) a otra subcampaña y/o tipo de publicación. */
+    public function mover(Producto $p, ?Subcampana $sub, ?TipoPublicacion $tipo): bool
+    {
+        $p->subcampana_id = $sub?->id;
+        if ($tipo && (int) $p->tipo_id !== (int) $tipo->id) {
+            $p->tipo_id = $tipo->id;
+            $p->numero = $this->siguienteNumero($p->campaign, $tipo->id);
+        }
+        if ($p->isDirty('subcampana_id')) {
+            $p->programa_id = $sub?->programa_id;
+            $p->subprograma = $sub?->subprograma;
+        }
+        if (!$p->isDirty()) return false;
+        $p->save();
+        $this->aplicarAPosts($p->fresh());
+        return true;
+    }
+
+    /** Programa a partir de lo escrito en la subcampaña («6-1. ETV: dengue…» o «ETV: dengue…»): lo busca o lo crea. */
+    public function programaDesdeTexto(Campaign $c, ?string $texto): ?Programa
+    {
+        $texto = trim(preg_replace('/\s+/u', ' ', (string) $texto));
+        if ($texto === '') return null;
+        $texto = preg_replace('/^programa\s+/iu', '', $texto);
+        [$codigo, $nombre] = preg_match('/^([0-9]+(?:\s*-\s*[0-9]+)?)\s*[.:\-–]\s*(.+)$/u', $texto, $m) ? [preg_replace('/\s+/', '', $m[1]), trim($m[2])] : ['', $texto];
+        $todos = Programa::where('campaign_id', $c->id)->get();
+        $p = $todos->first(fn($x) => $codigo !== '' ? $x->codigo === $codigo : mb_strtolower($x->nombre) === mb_strtolower($nombre))
+            ?? $todos->first(fn($x) => mb_strtolower($x->etiqueta()) === mb_strtolower($texto));
+        if ($p) {
+            if ($p->nombre !== $nombre) $p->forceFill(['nombre' => mb_substr($nombre, 0, 190)])->save();
+            return $p;
+        }
+        return Programa::create(['campaign_id' => $c->id, 'codigo' => mb_substr($codigo, 0, 20), 'nombre' => mb_substr($nombre, 0, 190), 'subprogramas' => [],
+            'orden' => (int) Programa::where('campaign_id', $c->id)->max('orden') + 1]);
+    }
+
+    /**
+     * Publicado por subcampaña y tipo de publicación: [sub_id|0 => [tipo_id => ['piezas' => n, 'publicaciones' => n, 'planeadas' => n|null]]].
+     * «piezas» = piezas con al menos una publicación; «publicaciones» = en cuántas páginas o sitios web salió.
+     */
+    public function matrizSubcampanas(Campaign $c): array
+    {
+        $plan = Subcampana::with('tipos')->where('campaign_id', $c->id)->get();
+        $piezas = Producto::where('campaign_id', $c->id)->withCount(['posts' => fn($q) => $q->where('status', 'success')])
+            ->withCount(['publicaciones' => fn($q) => $q->whereNull('meta_post_id')])->get(['id', 'subcampana_id', 'tipo_id']);
+        $out = [];
+        foreach ($piezas as $p) {
+            $pub = $p->posts_count + $p->publicaciones_count;
+            if (!$pub) continue;
+            $k = (int) $p->subcampana_id;
+            $out[$k][(int) $p->tipo_id] ??= ['piezas' => 0, 'publicaciones' => 0, 'planeadas' => null];
+            $out[$k][(int) $p->tipo_id]['piezas']++;
+            $out[$k][(int) $p->tipo_id]['publicaciones'] += $pub;
+        }
+        foreach ($plan as $s) foreach ($s->tipos as $t) {
+            $out[$s->id][$t->id] ??= ['piezas' => 0, 'publicaciones' => 0, 'planeadas' => null];
+            $out[$s->id][$t->id]['planeadas'] = $t->pivot->cantidad;
+        }
+        return $out;
+    }
+
     // ───────────────────────── Textos del informe ─────────────────────────
 
     /** «17 de Diciembre de 2025» */

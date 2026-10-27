@@ -4,7 +4,7 @@
 @php
     $inp = 'w-full h-9 rounded-lg border-gray-200 text-sm';
     $lbl = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1';
-    $mapaSubprog = $programas->mapWithKeys(fn($x) => [$x->id => $x->listaSubprogramas()]);
+    $mapaSubprog = $programas->mapWithKeys(fn($x) => [$x->etiqueta() => $x->listaSubprogramas()]);
 @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
@@ -17,8 +17,12 @@
         </div>
     @endif
 
+    @if ($conTipos)
+        <div class="flex justify-end mb-3"><a href="{{ route('campaigns.banners.crear', $c) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Registrar banner en páginas web') }}</a></div>
+    @endif
     <form method="POST" action="{{ route('campaigns.plan.subcampanas.guardar', $c) }}">
         @csrf
+        <datalist id="dlProgramas">@foreach ($programas as $p)<option value="{{ $p->etiqueta() }}">@endforeach</datalist>
         <div id="listaSubs" class="space-y-4">
             @foreach ($subs as $i => $s)
                 @php $asig = $conTipos ? $s->tipos->keyBy('id') : collect(); $av = $avance->get($s->id); @endphp
@@ -28,7 +32,7 @@
                         <div class="sm:col-span-3"><label class="{{ $lbl }}">{{ __('Subcampaña') }} *</label><input name="subs[{{ $i }}][nombre]" maxlength="120" value="{{ $s->nombre }}" class="{{ $inp }} font-semibold"></div>
                         @if ($conTipos)
                             <div class="sm:col-span-4"><label class="{{ $lbl }}">{{ __('Programa') }}</label>
-                                <select name="subs[{{ $i }}][programa_id]" class="{{ $inp }}" data-prog="{{ $i }}"><option value="">—</option>@foreach ($programas as $p)<option value="{{ $p->id }}" @selected((int) $s->programa_id === $p->id)>{{ $p->etiqueta() }}</option>@endforeach</select></div>
+                                <input name="subs[{{ $i }}][programa_texto]" list="dlProgramas" maxlength="200" value="{{ $s->programaContrato?->etiqueta() }}" placeholder="{{ __('Ej: 6. ETV: Dengue y Fiebre Amarilla') }}" class="{{ $inp }}" data-prog="{{ $i }}"></div>
                         @else
                             <div class="sm:col-span-4"><label class="{{ $lbl }}">{{ __('Programa') }}</label><input name="subs[{{ $i }}][programa]" maxlength="190" value="{{ $s->programa }}" class="{{ $inp }}"></div>
                         @endif
@@ -59,11 +63,14 @@
                     @endif
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <input name="subs[{{ $i }}][descripcion]" maxlength="500" value="{{ $s->descripcion }}" placeholder="{{ __('Descripción (opcional)') }}" class="flex-1 min-w-[12rem] h-9 rounded-lg border-gray-200 text-xs">
-                        <div class="flex flex-wrap gap-3 text-xs">
-                            <a href="{{ route('campaigns.plan', [$c, 'sub' => $s->id]) }}" class="font-semibold text-indigo-700 hover:underline">{{ __('Métricas') }} ({{ $s->posts_count }})</a>
+                        <div class="flex flex-wrap items-center gap-2 text-xs">
                             @if ($conTipos)
-                                <a href="{{ route('campaigns.productos', [$c, 'subcampana' => $s->id]) }}" class="font-semibold text-indigo-700 hover:underline">{{ __('Piezas') }} ({{ $s->productos_count }})</a>
-                                <a href="{{ route('campaigns.informes', [$c, 'subcampana' => $s->id]) }}" class="font-semibold text-indigo-700 hover:underline">{{ __('Informe') }}</a>
+                                <a href="{{ route('campaigns.subcampanas.ver', [$c, $s]) }}" class="h-8 inline-flex items-center rounded-lg bg-indigo-50 text-indigo-800 px-3 font-semibold hover:bg-indigo-100">{{ __('Abrir') }} · {{ __(':n publicación(es)', ['n' => $s->posts_count]) }}</a>
+                                @if ($s->is_active && auth()->user()->tienePermiso('paginas.publicar'))
+                                    <a href="{{ route('campaigns.subcampanas.publicar', [$c, $s]) }}" class="h-8 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 font-semibold hover:opacity-90">{{ __('Publicar') }}</a>
+                                @endif
+                            @else
+                                <a href="{{ route('campaigns.plan', [$c, 'sub' => $s->id]) }}" class="font-semibold text-indigo-700 hover:underline">{{ __('Métricas') }} ({{ $s->posts_count }})</a>
                             @endif
                         </div>
                     </div>
@@ -77,7 +84,7 @@
                     <div class="sm:col-span-3"><label class="{{ $lbl }}">{{ __('Subcampaña') }} *</label><input name="subs[__i__][nombre]" maxlength="120" placeholder="{{ __('Ej: Dengue') }}" class="{{ $inp }} font-semibold"></div>
                     @if ($conTipos)
                         <div class="sm:col-span-4"><label class="{{ $lbl }}">{{ __('Programa') }}</label>
-                            <select name="subs[__i__][programa_id]" class="{{ $inp }}" data-prog="__i__"><option value="">—</option>@foreach ($programas as $p)<option value="{{ $p->id }}">{{ $p->etiqueta() }}</option>@endforeach</select></div>
+                            <input name="subs[__i__][programa_texto]" list="dlProgramas" maxlength="200" placeholder="{{ __('Ej: 6. ETV: Dengue y Fiebre Amarilla') }}" class="{{ $inp }}" data-prog="__i__"></div>
                     @else
                         <div class="sm:col-span-4"><label class="{{ $lbl }}">{{ __('Programa') }}</label><input name="subs[__i__][programa]" maxlength="190" class="{{ $inp }}"></div>
                     @endif
@@ -122,7 +129,7 @@
         dl.innerHTML = '';
         (mapa[sel.value] || []).forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); });
     };
-    const enlazar = (i) => { const sel = document.querySelector('[data-prog="' + i + '"]'); if (sel) { sel.addEventListener('change', () => llenar(i)); llenar(i); } };
+    const enlazar = (i) => { const sel = document.querySelector('[data-prog="' + i + '"]'); if (sel) { sel.addEventListener('input', () => llenar(i)); llenar(i); } };
     let i = {{ $subs->count() }};
     for (let j = 0; j < i; j++) enlazar(j);
     const agregar = () => {

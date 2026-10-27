@@ -80,8 +80,10 @@ class ProductosController extends Controller
     public function borrar(Campaign $campaign, Producto $producto)
     {
         $this->exigir($campaign, $producto);
+        $sub = $producto->subcampana_id;
         $this->prod->borrar($producto);
-        return redirect()->route('campaigns.productos', $campaign)->with('success', __('Pieza borrada. Sus publicaciones quedan sin pieza.'));
+        return redirect()->to($sub ? route('campaigns.subcampanas.ver', [$campaign, $sub]) : route('campaigns.plan.subcampanas', $campaign))
+            ->with('success', __('Pieza borrada.'));
     }
 
     private function formulario(Campaign $c, Producto $p)
