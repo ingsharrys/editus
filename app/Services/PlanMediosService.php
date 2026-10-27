@@ -7,12 +7,13 @@ use App\Models\CampaignCupo;
 use App\Models\MetaPage;
 use App\Models\MetaPost;
 use App\Models\Subcampana;
+use App\Models\TipoPublicacion;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Plan de medios de una campaña: subcampañas (p. ej. «Dengue»), cupos de piezas por tipo
+ * Plan de medios de una campaña: subcampañas (temas, p. ej. «Dengue») con sus tipos de publicación, cupos de piezas por tipo
  * y por página (p. ej. 20 Video Corto, 56 Video Largo) y métricas por subcampaña y de toda la campaña.
  *
  * Una «pieza» es una publicación en una página: si se publicó a la vez en Facebook e Instagram
@@ -40,15 +41,23 @@ class PlanMediosService
         return mb_strtolower(trim((string) $tipo));
     }
 
+    public static function conTipos(): bool
+    {
+        if (app()->bound('plan_medios.tipos')) return true;
+        if (!Schema::hasTable('campaign_tipos')) return false;
+        app()->instance('plan_medios.tipos', true);
+        return true;
+    }
+
     /**
-     * Tipos de pieza de la campaña: los de sus subcampañas (cada subcampaña es un tipo de publicación,
-     * p. ej. «Video Largo») o, si aún no tiene, los escritos en el certificado.
+     * Tipos de pieza de la campaña: los nombres singulares de sus tipos de publicación (p. ej. «Video Largo»)
+     * o, si aún no tiene, los escritos en el certificado.
      */
     public function tipos(Campaign $c): array
     {
-        if (self::disponible() && Schema::hasColumn('campaign_subcampanas', 'etiqueta')) {
-            $subs = Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
-            if ($subs->isNotEmpty()) return array_values(array_unique($subs->map(fn($x) => $x->etiquetaSingular())->all()));
+        if (self::conTipos()) {
+            $tipos = TipoPublicacion::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
+            if ($tipos->isNotEmpty()) return array_values(array_unique($tipos->map(fn($x) => $x->etiquetaSingular())->all()));
         }
         return $this->cert->config($c)['tipos_pieza'];
     }
@@ -60,18 +69,19 @@ class PlanMediosService
         return null;
     }
 
-    // ───────────────────────── Subcampañas (tipos de publicación) ─────────────────────────
+    // ───────────────────────── Subcampañas (temas) ─────────────────────────
 
     /**
-     * Guarda las filas del formulario de subcampañas: [['id'?, 'nombre', 'etiqueta', 'clase', 'tipo', 'formato',
-     * 'unidad', 'plantilla', 'titulo_informe', 'is_active', 'borrar'?], ...]. Si cambia el nombre singular,
-     * se actualizan sus publicaciones y sus cupos.
+     * Guarda las filas del formulario de subcampañas: [['id'?, 'nombre', 'programa_id', 'subprograma', 'descripcion',
+     * 'is_active', 'tipos' => [tipo_id => ['on' => 1, 'cantidad' => n]], 'borrar'?], ...].
      */
     public function guardarSubcampanas(Campaign $c, array $filas): void
     {
-        $conInforme = Schema::hasColumn('campaign_subcampanas', 'etiqueta');
-        DB::transaction(function () use ($c, $filas, $conInforme) {
+        $conTipos = self::conTipos() && Schema::hasColumn('campaign_subcampanas', 'programa_id');
+        DB::transaction(function () use ($c, $filas, $conTipos) {
             $orden = 0;
+            $tiposCampana = $conTipos ? TipoPublicacion::where('campaign_id', $c->id)->pluck('id')->map(fn($v) => (int) $v)->all() : [];
+            $progs = $conTipos && Schema::hasTable('campaign_programas') ? \App\Models\Programa::where('campaign_id', $c->id)->get()->keyBy('id') : collect();
             foreach ($filas as $f) {
                 $id = (int) ($f['id'] ?? 0);
                 $sub = $id ? Subcampana::where('campaign_id', $c->id)->find($id) : null;
@@ -85,51 +95,107 @@ class PlanMediosService
                     continue;
                 }
                 $sub ??= new Subcampana(['campaign_id' => $c->id]);
-                $antes = $sub->exists ? $sub->etiquetaSingular() : null;
-                $txt = fn($k, $max) => array_key_exists($k, $f) ? (mb_substr(trim((string) $f[$k]), 0, $max) ?: null) : $sub->{$k};
                 $datos = [
                     'nombre' => mb_substr($nombre, 0, 120),
-                    'descripcion' => $txt('descripcion', 500),
+                    'descripcion' => array_key_exists('descripcion', $f) ? (mb_substr(trim((string) $f['descripcion']), 0, 500) ?: null) : $sub->descripcion,
                     'is_active' => (bool) ($f['is_active'] ?? false),
                     'orden' => $orden++,
                 ];
-                if (array_key_exists('programa', $f)) $datos['programa'] = $txt('programa', 190);
-                if (array_key_exists('subprograma', $f)) $datos['subprograma'] = $txt('subprograma', 190);
-                if ($conInforme) {
-                    $clase = (string) ($f['clase'] ?? $sub->clase ?? 'redes');
-                    $datos += [
-                        'etiqueta' => $txt('etiqueta', 80), 'tipo' => $txt('tipo', 40), 'formato' => $txt('formato', 80),
-                        'unidad' => $txt('unidad', 120), 'plantilla' => $txt('plantilla', 500), 'titulo_informe' => $txt('titulo_informe', 120),
-                        'clase' => array_key_exists($clase, Subcampana::CLASES) ? $clase : 'redes',
-                    ];
+                if (array_key_exists('subprograma', $f)) $datos['subprograma'] = mb_substr(trim((string) $f['subprograma']), 0, 190) ?: null;
+                if ($conTipos && array_key_exists('programa_id', $f)) {
+                    $prog = $progs->get((int) $f['programa_id']);
+                    $datos['programa_id'] = $prog?->id;
+                    $datos['programa'] = $prog ? app(ProductosService::class)->textoPrograma($prog) : null;
+                } elseif (array_key_exists('programa', $f)) {
+                    $datos['programa'] = mb_substr(trim((string) $f['programa']), 0, 190) ?: null;
                 }
                 $sub->fill($datos);
-                $cambioCert = $sub->exists && $sub->isDirty(['programa', 'subprograma']) && $sub->programa;
+                $cambioCert = $sub->exists && $sub->isDirty(['programa', 'subprograma']);
                 $sub->save();
                 if ($cambioCert) $this->copiarAPublicaciones($sub);
-                $despues = $sub->etiquetaSingular();
-                if ($antes !== null && $antes !== $despues) {
-                    MetaPost::where('subcampana_id', $sub->id)->update(['tipo_pieza' => $despues]);
-                    CampaignCupo::where('campaign_id', $c->id)->get()->filter(fn($q) => self::clave($q->tipo_pieza) === self::clave($antes))
-                        ->each(fn($q) => $q->update(['tipo_pieza' => $despues]));
+                if ($conTipos && array_key_exists('tipos', $f)) {
+                    $sync = [];
+                    foreach ((array) $f['tipos'] as $tipoId => $t) {
+                        if (!in_array((int) $tipoId, $tiposCampana, true) || empty($t['on'])) continue;
+                        $cant = $t['cantidad'] ?? null;
+                        $sync[(int) $tipoId] = ['cantidad' => $cant === null || $cant === '' ? null : max(0, (int) $cant)];
+                    }
+                    $sub->tipos()->sync($sync);
                 }
             }
         });
     }
 
-    /** Programa y subprograma del certificado escritos en la subcampaña (forma anterior), en todas sus publicaciones. */
+    /** Programa y subprograma de la subcampaña en sus publicaciones sin pieza (las con pieza usan los de la pieza). */
     public function copiarAPublicaciones(Subcampana $s): int
     {
         return MetaPost::where('subcampana_id', $s->id)->when(ProductosService::disponible(), fn($q) => $q->whereNull('producto_id'))
-            ->update(['programa' => $s->programa ?: $s->nombre, 'subprograma' => $s->subprograma]);
+            ->update(['programa' => $s->programa, 'subprograma' => $s->subprograma]);
     }
 
-    /** Campos de la publicación según la subcampaña elegida (sin pieza). */
-    public function camposDe(?Subcampana $s): array
+    /** Campos de la publicación según la subcampaña y el tipo elegidos (sin pieza). */
+    public function camposDe(?Subcampana $s, ?string $tipo = null): array
     {
-        if (!$s) return [];
-        return ['subcampana_id' => $s->id, 'tipo_pieza' => $s->etiquetaSingular()]
-            + ($s->programa ? ['programa' => $s->programa, 'subprograma' => $s->subprograma] : []);
+        $out = [];
+        if ($s) $out['subcampana_id'] = $s->id;
+        if ($tipo) $out['tipo_pieza'] = $tipo;
+        if ($s && ($s->programa || $s->subprograma)) $out += ['programa' => $s->programa, 'subprograma' => $s->subprograma];
+        return $out;
+    }
+
+    /** Tipos (nombres singulares) que se pueden publicar en la subcampaña: los asignados o, si no tiene, todos. */
+    public function tiposDe(Campaign $c, ?Subcampana $s): array
+    {
+        if ($s && self::conTipos()) {
+            $asignados = $s->tipos()->where('campaign_tipos.is_active', true)->get()->map(fn($x) => $x->etiquetaSingular())->unique()->values()->all();
+            if ($asignados) return $asignados;
+        }
+        return $this->tipos($c);
+    }
+
+    // ───────────────────────── Tipos de publicación ─────────────────────────
+
+    /**
+     * Guarda las filas del formulario de tipos: [['id'?, 'nombre', 'etiqueta', 'clase', 'tipo', 'formato', 'unidad',
+     * 'plantilla', 'titulo_informe', 'is_active', 'borrar'?], ...]. Si cambia el nombre singular, se actualizan
+     * las publicaciones y los cupos de ese tipo.
+     */
+    public function guardarTipos(Campaign $c, array $filas): void
+    {
+        DB::transaction(function () use ($c, $filas) {
+            $orden = 0;
+            foreach ($filas as $f) {
+                $id = (int) ($f['id'] ?? 0);
+                $t = $id ? TipoPublicacion::where('campaign_id', $c->id)->find($id) : null;
+                $nombre = trim((string) ($f['nombre'] ?? ''));
+                if (!empty($f['borrar']) || $nombre === '') {
+                    if ($t) {
+                        if (ProductosService::disponible()) \App\Models\Producto::where('tipo_id', $t->id)->update(['tipo_id' => null]);
+                        $t->delete();
+                    }
+                    continue;
+                }
+                $t ??= new TipoPublicacion(['campaign_id' => $c->id]);
+                $antes = $t->exists ? $t->etiquetaSingular() : null;
+                $txt = fn($k, $max) => array_key_exists($k, $f) ? (mb_substr(trim((string) $f[$k]), 0, $max) ?: null) : $t->{$k};
+                $clase = (string) ($f['clase'] ?? $t->clase ?? 'redes');
+                $t->fill([
+                    'nombre' => mb_substr($nombre, 0, 120),
+                    'etiqueta' => $txt('etiqueta', 80), 'tipo' => $txt('tipo', 40), 'formato' => $txt('formato', 80),
+                    'unidad' => $txt('unidad', 120), 'plantilla' => $txt('plantilla', 500), 'titulo_informe' => $txt('titulo_informe', 120),
+                    'clase' => array_key_exists($clase, TipoPublicacion::CLASES) ? $clase : 'redes',
+                    'is_active' => (bool) ($f['is_active'] ?? false),
+                    'orden' => $orden++,
+                ]);
+                $t->save();
+                $despues = $t->etiquetaSingular();
+                if ($antes !== null && $antes !== $despues) {
+                    MetaPost::where('campaign_id', $c->id)->where('tipo_pieza', $antes)->update(['tipo_pieza' => $despues]);
+                    CampaignCupo::where('campaign_id', $c->id)->get()->filter(fn($q) => self::clave($q->tipo_pieza) === self::clave($antes))
+                        ->each(fn($q) => $q->update(['tipo_pieza' => $despues]));
+                }
+            }
+        });
     }
 
     // ───────────────────────── Cupos ─────────────────────────

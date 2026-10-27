@@ -8,6 +8,7 @@ use App\Models\MetaPage;
 use App\Models\MetaPost;
 use App\Models\Role;
 use App\Models\Subcampana;
+use App\Models\TipoPublicacion;
 use App\Models\User;
 use App\Services\CampanasService;
 use App\Services\PlanMediosService;
@@ -47,14 +48,26 @@ class PlanMediosTest extends TestCase
         $this->c->refresh();
     }
 
-    /** Subcampañas = tipos de publicación: Videos cortos (Video Corto), Videos largos (Video Largo), Post 600x600 (Post). */
-    private function subcampanas(): array
+    /** Tipos de publicación de la campaña: Videos cortos (Video Corto), Videos largos (Video Largo), Post 600x600 (Post). */
+    private function tiposPublicacion(): array
     {
-        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+        $this->actingAs($this->admin)->post(route('campaigns.plan.tipos.guardar', $this->c), ['tipos' => [
             ['nombre' => 'Videos cortos', 'etiqueta' => 'Video Corto', 'clase' => 'redes', 'tipo' => 'VIDEO', 'is_active' => '1'],
             ['nombre' => 'Videos largos', 'etiqueta' => 'Video Largo', 'clase' => 'redes', 'tipo' => 'VIDEO', 'unidad' => 'video largo', 'is_active' => '1'],
             ['nombre' => 'Post 600x600', 'etiqueta' => 'Post', 'clase' => 'redes', 'formato' => '600 x 600 px', 'is_active' => '1'],
             ['nombre' => '', 'etiqueta' => 'fila vacía: no se crea'],
+        ]])->assertRedirect(route('campaigns.plan.tipos', $this->c));
+        return TipoPublicacion::orderBy('orden')->get()->all();
+    }
+
+    /** Subcampañas = temas: «Dengue» (Videos cortos ×3 y Videos largos) y «Vacunación» (sin tipos asignados = todos). */
+    private function subcampanas(): array
+    {
+        [$vc, $vl] = $this->tiposPublicacion();
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['nombre' => 'Dengue', 'subprograma' => 'Dengue', 'is_active' => '1', 'tipos' => [$vc->id => ['on' => '1', 'cantidad' => '3'], $vl->id => ['on' => '1', 'cantidad' => '']]],
+            ['nombre' => 'Vacunación', 'is_active' => '1'],
+            ['nombre' => '', 'subprograma' => 'fila vacía: no se crea'],
         ]])->assertRedirect(route('campaigns.plan.subcampanas', $this->c));
         return Subcampana::orderBy('orden')->get()->all();
     }
@@ -88,40 +101,51 @@ class PlanMediosTest extends TestCase
         $this->actingAs($normal)->get(route('campaigns.plan', $this->c))->assertForbidden();
     }
 
-    public function test_subcampanas_son_tipos_de_publicacion_y_al_renombrarlas_se_actualizan_publicaciones_y_cupos(): void
+    public function test_subcampanas_son_temas_con_sus_tipos_de_publicacion(): void
     {
         $this->guardarCampana();
-        [$cortos, $largos] = $this->subcampanas();
-        $this->assertSame(3, Subcampana::count());
-        $this->assertSame(['Videos cortos', 'Video Corto', 'redes', 'VIDEO', 0], [$cortos->nombre, $cortos->etiqueta, $cortos->clase, $cortos->tipo, $cortos->orden]);
-        $this->assertSame(['Video Corto', 'Video Largo', 'Post'], app(PlanMediosService::class)->tipos($this->c), 'los tipos de pieza salen de las subcampañas');
+        [$dengue, $vacunas] = $this->subcampanas();
+        [$vc, $vl, $post] = TipoPublicacion::orderBy('orden')->get()->all();
+        $this->assertSame(2, Subcampana::count());
+        $this->assertSame(['Dengue', 'Dengue', 0], [$dengue->nombre, $dengue->subprograma, $dengue->orden]);
+        $this->assertSame([$vc->id => 3, $vl->id => null], $dengue->tipos->mapWithKeys(fn($t) => [$t->id => $t->pivot->cantidad])->all());
+        $plan = app(PlanMediosService::class);
+        $this->assertSame(['Video Corto', 'Video Largo', 'Post'], $plan->tipos($this->c), 'los tipos de pieza son los tipos de publicación');
+        $this->assertSame(['Video Corto', 'Video Largo'], $plan->tiposDe($this->c, $dengue));
+        $this->assertSame(['Video Corto', 'Video Largo', 'Post'], $plan->tiposDe($this->c, $vacunas), 'sin tipos asignados: todos');
+        $this->actingAs($this->admin)->get(route('campaigns.plan.subcampanas', $this->c))->assertOk()->assertSee('Dengue')->assertSee('Tipos de publicación de esta subcampaña');
+        $this->actingAs($this->admin)->get(route('campaigns.plan.tipos', $this->c))->assertOk()->assertSee('Videos largos');
 
+        // Renombrar el singular de un tipo: cambian sus publicaciones y su cupo
         $p = MetaPost::create(['meta_page_id' => $this->canal6->id, 'user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'type' => 'video', 'status' => 'success',
-            'subcampana_id' => $cortos->id, 'tipo_pieza' => 'Video Corto']);
+            'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto']);
         $this->actingAs($this->admin)->post(route('campaigns.plan.cupos.guardar', $this->c), ['cupos' => ['defecto' => ['20', '56', '']]])->assertRedirect();
-
-        // Renombrar el singular: cambian sus publicaciones y su cupo
-        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
-            ['id' => $cortos->id, 'nombre' => 'Videos cortos', 'etiqueta' => 'Reel', 'clase' => 'redes', 'is_active' => '1'],
-            ['id' => $largos->id, 'nombre' => 'Videos largos', 'etiqueta' => 'Video Largo', 'clase' => 'redes', 'is_active' => '0'],
+        $this->actingAs($this->admin)->post(route('campaigns.plan.tipos.guardar', $this->c), ['tipos' => [
+            ['id' => $vc->id, 'nombre' => 'Videos cortos', 'etiqueta' => 'Reel', 'clase' => 'redes', 'is_active' => '1'],
+            ['id' => $vl->id, 'nombre' => 'Videos largos', 'etiqueta' => 'Video Largo', 'clase' => 'redes', 'is_active' => '0'],
+            ['id' => $post->id, 'nombre' => 'Post 600x600', 'etiqueta' => 'Post', 'clase' => 'redes', 'is_active' => '1'],
         ]])->assertRedirect();
         $this->assertSame('Reel', $p->fresh()->tipo_pieza);
-        $this->assertSame(20, app(PlanMediosService::class)->cupoDe(app(PlanMediosService::class)->cupos($this->c), $this->canal6->id, 'Reel'));
-        $this->assertFalse($largos->fresh()->is_active);
-        $this->assertSame(3, Subcampana::count(), 'las filas que no vienen en el formulario se conservan');
+        $this->assertSame(20, $plan->cupoDe($plan->cupos($this->c), $this->canal6->id, 'Reel'));
+        $this->assertFalse($vl->fresh()->is_active);
 
-        // Borrar: la publicación queda sin subcampaña
+        // Quitar un tipo de la subcampaña y borrar la subcampaña: la publicación queda sin subcampaña
         $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
-            ['id' => $cortos->id, 'nombre' => 'Videos cortos', 'borrar' => '1'],
+            ['id' => $dengue->id, 'nombre' => 'Dengue', 'is_active' => '1', 'tipos' => [$vc->id => ['on' => '1', 'cantidad' => '5'], $vl->id => ['on' => '0']]],
+            ['id' => $vacunas->id, 'nombre' => 'Vacunación', 'is_active' => '1'],
         ]])->assertRedirect();
-        $this->assertNull(Subcampana::find($cortos->id));
+        $this->assertSame([$vc->id => 5], $dengue->fresh()->tipos->mapWithKeys(fn($t) => [$t->id => $t->pivot->cantidad])->all());
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['id' => $dengue->id, 'nombre' => 'Dengue', 'borrar' => '1'],
+        ]])->assertRedirect();
+        $this->assertNull(Subcampana::find($dengue->id));
         $this->assertNull($p->fresh()->subcampana_id);
     }
 
-    public function test_publicar_exige_subcampana_y_respeta_los_cupos_por_pagina(): void
+    public function test_publicar_exige_subcampana_y_uno_de_sus_tipos_y_respeta_los_cupos_por_pagina(): void
     {
         $this->guardarCampana();
-        [$cortos, $largos] = $this->subcampanas();
+        [$dengue, $vacunas] = $this->subcampanas();
         // Por defecto 2 «Video Corto» por página; Canal 6 tiene 3
         $this->actingAs($this->admin)->post(route('campaigns.plan.cupos.guardar', $this->c), ['cupos' => [
             'defecto' => [0 => '2', 1 => '', 2 => '10'],
@@ -135,35 +159,38 @@ class PlanMediosTest extends TestCase
         $this->assertSame(2, $plan->cupoDe($cupos, $this->otra->id, 'Video Corto'));
         $this->assertNull($plan->cupoDe($cupos, $this->otra->id, 'Video Largo'), 'sin cupo = sin límite');
 
-        // La pantalla de publicar trae las subcampañas, los tipos y los cupos de la campaña
+        // La pantalla de publicar trae las subcampañas con sus tipos y los cupos de la campaña
         $r = $this->actingAs($this->admin)->get(route('meta.pages.index'))->assertOk()->assertSee('id="piezaSub"', false);
         preg_match("/data-piezas='([^']*)'/", $r->getContent(), $mm);
         $conf = json_decode(html_entity_decode($mm[1] ?? '{}'), true)[$this->c->id] ?? null;
-        $this->assertSame(['Videos cortos', 'Video Corto'], [$conf['subs'][0]['nombre'] ?? null, $conf['subs'][0]['tipo'] ?? null]);
+        $this->assertSame(['Dengue', ['Video Corto', 'Video Largo']], [$conf['subs'][0]['nombre'] ?? null, $conf['subs'][0]['tipos'] ?? null]);
         $this->assertSame([0, 3], $conf['cupos'][$this->canal6->id]['video corto'] ?? null);
 
         Http::fake(['graph.facebook.com/*' => Http::response(['id' => '1_1', 'permalink_url' => 'https://fb.com/x'], 200)]);
         $paginas = [$this->canal6->id, $this->otra->id];
 
         $this->publicar(['page_ids' => $paginas, 'tipo_pieza' => 'Video Corto'])->assertSessionHasErrors('subcampana_id');
-        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => 99999])->assertSessionHasErrors('subcampana_id');
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => 99999, 'tipo_pieza' => 'Video Corto'])->assertSessionHasErrors('subcampana_id');
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id])->assertSessionHasErrors('tipo_pieza');
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Post'])->assertSessionHasErrors('tipo_pieza');
         $this->assertSame(0, MetaPost::count());
 
-        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $cortos->id])->assertSessionHasNoErrors();
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'video corto'])->assertSessionHasNoErrors();
         $post = MetaPost::latest('id')->first();
-        $this->assertSame([$cortos->id, 'Video Corto'], [(int) $post->subcampana_id, $post->tipo_pieza], 'el tipo sale de la subcampaña');
-        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $cortos->id])->assertSessionHasNoErrors();
+        $this->assertSame([$dengue->id, 'Video Corto', 'Dengue'], [(int) $post->subcampana_id, $post->tipo_pieza, $post->subprograma]);
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto'])->assertSessionHasNoErrors();
 
         // «Otra página» ya usó sus 2: no se publica en ninguna (hay que quitarla o subir el cupo)
-        $r = $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $cortos->id]);
+        $r = $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto']);
         $r->assertSessionHasErrors('page_ids');
         $this->assertStringContainsString('Otra página (2 de 2)', session('errors')->first('page_ids'));
         $this->assertSame(4, MetaPost::count());
         // Canal 6 aún tiene uno
-        $this->publicar(['page_ids' => [$this->canal6->id], 'subcampana_id' => $cortos->id])->assertSessionHasNoErrors();
-        $this->publicar(['page_ids' => [$this->canal6->id], 'subcampana_id' => $cortos->id])->assertSessionHasErrors('page_ids');
-        // Otro tipo sin cupo: sin límite
-        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $largos->id])->assertSessionHasNoErrors();
+        $this->publicar(['page_ids' => [$this->canal6->id], 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto'])->assertSessionHasNoErrors();
+        $this->publicar(['page_ids' => [$this->canal6->id], 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto'])->assertSessionHasErrors('page_ids');
+        // Otro tipo sin cupo: sin límite; la subcampaña sin tipos asignados acepta cualquiera
+        $this->publicar(['page_ids' => $paginas, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Largo'])->assertSessionHasNoErrors();
+        $this->publicar(['page_ids' => [$this->otra->id], 'subcampana_id' => $vacunas->id, 'tipo_pieza' => 'Post'])->assertSessionHasNoErrors();
 
         $this->assertSame(['video corto' => 3, 'video largo' => 1], $plan->usados($this->c)[$this->canal6->id]);
         $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertOk()->assertSee('3 / 3')->assertSee('2 / 2');
@@ -193,39 +220,39 @@ class PlanMediosTest extends TestCase
     public function test_metricas_por_subcampana_y_de_toda_la_campana(): void
     {
         $this->guardarCampana();
-        [$cortos, $largos] = $this->subcampanas();
+        [$dengue, $vacunas] = $this->subcampanas();
         $post = fn(array $d) => MetaPost::create($d + ['user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'type' => 'video', 'network' => 'facebook', 'status' => 'success', 'published_at' => now(), 'batch_uuid' => (string) Str::uuid()]);
-        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $cortos->id, 'tipo_pieza' => 'Video Corto', 'alcance' => 1000, 'visualizaciones' => 800, 'interacciones' => 50]);
-        $post(['meta_page_id' => $this->otra->id, 'subcampana_id' => $cortos->id, 'tipo_pieza' => 'Video Corto', 'alcance' => 500, 'visualizaciones' => 300, 'interacciones' => 20]);
-        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $largos->id, 'tipo_pieza' => 'Video Largo', 'alcance' => 200, 'visualizaciones' => 0, 'interacciones' => 5]);
+        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Corto', 'alcance' => 1000, 'visualizaciones' => 800, 'interacciones' => 50]);
+        $post(['meta_page_id' => $this->otra->id, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Video Largo', 'alcance' => 500, 'visualizaciones' => 300, 'interacciones' => 20]);
+        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $vacunas->id, 'tipo_pieza' => 'Post', 'alcance' => 200, 'visualizaciones' => 0, 'interacciones' => 5]);
         $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => null, 'tipo_pieza' => null, 'alcance' => 100, 'interacciones' => 1]);
-        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $cortos->id, 'tipo_pieza' => 'Video Corto', 'alcance' => 99999, 'status' => 'fail']);
+        $post(['meta_page_id' => $this->canal6->id, 'subcampana_id' => $dengue->id, 'tipo_pieza' => 'Post', 'alcance' => 99999, 'status' => 'fail']);
 
         $m = app(PlanMediosService::class)->metricas($this->c);
         $this->assertSame(['piezas' => 4, 'alcance' => 1800, 'interacciones' => 76], array_intersect_key($m['total'], array_flip(['piezas', 'alcance', 'interacciones'])));
         $porSub = collect($m['por_subcampana'])->mapWithKeys(fn($r) => [$r['sub']?->nombre ?? 'sin' => [$r['piezas'], $r['alcance']]])->all();
-        $this->assertSame(['Videos cortos' => [2, 1500], 'Videos largos' => [1, 200], 'Post 600x600' => [0, 0], 'sin' => [1, 100]], $porSub);
+        $this->assertSame(['Dengue' => [2, 1500], 'Vacunación' => [1, 200], 'sin' => [1, 100]], $porSub);
 
-        $d = app(PlanMediosService::class)->metricas($this->c, $cortos->id);
+        $d = app(PlanMediosService::class)->metricas($this->c, $dengue->id);
         $this->assertSame(1500, $d['seleccion']['alcance']);
-        $this->assertSame(['Video Corto'], $d['por_tipo']->keys()->all());
+        $this->assertSame(['Video Corto', 'Video Largo'], $d['por_tipo']->keys()->all());
         $this->assertSame(['Canal 6 Alfasurt', 'Otra página'], collect($d['por_pagina'])->pluck('pagina')->all());
 
-        $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertOk()->assertSee('Videos cortos')->assertSee('1.800')->assertSee('Sin subcampaña');
-        $this->actingAs($this->admin)->get(route('campaigns.plan', [$this->c, 'sub' => $cortos->id]))->assertOk()->assertSee('1.500');
+        $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertOk()->assertSee('Dengue')->assertSee('1.800')->assertSee('Sin subcampaña');
+        $this->actingAs($this->admin)->get(route('campaigns.plan', [$this->c, 'sub' => $dengue->id]))->assertOk()->assertSee('1.500');
         $this->actingAs($this->admin)->get(route('campaigns.plan', [$this->c, 'sub' => 0]))->assertOk();
         $this->actingAs($this->admin)->get(route('campaigns.plan', [$this->c, 'sub' => 9999]))->assertNotFound();
     }
 
-    public function test_clasificar_publicaciones_ya_hechas_con_subcampana(): void
+    public function test_clasificar_publicaciones_ya_hechas_con_subcampana_y_tipo(): void
     {
         $this->guardarCampana();
-        [, $largos] = $this->subcampanas();
+        [$dengue] = $this->subcampanas();
         $p = MetaPost::create(['meta_page_id' => $this->canal6->id, 'user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'type' => 'video', 'status' => 'success', 'message' => 'Cuidado con el zancudo']);
         $this->actingAs($this->admin)->get(route('campaigns.piezas', [$this->c, 'sin' => 1]))->assertOk()->assertSee('Cuidado con el zancudo')->assertSee('— Sin subcampaña —');
-        $this->actingAs($this->admin)->post(route('campaigns.piezas.guardar', $this->c), ['piezas' => [$p->id => ['subcampana_id' => $largos->id, 'tipo_pieza' => '']]])->assertRedirect();
+        $this->actingAs($this->admin)->post(route('campaigns.piezas.guardar', $this->c), ['piezas' => [$p->id => ['subcampana_id' => $dengue->id, 'tipo_pieza' => 'video largo']]])->assertRedirect();
         $p->refresh();
-        $this->assertSame([$largos->id, 'Video Largo'], [(int) $p->subcampana_id, $p->tipo_pieza]);
+        $this->assertSame([$dengue->id, 'Video Largo', 'Dengue'], [(int) $p->subcampana_id, $p->tipo_pieza, $p->subprograma]);
         $this->actingAs($this->admin)->post(route('campaigns.piezas.guardar', $this->c), ['piezas' => [$p->id => ['subcampana_id' => '', 'tipo_pieza' => '']]])->assertRedirect();
         $this->assertSame([null, null], [$p->fresh()->subcampana_id, $p->fresh()->tipo_pieza]);
     }

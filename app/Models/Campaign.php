@@ -41,6 +41,12 @@ class Campaign extends Model
         'informe' => 'array',
     ];
 
+    /** Tipos de publicación del plan de medios (Videos largos, Banner 1600x185, En vivos…). */
+    public function tiposPublicacion()
+    {
+        return $this->hasMany(TipoPublicacion::class)->orderBy('orden')->orderBy('id');
+    }
+
     /** Programas del contrato (con sus subprogramas). */
     public function programas()
     {

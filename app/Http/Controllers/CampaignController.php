@@ -175,7 +175,7 @@ class CampaignController extends Controller
         return view('campaigns.piezas', [
             'c' => $campaign, 'posts' => $posts, 'paginas' => $paginas,
             'subs' => \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get() : collect(),
-            'productos' => \App\Services\ProductosService::disponible() ? $campaign->productos()->with('subcampana')->orderBy('subcampana_id')->orderByDesc('numero')->get() : collect(),
+            'productos' => \App\Services\ProductosService::disponible() ? $campaign->productos()->with('subcampana', 'tipo')->orderBy('subcampana_id')->orderBy('tipo_id')->orderByDesc('numero')->get() : collect(),
             'tipos' => $this->cert->config($campaign)['tipos_pieza'], 'cert' => $this->cert,
         ]);
     }
@@ -192,7 +192,7 @@ class CampaignController extends Controller
         ]);
         $plan = app(\App\Services\PlanMediosService::class);
         $subs = \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get()->keyBy('id') : collect();
-        $productos = \App\Services\ProductosService::disponible() ? $campaign->productos()->with('subcampana', 'programa')->get()->keyBy('id') : collect();
+        $productos = \App\Services\ProductosService::disponible() ? $campaign->productos()->with('tipo', 'programa')->get()->keyBy('id') : collect();
         $prodSrv = app(\App\Services\ProductosService::class);
         $n = 0;
         foreach ($d['piezas'] as $id => $f) {

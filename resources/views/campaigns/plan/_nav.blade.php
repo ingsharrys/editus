@@ -7,20 +7,28 @@
             <h1 class="text-2xl sm:text-3xl font-bold text-[#00024f] tracking-tight">{{ $c->name }}</h1>
             @if ($c->starts_on)<p class="text-xs text-gray-500 mt-0.5">{{ $c->starts_on->format('d/m/Y') }}{{ $c->ends_on ? ' – ' . $c->ends_on->format('d/m/Y') : '' }}</p>@endif
         </div>
-        <a href="{{ route('campaigns.edit', $c) }}#inscripcion" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Editar campaña') }}</a>
+        <div class="flex flex-wrap gap-2">
+            @if (\App\Services\ProductosService::disponible())
+                <a href="{{ route('campaigns.informes', $c) }}" class="h-9 inline-flex items-center gap-1.5 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold hover:opacity-90">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+                    {{ __('Descargar informes') }}</a>
+            @endif
+            <a href="{{ route('campaigns.edit', $c) }}#inscripcion" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Editar campaña') }}</a>
+        </div>
     </div>
     @php
         $pestanas = [
             ['campaigns.plan', __('Tablero'), 'campaigns.plan'],
             ['campaigns.productos', __('Productos'), 'campaigns.productos*'],
             ['campaigns.plan.subcampanas', __('Subcampañas'), 'campaigns.plan.subcampanas*'],
+            ['campaigns.plan.tipos', __('Tipos de publicación'), 'campaigns.plan.tipos*'],
             ['campaigns.plan.programas', __('Programas'), 'campaigns.plan.programas*'],
             ['campaigns.plan.cupos', __('Cupos por página'), 'campaigns.plan.cupos*'],
             ['campaigns.piezas', __('Clasificar publicaciones'), 'campaigns.piezas*'],
             ['campaigns.informes', __('Informes'), 'campaigns.informes*'],
         ];
         // Productos, programas e informes existen después de migrar
-        if (!\App\Services\ProductosService::disponible()) $pestanas = array_values(array_filter($pestanas, fn($x) => !in_array($x[0], ['campaigns.productos', 'campaigns.plan.programas', 'campaigns.informes'], true)));
+        if (!\App\Services\ProductosService::disponible()) $pestanas = array_values(array_filter($pestanas, fn($x) => !in_array($x[0], ['campaigns.productos', 'campaigns.plan.programas', 'campaigns.informes', 'campaigns.plan.tipos'], true)));
     @endphp
     <nav class="mt-4 flex gap-1 overflow-x-auto border-b border-gray-200">
         @foreach ($pestanas as [$ruta, $et, $patron])

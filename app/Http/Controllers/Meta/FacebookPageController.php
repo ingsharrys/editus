@@ -121,11 +121,11 @@ class FacebookPageController extends Controller
             foreach ($campaigns->where('plan_medios', true) as $c) {
                 $campaignPiezas[$c->id] = [
                     'productos' => \App\Services\ProductosService::disponible()
-                        ? $c->productos()->with('subcampana:id,nombre,etiqueta,orden')->orderBy('subcampana_id')->orderByDesc('numero')->get()
-                            ->map(fn($x) => ['id' => $x->id, 'nombre' => $x->codigo() . ' · ' . $x->nombre, 'grupo' => $x->subcampana?->nombre ?? __('Sin tipo'),
-                                'tipo' => $x->subcampana?->etiquetaSingular(), 'estado' => $x->estado])->values()->all()
+                        ? $c->productos()->with('tipo:id,nombre,etiqueta', 'subcampana:id,nombre,orden')->orderBy('subcampana_id')->orderBy('tipo_id')->orderByDesc('numero')->get()
+                            ->map(fn($x) => ['id' => $x->id, 'nombre' => $x->codigo() . ' · ' . $x->nombre, 'grupo' => $x->subcampana?->nombre ?? __('Sin subcampaña'),
+                                'tipo' => $x->tipo?->etiquetaSingular(), 'estado' => $x->estado])->values()->all()
                         : [],
-                    'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipo' => $x->etiquetaSingular()])->values()->all(),
+                    'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
                     'tipos' => $plan->tipos($c),
                     'cupos' => $plan->cuposParaPublicar($c),
                 ];
@@ -201,7 +201,7 @@ class FacebookPageController extends Controller
 
     /**
      * En campañas con plan de medios hay que decir qué se publica: la pieza (si la campaña tiene piezas en el
-     * control de productos), si no la subcampaña (tipo de publicación), y si no el tipo de pieza. Ninguna página
+     * control de productos); si no, la subcampaña (tema) y uno de sus tipos de publicación. Ninguna página
      * puede pasarse de su cupo de ese tipo. Deja en la petición los datos normalizados. Devuelve los errores o null.
      */
     private function validarPlanDeMedios(Request $request): ?array
@@ -217,7 +217,7 @@ class FacebookPageController extends Controller
         $campos = [];
         $conProductos = \App\Services\ProductosService::disponible() && $c->productos()->exists();
         if ($conProductos) {
-            $prod = $request->filled('producto_id') ? $c->productos()->with('subcampana', 'programa')->find((int) $request->input('producto_id')) : null;
+            $prod = $request->filled('producto_id') ? $c->productos()->with('tipo', 'programa')->find((int) $request->input('producto_id')) : null;
             if (!$prod) return ['producto_id' => __('Elige la pieza que vas a publicar.')];
             $campos = app(\App\Services\ProductosService::class)->camposDe($prod);
             $tipo = $campos['tipo_pieza'] ?? null;
@@ -225,9 +225,10 @@ class FacebookPageController extends Controller
             $subs = $c->subcampanas()->where('is_active', true)->get();
             $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
             if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
-            $campos = $sub ? $plan->camposDe($sub) : ['subcampana_id' => null];
-            $tipo = $sub ? $campos['tipo_pieza'] : $plan->tipoValido($c, $request->input('tipo_pieza'));
+            $tipo = null;
+            foreach ($plan->tiposDe($c, $sub) as $t) if (\App\Services\PlanMediosService::clave($t) === \App\Services\PlanMediosService::clave($request->input('tipo_pieza'))) $tipo = $t;
             if (!$tipo) return ['tipo_pieza' => __('Elige el tipo de pieza de esta publicación.')];
+            $campos = $plan->camposDe($sub, $tipo) + ['subcampana_id' => null];
         }
         if ($tipo) {
             $excedidos = $plan->excedidos($c, (array) $request->input('page_ids', []), $tipo);

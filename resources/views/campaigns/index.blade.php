@@ -86,6 +86,9 @@
                     @endif
                     @if ($c->plan_medios && !$c->is_system)
                         <a href="{{ route('campaigns.plan', $c) }}" class="h-9 inline-flex items-center rounded-lg bg-emerald-50 text-emerald-800 px-3 text-xs font-semibold hover:bg-emerald-100">{{ __('Tablero del plan') }}</a>
+                        @if (\App\Services\ProductosService::disponible())
+                            <a href="{{ route('campaigns.informes', $c) }}" class="h-9 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold hover:opacity-90">{{ __('Informes (Word, PDF, Excel)') }}</a>
+                        @endif
                     @endif
                     <a href="{{ route('reports.posts', ['campaign_id' => $c->id]) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Ver publicaciones') }}</a>
                     @unless ($c->is_system)

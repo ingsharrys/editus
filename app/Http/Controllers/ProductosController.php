@@ -33,23 +33,27 @@ class ProductosController extends Controller
     public function index(Request $request, Campaign $campaign)
     {
         $this->exigir($campaign);
-        $q = Producto::with('subcampana', 'programa')->withCount(['posts' => fn($x) => $x->where('status', 'success')])->withCount('publicaciones')
+        $q = Producto::with('tipo', 'subcampana', 'programa')->withCount(['posts' => fn($x) => $x->where('status', 'success')])->withCount('publicaciones')
             ->where('campaign_id', $campaign->id)
-            ->when($request->query('sub'), fn($x, $v) => $x->where('subcampana_id', (int) $v))
+            ->when($request->query('tipo'), fn($x, $v) => $x->where('tipo_id', (int) $v))
+            ->when($request->query('subcampana'), fn($x, $v) => (int) $v === -1 ? $x->whereNull('subcampana_id') : $x->where('subcampana_id', (int) $v))
             ->when($request->query('programa'), fn($x, $v) => $x->where('programa_id', (int) $v))
             ->when($request->query('estado'), fn($x, $v) => $x->where('estado', $v))
             ->when(trim((string) $request->query('q')), fn($x, $v) => $x->where('nombre', 'like', '%' . $v . '%'))
-            ->orderBy('subcampana_id')->orderByDesc('numero');
+            ->orderBy('tipo_id')->orderByDesc('numero');
         return view('campaigns.plan.productos', [
             'c' => $campaign, 'productos' => $q->paginate(50)->withQueryString(), 'resumen' => $this->prod->resumen($campaign),
-            'subs' => $campaign->subcampanas()->get(), 'programas' => $campaign->programas()->get(), 'estados' => Producto::ESTADOS,
+            'avance' => $this->prod->avanceSubcampanas($campaign),
+            'tipos' => $campaign->tiposPublicacion()->get(), 'subs' => $campaign->subcampanas()->get(), 'programas' => $campaign->programas()->get(), 'estados' => Producto::ESTADOS,
         ]);
     }
 
     public function crear(Request $request, Campaign $campaign)
     {
         $this->exigir($campaign);
-        $p = new Producto(['campaign_id' => $campaign->id, 'estado' => 'Pendiente', 'subcampana_id' => $request->integer('sub') ?: null]);
+        $sub = $request->integer('subcampana') ? $campaign->subcampanas()->find($request->integer('subcampana')) : null;
+        $p = new Producto(['campaign_id' => $campaign->id, 'estado' => 'Pendiente', 'tipo_id' => $request->integer('tipo') ?: null,
+            'subcampana_id' => $sub?->id, 'programa_id' => $sub?->programa_id, 'subprograma' => $sub?->subprograma]);
         return $this->formulario($campaign, $p);
     }
 
@@ -63,7 +67,7 @@ class ProductosController extends Controller
     public function ver(Campaign $campaign, Producto $producto)
     {
         $this->exigir($campaign, $producto);
-        return $this->formulario($campaign, $producto->load('subcampana', 'programa'));
+        return $this->formulario($campaign, $producto->load('tipo', 'subcampana', 'programa'));
     }
 
     public function actualizar(Request $request, Campaign $campaign, Producto $producto)
@@ -87,7 +91,7 @@ class ProductosController extends Controller
             ->orderByDesc('published_at')->limit(200)->get() : collect();
         return view('campaigns.plan.producto', [
             'c' => $c, 'p' => $p, 'pubs' => $pubs, 'tot' => $this->prod->totales($pubs), 'sinPieza' => $sinPieza,
-            'subs' => $c->subcampanas()->get(), 'programas' => $c->programas()->get(), 'estados' => Producto::ESTADOS,
+            'tipos' => $c->tiposPublicacion()->get(), 'subs' => $c->subcampanas()->with('tipos')->get(), 'programas' => $c->programas()->get(), 'estados' => Producto::ESTADOS,
             'paginas' => app(CampanasService::class)->paginasDe($c)->sortBy('name')->values(),
             'fechaPub' => $p->exists ? $this->prod->fechaPublicacion($p, $pubs) : null,
             'descripcion' => $p->exists ? $this->prod->descripcion($p, $this->prod->totales($pubs)['medios']) : null,
@@ -97,7 +101,8 @@ class ProductosController extends Controller
     private function validar(Request $request, Campaign $c): array
     {
         return $request->validate([
-            'subcampana_id' => ['required', 'integer', Rule::exists('campaign_subcampanas', 'id')->where('campaign_id', $c->id)],
+            'tipo_id' => ['required', 'integer', Rule::exists('campaign_tipos', 'id')->where('campaign_id', $c->id)],
+            'subcampana_id' => ['nullable', 'integer', Rule::exists('campaign_subcampanas', 'id')->where('campaign_id', $c->id)],
             'programa_id' => ['nullable', 'integer', Rule::exists('campaign_programas', 'id')->where('campaign_id', $c->id)],
             'subprograma' => ['nullable', 'string', 'max:190'],
             'nombre' => ['required', 'string', 'max:255'],
@@ -114,7 +119,7 @@ class ProductosController extends Controller
             'observaciones' => ['nullable', 'string', 'max:5000'],
             'muestra' => ['nullable', 'image', 'max:8192'],
         ], [
-            'subcampana_id.required' => __('Elige el tipo de publicación (subcampaña) de la pieza.'),
+            'tipo_id.required' => __('Elige el tipo de publicación de la pieza.'),
             'link_archivo.url' => __('El link debe ser una dirección completa (https://…).'),
         ]);
     }

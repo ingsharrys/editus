@@ -37,6 +37,7 @@ trait EsquemaPlanMedios
         $migracion->up(); // idempotente
         if ($conPlan) (require database_path('migrations/2026_10_27_000001_plan_de_medios.php'))->up();
         if ($conPlan) (require database_path('migrations/2026_10_28_000001_productos_e_informes.php'))->up();
+        if ($conPlan) (require database_path('migrations/2026_10_29_000001_tipos_de_publicacion.php'))->up();
 
     }
 }

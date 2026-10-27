@@ -66,7 +66,7 @@
                                 <td class="px-3 py-2">
                                     <select name="piezas[{{ $post->id }}][producto_id]" class="{{ $inp }}">
                                         <option value="">{{ __('— Sin pieza —') }}</option>
-                                        @foreach ($productos->groupBy(fn($x) => $x->subcampana?->nombre ?? __('Sin tipo')) as $grupo => $lista)
+                                        @foreach ($productos->groupBy(fn($x) => $x->subcampana?->nombre ?? __('Sin subcampaña')) as $grupo => $lista)
                                             <optgroup label="{{ $grupo }}">@foreach ($lista as $pr)<option value="{{ $pr->id }}" @selected((int) $post->producto_id === (int) $pr->id)>{{ $pr->codigo() }} · {{ \Illuminate\Support\Str::limit($pr->nombre, 60) }}</option>@endforeach</optgroup>
                                         @endforeach
                                     </select>

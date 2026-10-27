@@ -21,11 +21,12 @@ class InformePlanController extends Controller
         });
     }
 
-    public function index(Campaign $campaign)
+    public function index(Request $request, Campaign $campaign)
     {
         $this->exigir($campaign);
         return view('campaigns.plan.informes', [
             'c' => $campaign, 'programas' => $campaign->programas()->get(), 'subs' => $campaign->subcampanas()->get(),
+            'tipos' => $campaign->tiposPublicacion()->get(), 'subElegida' => $request->integer('subcampana') ?: null,
             'membrete' => $this->inf->membrete($campaign),
         ]);
     }
@@ -63,6 +64,7 @@ class InformePlanController extends Controller
         abort_unless(in_array($formato, ['word', 'pdf', 'vista'], true), 404);
         $f = $request->validate([
             'programa_id' => ['nullable', 'integer'], 'subcampana_ids' => ['nullable', 'array'], 'subcampana_ids.*' => ['integer'],
+            'tipo_ids' => ['nullable', 'array'], 'tipo_ids.*' => ['integer'], 'agrupar' => ['nullable', 'in:programa,subcampana'],
             'desde' => ['nullable', 'date'], 'hasta' => ['nullable', 'date'], 'corte' => ['nullable', 'date'],
             'titulo' => ['nullable', 'string', 'max:255'], 'resumen' => ['nullable', 'boolean'],
         ]);

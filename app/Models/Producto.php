@@ -12,7 +12,7 @@ class Producto extends Model
     public const ESTADOS = ['Pendiente', 'En producción', 'En revisión', 'Aprobado', 'Publicado / Entregado'];
 
     protected $fillable = [
-        'campaign_id', 'subcampana_id', 'programa_id', 'subprograma', 'numero', 'nombre', 'descripcion', 'responsable',
+        'campaign_id', 'subcampana_id', 'tipo_id', 'programa_id', 'subprograma', 'numero', 'nombre', 'descripcion', 'responsable',
         'fecha_solicitud', 'fecha_entrega', 'fecha_publicacion', 'fecha_fin', 'estado', 'acta_aprobacion', 'acta_publicacion',
         'link_archivo', 'muestra_path', 'observaciones',
     ];
@@ -35,6 +35,12 @@ class Producto extends Model
         return $this->belongsTo(Subcampana::class);
     }
 
+    /** Tipo de publicación (Videos largos, Banner 1600x185…). */
+    public function tipo()
+    {
+        return $this->belongsTo(TipoPublicacion::class, 'tipo_id');
+    }
+
     public function programa()
     {
         return $this->belongsTo(Programa::class);
@@ -55,7 +61,7 @@ class Producto extends Model
     /** «Video Largo No. 3» */
     public function codigo(): string
     {
-        $et = $this->subcampana?->etiqueta ?: $this->subcampana?->nombre ?: 'Pieza';
+        $et = $this->tipo?->etiquetaSingular() ?: 'Pieza';
         return $et . ' No. ' . $this->numero;
     }
 }

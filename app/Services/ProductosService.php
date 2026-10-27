@@ -9,6 +9,7 @@ use App\Models\Producto;
 use App\Models\ProductoPublicacion;
 use App\Models\Programa;
 use App\Models\Subcampana;
+use App\Models\TipoPublicacion;
 use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -18,8 +19,8 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Control de productos del plan de medios: cada pieza (producto) es de un tipo de publicación (subcampaña)
- * y de un programa; se publica en varios medios (desde editus o registrada a mano) y de ahí salen
+ * Control de productos del plan de medios: cada pieza (producto) es de un tipo de publicación, de una subcampaña
+ * (tema, p. ej. «Dengue») y de un programa; se publica en varios medios (desde editus o registrada a mano) y de ahí salen
  * las métricas, el informe y el certificado de cada medio.
  */
 class ProductosService
@@ -31,7 +32,7 @@ class ProductosService
     public static function disponible(): bool
     {
         if (app()->bound('productos.disponible')) return true;
-        if (!Schema::hasTable('campaign_productos') || !Schema::hasColumn('meta_posts', 'producto_id')) return false;
+        if (!Schema::hasTable('campaign_productos') || !Schema::hasColumn('meta_posts', 'producto_id') || !Schema::hasColumn('campaign_productos', 'tipo_id')) return false;
         app()->instance('productos.disponible', true);
         return true;
     }
@@ -92,22 +93,28 @@ class ProductosService
 
     // ───────────────────────── Productos ─────────────────────────
 
-    public function siguienteNumero(Campaign $c, ?int $subcampanaId): int
+    public function siguienteNumero(Campaign $c, ?int $tipoId): int
     {
-        return (int) Producto::where('campaign_id', $c->id)->where('subcampana_id', $subcampanaId)->max('numero') + 1;
+        return (int) Producto::where('campaign_id', $c->id)->where('tipo_id', $tipoId)->max('numero') + 1;
     }
 
-    /** Crea o actualiza una pieza (y su muestra). Si cambia su tipo o programa, se actualizan sus publicaciones. */
+    /**
+     * Crea o actualiza una pieza (y su muestra). Es de un tipo de publicación y, si se elige, de una subcampaña;
+     * si no se escribe programa o subprograma, se usan los de la subcampaña. Si cambian, se actualizan sus publicaciones.
+     */
     public function guardar(Campaign $c, array $d, ?Producto $p = null, ?UploadedFile $muestra = null): Producto
     {
         $p ??= new Producto(['campaign_id' => $c->id]);
-        $sub = isset($d['subcampana_id']) ? Subcampana::where('campaign_id', $c->id)->find((int) $d['subcampana_id']) : null;
-        $prog = !empty($d['programa_id']) ? Programa::where('campaign_id', $c->id)->find((int) $d['programa_id']) : null;
+        $tipo = !empty($d['tipo_id']) ? TipoPublicacion::where('campaign_id', $c->id)->find((int) $d['tipo_id']) : null;
+        $sub = !empty($d['subcampana_id']) ? Subcampana::where('campaign_id', $c->id)->find((int) $d['subcampana_id']) : null;
+        $prog = !empty($d['programa_id']) ? Programa::where('campaign_id', $c->id)->find((int) $d['programa_id'])
+            : ($sub?->programa_id ? Programa::where('campaign_id', $c->id)->find($sub->programa_id) : null);
         $txt = fn($k, $max) => ($v = trim((string) ($d[$k] ?? ''))) !== '' ? mb_substr($v, 0, $max) : null;
         $p->fill([
+            'tipo_id' => $tipo?->id,
             'subcampana_id' => $sub?->id,
             'programa_id' => $prog?->id,
-            'subprograma' => $txt('subprograma', 190),
+            'subprograma' => $txt('subprograma', 190) ?? $sub?->subprograma,
             'nombre' => $txt('nombre', 255) ?? 'Pieza',
             'descripcion' => $txt('descripcion', 5000),
             'responsable' => $txt('responsable', 120),
@@ -121,8 +128,8 @@ class ProductosService
             'link_archivo' => $txt('link_archivo', 500),
             'observaciones' => $txt('observaciones', 5000),
         ]);
-        if (!$p->exists || $p->isDirty('subcampana_id')) $p->numero = $this->siguienteNumero($c, $p->subcampana_id);
-        $cambio = $p->exists && $p->isDirty(['subcampana_id', 'programa_id', 'subprograma']);
+        if (!$p->exists || $p->isDirty('tipo_id')) $p->numero = $this->siguienteNumero($c, $p->tipo_id);
+        $cambio = $p->exists && $p->isDirty(['tipo_id', 'subcampana_id', 'programa_id', 'subprograma']);
         $p->save();
         if ($muestra) $this->guardarMuestra($p, $muestra);
         if ($cambio) $this->aplicarAPosts($p->fresh());
@@ -148,29 +155,25 @@ class ProductosService
         $p->delete();
     }
 
-    /** Campos de una publicación de editus según su pieza (tipo, programa y subprograma del certificado). */
+    /** Campos de una publicación de editus según su pieza (subcampaña, tipo, programa y subprograma del certificado). */
     public function camposDe(?Producto $p): array
     {
         if (!$p) return [];
-        $p->loadMissing('subcampana', 'programa');
-        return array_filter([
+        $p->loadMissing('tipo', 'programa');
+        return [
             'producto_id' => $p->id,
             'subcampana_id' => $p->subcampana_id,
-            'tipo_pieza' => $p->subcampana?->etiquetaSingular(),
+            'tipo_pieza' => $p->tipo?->etiquetaSingular(),
             'programa' => $this->textoPrograma($p->programa),
             'subprograma' => $p->subprograma,
-        ], fn($v) => $v !== null) + ['producto_id' => $p->id];
+        ];
     }
 
     public function aplicarAPosts(Producto $p): int
     {
-        $p->loadMissing('subcampana', 'programa');
-        return MetaPost::where('producto_id', $p->id)->update([
-            'subcampana_id' => $p->subcampana_id,
-            'tipo_pieza' => $p->subcampana?->etiquetaSingular(),
-            'programa' => $this->textoPrograma($p->programa),
-            'subprograma' => $p->subprograma,
-        ]);
+        $campos = $this->camposDe($p);
+        unset($campos['producto_id']);
+        return MetaPost::where('producto_id', $p->id)->update($campos);
     }
 
     /**
@@ -236,26 +239,45 @@ class ProductosService
 
     /**
      * Resumen como la hoja «Resumen» del control: piezas por programa (filas) y tipo de publicación (columnas).
-     * @return array{subs: Collection, filas: array, totales: array, total: int}
+     * @return array{tipos: Collection, filas: array, totales: array, total: int}
      */
     public function resumen(Campaign $c): array
     {
-        $subs = Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
+        $tipos = TipoPublicacion::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
         $progs = Programa::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
-        $conteo = Producto::where('campaign_id', $c->id)->select('programa_id', 'subcampana_id', DB::raw('COUNT(*) as n'))
-            ->groupBy('programa_id', 'subcampana_id')->get();
+        $conteo = Producto::where('campaign_id', $c->id)->select('programa_id', 'tipo_id', DB::raw('COUNT(*) as n'))
+            ->groupBy('programa_id', 'tipo_id')->get();
         $filas = [];
         foreach ($progs->concat([null]) as $prog) {
-            $porSub = [];
-            foreach ($subs as $s) $porSub[$s->id] = (int) $conteo->where('programa_id', $prog?->id)->where('subcampana_id', $s->id)->sum('n');
-            $sinTipo = (int) $conteo->where('programa_id', $prog?->id)->whereNull('subcampana_id')->sum('n');
-            $total = array_sum($porSub) + $sinTipo;
+            $porTipo = [];
+            foreach ($tipos as $t) $porTipo[$t->id] = (int) $conteo->where('programa_id', $prog?->id)->where('tipo_id', $t->id)->sum('n');
+            $sinTipo = (int) $conteo->where('programa_id', $prog?->id)->whereNull('tipo_id')->sum('n');
+            $total = array_sum($porTipo) + $sinTipo;
             if ($prog === null && $total === 0) continue;
-            $filas[] = ['programa' => $prog, 'por_sub' => $porSub, 'sin_tipo' => $sinTipo, 'total' => $total];
+            $filas[] = ['programa' => $prog, 'por_tipo' => $porTipo, 'sin_tipo' => $sinTipo, 'total' => $total];
         }
         $tot = [];
-        foreach ($subs as $s) $tot[$s->id] = array_sum(array_map(fn($f) => $f['por_sub'][$s->id], $filas));
-        return ['subs' => $subs, 'filas' => $filas, 'totales' => $tot, 'total' => array_sum(array_column($filas, 'total'))];
+        foreach ($tipos as $t) $tot[$t->id] = array_sum(array_map(fn($f) => $f['por_tipo'][$t->id], $filas));
+        return ['tipos' => $tipos, 'filas' => $filas, 'totales' => $tot, 'total' => array_sum(array_column($filas, 'total'))];
+    }
+
+    /**
+     * Avance de cada subcampaña: piezas creadas y publicadas por tipo frente a las planeadas.
+     * @return Collection<int, array{sub: Subcampana, tipos: array}>
+     */
+    public function avanceSubcampanas(Campaign $c): Collection
+    {
+        $subs = Subcampana::with('tipos', 'programaContrato')->where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
+        $piezas = Producto::where('campaign_id', $c->id)->withCount(['posts' => fn($q) => $q->where('status', 'success')])->withCount('publicaciones')->get();
+        return $subs->map(function (Subcampana $s) use ($piezas) {
+            $filas = [];
+            foreach ($s->tipos as $t) {
+                $de = $piezas->where('subcampana_id', $s->id)->where('tipo_id', $t->id);
+                $filas[] = ['tipo' => $t, 'planeadas' => $t->pivot->cantidad, 'piezas' => $de->count(),
+                    'publicadas' => $de->filter(fn($p) => $p->posts_count + $p->publicaciones_count > 0)->count()];
+            }
+            return ['sub' => $s, 'tipos' => $filas, 'total' => $piezas->where('subcampana_id', $s->id)->count()];
+        });
     }
 
     // ───────────────────────── Textos del informe ─────────────────────────
@@ -320,7 +342,7 @@ class ProductosService
     public function descripcion(Producto $p, int $nMedios): string
     {
         if (trim((string) $p->descripcion) !== '') return trim($p->descripcion);
-        $s = $p->subcampana;
+        $s = $p->tipo;
         $plantilla = trim((string) $s?->plantilla) ?: $this->plantillaDefecto($s?->clase);
         return strtr($plantilla, [
             '{unidad}' => trim((string) $s?->unidad) ?: mb_strtolower((string) ($s?->etiquetaSingular() ?? 'pieza')),

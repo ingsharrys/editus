@@ -4,23 +4,18 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-/** Subcampaña de un plan de medios = tipo de publicación (Videos largos, Banner 1600x185, En vivos…): agrupa sus piezas y define cómo salen en el informe. */
+/**
+ * Subcampaña de un plan de medios: un tema de la campaña (p. ej. «Dengue») con su programa y subprograma
+ * del contrato y los tipos de publicación que lleva (Videos largos, Post 600x600, En vivo…) con su cantidad.
+ * Agrupa piezas y publicaciones, y tiene sus propias métricas.
+ */
 class Subcampana extends Model
 {
     protected $table = 'campaign_subcampanas';
 
     protected $fillable = [
-        'campaign_id', 'nombre', 'programa', 'subprograma', 'descripcion', 'is_active', 'orden',
+        'campaign_id', 'nombre', 'programa', 'subprograma', 'descripcion', 'is_active', 'orden', 'programa_id',
         'etiqueta', 'clase', 'tipo', 'formato', 'unidad', 'plantilla', 'titulo_informe',
-    ];
-
-    /** Cómo se presenta en el informe cada clase de publicación. */
-    public const CLASES = [
-        'redes' => 'Redes sociales (métricas por medio)',
-        'envivo' => 'En vivo (fecha de emisión y métricas)',
-        'web' => 'Páginas web (banner con captura)',
-        'audio' => 'Audio (podcast, cuñas)',
-        'impreso' => 'Impreso',
     ];
 
     protected $casts = ['is_active' => 'boolean', 'orden' => 'integer'];
@@ -40,15 +35,16 @@ class Subcampana extends Model
         return $this->hasMany(Producto::class, 'subcampana_id');
     }
 
-    /** Nombre singular para numerar las piezas: «Video Largo» → «Video Largo No. 1». */
-    public function etiquetaSingular(): string
+    /** Programa del contrato de la subcampaña. */
+    public function programaContrato()
     {
-        return trim((string) $this->etiqueta) ?: (string) $this->nombre;
+        return $this->belongsTo(Programa::class, 'programa_id');
     }
 
-    /** Título de la sección en el informe (p. ej. «VIDEOS LARGOS»). */
-    public function tituloInforme(): string
+    /** Tipos de publicación asignados a la subcampaña (pivot «cantidad» = piezas planeadas). */
+    public function tipos()
     {
-        return mb_strtoupper(trim((string) $this->titulo_informe) ?: (string) $this->nombre);
+        return $this->belongsToMany(TipoPublicacion::class, 'campaign_subcampana_tipo', 'subcampana_id', 'tipo_id')
+            ->withPivot('cantidad')->withTimestamps()->orderBy('campaign_tipos.orden')->orderBy('campaign_tipos.id');
     }
 }

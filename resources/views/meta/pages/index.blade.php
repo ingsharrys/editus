@@ -363,9 +363,9 @@
                         <div class="grid sm:grid-cols-2 gap-2">
                             <div id="piezaProdCaja" class="sm:col-span-2"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Pieza que se publica') }} <span class="text-red-500">*</span></label>
                                 <select name="producto_id" id="piezaProd" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
-                            <div id="piezaSubCaja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña (tipo de publicación)') }} <span class="text-red-500">*</span></label>
+                            <div id="piezaSubCaja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña') }} <span class="text-red-500">*</span></label>
                                 <select name="subcampana_id" id="piezaSub" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
-                            <div id="piezaTipoCaja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de pieza') }} <span class="text-red-500">*</span></label>
+                            <div id="piezaTipoCaja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de publicación') }} <span class="text-red-500">*</span></label>
                                 <select name="tipo_pieza" id="piezaTipo" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
                         </div>
                         <p id="piezaCupos" class="hidden mt-2 text-xs"></p>
@@ -1333,11 +1333,12 @@
                     const opciones = (el, items, vacio, previo) => { el.innerHTML = ''; opcion(el, '', vacio); items.forEach(([v, t]) => opcion(el, v, t, previo)); };
                     const mostrar = (id, si) => { document.getElementById(id).classList.toggle('hidden', !si); };
                     const modo = conf => conf.productos.length ? 'producto' : (conf.subs.length ? 'sub' : 'tipo');
+                    const tiposDeSub = conf => { const s = conf.subs.find(x => String(x.id) === subSel.value); return s && s.tipos.length ? s.tipos : conf.tipos; };
+                    const llenarTipos = conf => opciones(tipoSel, (modo(conf) === 'sub' ? tiposDeSub(conf) : conf.tipos).map(t => [t, t]), T.eligeTipo, tipoSel.value || caja.dataset.oldTipo);
                     const tipoActual = () => {
                         const conf = mapa[sel.value];
                         if (!conf) return '';
                         if (modo(conf) === 'producto') return (conf.productos.find(p => String(p.id) === prodSel.value) || {}).tipo || '';
-                        if (modo(conf) === 'sub') return (conf.subs.find(x => String(x.id) === subSel.value) || {}).tipo || '';
                         return tipoSel.value;
                     };
                     const nombrePagina = cb => cb.dataset.name || ('#' + cb.value);
@@ -1364,7 +1365,7 @@
                         [prodSel, subSel, tipoSel].forEach(x => x.disabled = true);
                         if (!conf) return;
                         const m = modo(conf);
-                        mostrar('piezaProdCaja', m === 'producto'); mostrar('piezaSubCaja', m === 'sub'); mostrar('piezaTipoCaja', m === 'tipo');
+                        mostrar('piezaProdCaja', m === 'producto'); mostrar('piezaSubCaja', m === 'sub'); mostrar('piezaTipoCaja', m !== 'producto');
                         if (m === 'producto') {
                             prodSel.disabled = false;
                             prodSel.innerHTML = ''; opcion(prodSel, '', T.eligePieza);
@@ -1375,17 +1376,19 @@
                                 grupos[g].forEach(p => opcion(og, p.id, p.nombre + (p.estado ? ' — ' + p.estado : ''), caja.dataset.oldProd));
                                 prodSel.appendChild(og);
                             });
-                        } else if (m === 'sub') {
-                            subSel.disabled = false;
-                            opciones(subSel, conf.subs.map(x => [x.id, x.nombre]), T.eligeSub, caja.dataset.oldSub);
                         } else {
+                            if (m === 'sub') {
+                                subSel.disabled = false;
+                                opciones(subSel, conf.subs.map(x => [x.id, x.nombre]), T.eligeSub, caja.dataset.oldSub);
+                            }
                             tipoSel.disabled = false;
-                            opciones(tipoSel, conf.tipos.map(t => [t, t]), T.eligeTipo, caja.dataset.oldTipo);
+                            llenarTipos(conf);
                         }
                         cupos();
                     };
                     sel.addEventListener('change', aplicar);
                     [prodSel, subSel, tipoSel].forEach(x => x.addEventListener('change', cupos));
+                    subSel.addEventListener('change', () => { const conf = mapa[sel.value]; if (conf) { llenarTipos(conf); cupos(); } });
                     document.addEventListener('change', e => { if (e.target.matches && e.target.matches('input[type=checkbox]')) cupos(); });
                     aplicar();
                     window.__validarPlan = () => {
@@ -1394,7 +1397,7 @@
                         const m = modo(conf);
                         if (m === 'producto' && !prodSel.value) { alert(T.eligePieza); prodSel.focus(); return false; }
                         if (m === 'sub' && !subSel.value) { alert(T.eligeSub); subSel.focus(); return false; }
-                        if (m === 'tipo' && !tipoSel.value) { alert(T.eligeTipo); tipoSel.focus(); return false; }
+                        if (m !== 'producto' && !tipoSel.value) { alert(T.eligeTipo); tipoSel.focus(); return false; }
                         return true;
                     };
                 })();

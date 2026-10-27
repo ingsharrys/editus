@@ -8,7 +8,9 @@
     $fmt = fn($n) => number_format((int) $n, 0, ',', '.');
     $muestra = \App\Services\ProductosService::url($c, $p->muestra_path ? ['local', $p->muestra_path] : null);
     $mapaSubprog = $programas->mapWithKeys(fn($x) => [$x->id => $x->listaSubprogramas()]);
-    $esWeb = ($p->subcampana?->clase) === 'web';
+    $esWeb = ($p->tipo?->clase) === 'web';
+    $tiposPorSub = $subs->mapWithKeys(fn($x) => [$x->id => $x->tipos->pluck('id')->all()]);
+    $progPorSub = $subs->mapWithKeys(fn($x) => [$x->id => ['programa' => $x->programa_id, 'subprograma' => $x->subprograma]]);
 @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
@@ -17,7 +19,7 @@
         <div>
             <a href="{{ route('campaigns.productos', $c) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Productos') }}</a>
             <h2 class="text-xl font-bold text-gray-900 mt-0.5">{{ $p->exists ? $p->nombre : __('Nueva pieza') }}</h2>
-            @if ($p->exists)<p class="text-xs text-gray-500">{{ $p->codigo() }} · {{ $p->subcampana?->nombre }}</p>@endif
+            @if ($p->exists)<p class="text-xs text-gray-500">{{ $p->codigo() }}{{ $p->subcampana ? ' · ' . __('Subcampaña') . ' ' . $p->subcampana->nombre : '' }}</p>@endif
         </div>
         @if ($p->exists)
             <form method="POST" action="{{ route('campaigns.productos.borrar', [$c, $p]) }}" onsubmit="return confirm(@js(__('¿Borrar esta pieza? Sus publicaciones de editus quedan sin pieza.')))">@csrf @method('DELETE')
@@ -30,9 +32,11 @@
         @csrf
         <div class="grid lg:grid-cols-[minmax(0,1fr)_16rem] gap-5">
             <div class="space-y-3">
-                <div class="grid sm:grid-cols-2 gap-3">
+                <div class="grid sm:grid-cols-3 gap-3">
+                    <div><label class="{{ $lbl }}">{{ __('Subcampaña') }}</label>
+                        <select name="subcampana_id" id="subSel" class="{{ $inp }}"><option value="">—</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
                     <div><label class="{{ $lbl }}">{{ __('Tipo de publicación') }} *</label>
-                        <select name="subcampana_id" required class="{{ $inp }}"><option value="">—</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
+                        <select name="tipo_id" id="tipoSel" required class="{{ $inp }}"><option value="">—</option>@foreach ($tipos as $t)<option value="{{ $t->id }}" @selected((int) old('tipo_id', $p->tipo_id) === $t->id)>{{ $t->nombre }}</option>@endforeach</select></div>
                     <div><label class="{{ $lbl }}">{{ __('Estado') }} *</label>
                         <select name="estado" class="{{ $inp }}">@foreach ($estados as $e)<option value="{{ $e }}" @selected(old('estado', $p->estado) === $e)>{{ __($e) }}</option>@endforeach</select></div>
                 </div>
@@ -196,6 +200,23 @@
     const sel = document.getElementById('progSel'), dl = document.getElementById('dlSubprog');
     const llenar = () => { dl.innerHTML = ''; (mapa[sel.value] || []).forEach(v => { const o = document.createElement('option'); o.value = v; dl.appendChild(o); }); };
     sel.addEventListener('change', llenar); llenar();
+    // Al elegir la subcampaña: solo sus tipos de publicación y, si están vacíos, su programa y subprograma
+    const porSub = @json($tiposPorSub), progSub = @json($progPorSub);
+    const subSel = document.getElementById('subSel'), tipoSel = document.getElementById('tipoSel');
+    const subInp = document.querySelector('input[name="subprograma"]');
+    const filtrar = () => {
+        const ids = (porSub[subSel.value] || []).map(String);
+        Array.from(tipoSel.options).forEach(o => { if (o.value) o.hidden = ids.length > 0 && !ids.includes(o.value); });
+        if (tipoSel.selectedOptions[0]?.hidden) tipoSel.value = '';
+        if (ids.length === 1 && !tipoSel.value) tipoSel.value = ids[0];
+    };
+    subSel.addEventListener('change', () => {
+        filtrar();
+        const d = progSub[subSel.value];
+        if (d && d.programa && !sel.value) { sel.value = d.programa; llenar(); }
+        if (d && d.subprograma && !subInp.value) subInp.value = d.subprograma;
+    });
+    filtrar();
 })();
 </script>
 @endsection

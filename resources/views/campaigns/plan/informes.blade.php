@@ -16,10 +16,17 @@
         <form method="GET" action="{{ route('campaigns.informes.generar', [$c, 'vista']) }}" class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 space-y-4">
             <div>
                 <h2 class="text-base font-bold text-gray-900">{{ __('Informe de métricas') }}</h2>
-                <p class="text-xs text-gray-500">{{ __('Un capítulo por programa y una sección por tipo de publicación. Cada pieza con su descripción, programa, subprograma, fechas, actas, muestra y, por cada medio, alcance, visualización, interacción, URL y captura.') }}</p>
+                <p class="text-xs text-gray-500">{{ __('Un capítulo por programa (o por subcampaña) y una sección por tipo de publicación. Cada pieza con su descripción, programa, subprograma, fechas, actas, muestra y, por cada medio, alcance, visualización, interacción, URL y captura.') }}</p>
+            </div>
+            <div>
+                <label class="{{ $lbl }}">{{ __('Un capítulo por') }}</label>
+                <div class="flex flex-wrap gap-2">
+                    <label class="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50"><input type="radio" name="agrupar" value="programa" @checked(!$subElegida) class="text-indigo-600"> {{ __('Programa (como el informe de la Secretaría)') }}</label>
+                    <label class="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50"><input type="radio" name="agrupar" value="subcampana" @checked($subElegida) class="text-indigo-600"> {{ __('Subcampaña (Dengue, Vacunación…)') }}</label>
+                </div>
             </div>
             <div class="grid sm:grid-cols-2 gap-3">
-                <div><label class="{{ $lbl }}">{{ __('Programa (capítulo)') }}</label>
+                <div><label class="{{ $lbl }}">{{ __('Programa') }}</label>
                     <select name="programa_id" class="{{ $inp }}"><option value="">{{ __('Todos los programas') }}</option>@foreach ($programas as $p)<option value="{{ $p->id }}">{{ $p->etiqueta() }}</option>@endforeach</select></div>
                 <div><label class="{{ $lbl }}">{{ __('Título del documento') }}</label>
                     <input name="titulo" maxlength="255" value="{{ $membrete['titulo'] }}" placeholder="{{ __('Ej: CAPÍTULO II. PROGRAMA 2 – MÉTRICAS EDITUS') }}" class="{{ $inp }}"></div>
@@ -29,11 +36,21 @@
                 <div><label class="{{ $lbl }}">{{ __('Hasta') }}</label><input type="date" name="hasta" value="{{ $c->ends_on?->toDateString() }}" class="{{ $inp }}"></div>
                 <div><label class="{{ $lbl }}" title="{{ __('«FECHA MÉTRICAS: Del (publicación) al (corte)»') }}">{{ __('Corte de métricas') }}</label><input type="date" name="corte" value="{{ now()->toDateString() }}" class="{{ $inp }}"></div>
             </div>
+            @if ($subs->isNotEmpty())
+                <div>
+                    <label class="{{ $lbl }}">{{ __('Subcampañas') }} <span class="normal-case font-normal text-gray-400">({{ __('ninguna marcada = todas') }})</span></label>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach ($subs as $s)
+                            <label class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1 text-xs has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50"><input type="checkbox" name="subcampana_ids[]" value="{{ $s->id }}" @checked($subElegida === $s->id) class="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"> {{ $s->nombre }}</label>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
             <div>
                 <label class="{{ $lbl }}">{{ __('Tipos de publicación') }}</label>
                 <div class="flex flex-wrap gap-2">
-                    @forelse ($subs as $s)
-                        <label class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1 text-xs has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50"><input type="checkbox" name="subcampana_ids[]" value="{{ $s->id }}" checked class="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"> {{ $s->nombre }}</label>
+                    @forelse ($tipos as $t)
+                        <label class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 px-3 py-1 text-xs has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50"><input type="checkbox" name="tipo_ids[]" value="{{ $t->id }}" checked class="h-3.5 w-3.5 rounded border-gray-300 text-indigo-600"> {{ $t->nombre }}</label>
                     @empty
                         <span class="text-xs text-gray-500">{{ __('Sin tipos de publicación.') }}</span>
                     @endforelse

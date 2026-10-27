@@ -221,6 +221,8 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/campanas/{campaign}/plan', [\App\Http\Controllers\PlanMediosController::class, 'tablero'])->middleware('permiso:campanas')->name('campaigns.plan');
     Route::get('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'subcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas');
     Route::post('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'guardarSubcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas.guardar');
+    Route::get('/campanas/{campaign}/tipos', [\App\Http\Controllers\PlanMediosController::class, 'tipos'])->middleware('permiso:campanas')->name('campaigns.plan.tipos');
+    Route::post('/campanas/{campaign}/tipos', [\App\Http\Controllers\PlanMediosController::class, 'guardarTipos'])->middleware('permiso:campanas')->name('campaigns.plan.tipos.guardar');
     Route::get('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'cupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos');
     Route::post('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'guardarCupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos.guardar');
     // Plan de medios: control de productos (piezas), programas, informes de métricas y Excel

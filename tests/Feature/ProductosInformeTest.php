@@ -11,6 +11,7 @@ use App\Models\ProductoPublicacion;
 use App\Models\Programa;
 use App\Models\Role;
 use App\Models\Subcampana;
+use App\Models\TipoPublicacion;
 use App\Models\User;
 use App\Services\CampanasService;
 use App\Services\InformeMetricasService;
@@ -30,9 +31,10 @@ class ProductosInformeTest extends TestCase
     private Campaign $c;
     private MetaPage $canal4;
     private MetaPage $clic;
-    private Subcampana $largos;
-    private Subcampana $banner;
-    private Subcampana $envivo;
+    private TipoPublicacion $largos;
+    private TipoPublicacion $banner;
+    private TipoPublicacion $envivo;
+    private Subcampana $vacunacion;
     private Programa $p2;
 
     protected function setUp(): void
@@ -51,23 +53,29 @@ class ProductosInformeTest extends TestCase
             'starts_on' => '2025-12-01', 'ends_on' => '2025-12-31'], $this->admin->id);
         $this->c->forceFill(['plan_medios' => true])->save();
 
-        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+        $this->actingAs($this->admin)->post(route('campaigns.plan.tipos.guardar', $this->c), ['tipos' => [
             ['nombre' => 'Videos largos', 'etiqueta' => 'Video Largo', 'clase' => 'redes', 'tipo' => 'VIDEO', 'unidad' => 'video largo', 'is_active' => '1'],
             ['nombre' => 'Banner 1600x185', 'etiqueta' => 'Banner', 'clase' => 'web', 'tipo' => 'IMAGEN', 'formato' => '1600 x 185 px', 'unidad' => 'banner de 1.600x185 px', 'titulo_informe' => 'BANNER 1.600 X 185 PX', 'is_active' => '1'],
             ['nombre' => 'En vivos', 'etiqueta' => 'En vivo', 'clase' => 'envivo', 'is_active' => '1'],
         ]])->assertRedirect();
-        [$this->largos, $this->banner, $this->envivo] = Subcampana::orderBy('orden')->get()->all();
+        [$this->largos, $this->banner, $this->envivo] = TipoPublicacion::orderBy('orden')->get()->all();
         $this->actingAs($this->admin)->post(route('campaigns.plan.programas.guardar', $this->c), ['programas' => [
             ['codigo' => '2', 'nombre' => 'Salud infantil', 'subprogramas' => 'Vacunación, PAI; Nutrición'],
             ['codigo' => '9', 'nombre' => 'Prevención de lesiones por pólvora', 'subprogramas' => ''],
         ]])->assertRedirect();
         $this->p2 = Programa::where('codigo', '2')->first();
+        // Subcampaña (tema) con su programa y los tipos que lleva
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['nombre' => 'Vacunación', 'programa_id' => $this->p2->id, 'subprograma' => 'Vacunación', 'is_active' => '1',
+                'tipos' => [$this->largos->id => ['on' => '1', 'cantidad' => '4'], $this->banner->id => ['on' => '1'], $this->envivo->id => ['on' => '1']]],
+        ]])->assertRedirect();
+        $this->vacunacion = Subcampana::first();
     }
 
     private function pieza(array $d = []): Producto
     {
         $this->actingAs($this->admin)->post(route('campaigns.productos.guardar', $this->c), $d + [
-            'subcampana_id' => $this->largos->id, 'programa_id' => $this->p2->id, 'subprograma' => 'Vacunación', 'nombre' => 'P2 Salud Infantil Sp2 Vacunación',
+            'tipo_id' => $this->largos->id, 'subcampana_id' => $this->vacunacion->id, 'nombre' => 'P2 Salud Infantil Sp2 Vacunación',
             'estado' => 'Aprobado', 'acta_aprobacion' => '103', 'acta_publicacion' => '103', 'link_archivo' => 'https://drive.google.com/file/d/abc/view',
             'muestra' => UploadedFile::fake()->image('muestra.jpg', 800, 450),
         ])->assertRedirect();
@@ -87,7 +95,8 @@ class ProductosInformeTest extends TestCase
         $this->assertSame('2. Salud infantil', $this->p2->etiqueta());
         $a = $this->pieza();
         $b = $this->pieza(['nombre' => 'P2 Salud Infantil Sp2 PAI']);
-        $w = $this->pieza(['subcampana_id' => $this->banner->id, 'nombre' => 'Banner vacunación']);
+        $w = $this->pieza(['tipo_id' => $this->banner->id, 'nombre' => 'Banner vacunación']);
+        $this->assertSame([$this->p2->id, 'Vacunación'], [(int) $a->programa_id, $a->subprograma], 'programa y subprograma vienen de la subcampaña');
         $this->assertSame([1, 2, 1], [$a->numero, $b->numero, $w->numero], 'se numera por tipo de publicación');
         $this->assertSame('Video Largo No. 2', $b->codigo());
         Storage::disk('local')->assertExists($a->muestra_path);
@@ -99,17 +108,21 @@ class ProductosInformeTest extends TestCase
         $this->actingAs($this->admin)->get(route('campaigns.productos.ver', [$this->c, $a]))->assertOk()->assertSee('Video Largo No. 1');
         $this->actingAs($this->admin)->get(route('campaigns.productos.crear', $this->c))->assertOk();
         $this->actingAs($this->admin)->get(route('campaigns.plan.programas', $this->c))->assertOk()->assertSee('Salud infantil');
-        $this->actingAs($this->admin)->get(route('campaigns.plan.subcampanas', $this->c))->assertOk()->assertSee('Banner 1600x185');
+        $this->actingAs($this->admin)->get(route('campaigns.plan.tipos', $this->c))->assertOk()->assertSee('Banner 1600x185');
+        $this->actingAs($this->admin)->get(route('campaigns.plan.subcampanas', $this->c))->assertOk()->assertSee('Vacunación')->assertSee('3/');
+        $this->actingAs($this->admin)->get(route('campaigns.productos', [$this->c, 'subcampana' => $this->vacunacion->id]))->assertOk()->assertSee('2 / 4');
         $this->actingAs($this->admin)->get(route('campaigns.informes', $this->c))->assertOk()->assertSee('Descargar Word');
 
         // Resumen por programa y tipo
         $r = app(ProductosService::class)->resumen($this->c);
         $this->assertSame(3, $r['total']);
-        $this->assertSame([2, 1, 0], array_values($r['filas'][0]['por_sub']));
+        $this->assertSame([2, 1, 0], array_values($r['filas'][0]['por_tipo']));
+        $av = app(ProductosService::class)->avanceSubcampanas($this->c)->first();
+        $this->assertSame([['Videos largos', 4, 2], ['Banner 1600x185', null, 1], ['En vivos', null, 0]], array_map(fn($x) => [$x['tipo']->nombre, $x['planeadas'], $x['piezas']], $av['tipos']));
 
         // Validación: el tipo es obligatorio y el programa debe ser de la campaña
         $this->actingAs($this->admin)->post(route('campaigns.productos.guardar', $this->c), ['nombre' => 'X', 'estado' => 'Aprobado', 'programa_id' => 9999])
-            ->assertSessionHasErrors(['subcampana_id', 'programa_id']);
+            ->assertSessionHasErrors(['tipo_id', 'programa_id']);
     }
 
     public function test_publicar_eligiendo_la_pieza_llena_tipo_programa_y_respeta_cupos(): void
@@ -120,22 +133,22 @@ class ProductosInformeTest extends TestCase
         $pub = fn(array $d) => $this->actingAs($this->admin)->post(route('meta.pages.publish'), $d + ['campaign_id' => $this->c->id, 'type' => 'text', 'networks' => ['facebook'], 'message' => 'Vacúnate', 'page_ids' => [$this->canal4->id]]);
 
         // Con piezas en el control, hay que elegir la pieza (la subcampaña sola no basta)
-        $pub(['subcampana_id' => $this->largos->id])->assertSessionHasErrors('producto_id');
+        $pub(['subcampana_id' => $this->vacunacion->id, 'tipo_pieza' => 'Video Largo'])->assertSessionHasErrors('producto_id');
         $pub(['producto_id' => 99999])->assertSessionHasErrors('producto_id');
         $r = $this->actingAs($this->admin)->get(route('meta.pages.index'))->assertOk()->assertSee('id="piezaProd"', false);
         preg_match("/data-piezas='([^']*)'/", $r->getContent(), $mm);
         $conf = json_decode(html_entity_decode($mm[1] ?? '{}'), true)[$this->c->id];
-        $this->assertSame([$p->id, 'Videos largos', 'Video Largo'], [$conf['productos'][0]['id'], $conf['productos'][0]['grupo'], $conf['productos'][0]['tipo']]);
+        $this->assertSame([$p->id, 'Vacunación', 'Video Largo'], [$conf['productos'][0]['id'], $conf['productos'][0]['grupo'], $conf['productos'][0]['tipo']]);
 
         $pub(['producto_id' => $p->id])->assertSessionHasNoErrors();
         $x = MetaPost::latest('id')->first();
-        $this->assertSame([$p->id, $this->largos->id, 'Video Largo', 'Programa 2. Salud infantil', 'Vacunación'], [(int) $x->producto_id, (int) $x->subcampana_id, $x->tipo_pieza, $x->programa, $x->subprograma]);
+        $this->assertSame([$p->id, $this->vacunacion->id, 'Video Largo', 'Programa 2. Salud infantil', 'Vacunación'], [(int) $x->producto_id, (int) $x->subcampana_id, $x->tipo_pieza, $x->programa, $x->subprograma]);
         // Cupo de 1 «Video Largo» por página
         $pub(['producto_id' => $p->id])->assertSessionHasErrors('page_ids');
 
         // Cambiar el programa de la pieza actualiza sus publicaciones (y el certificado)
         $p9 = Programa::where('codigo', '9')->first();
-        $this->actingAs($this->admin)->post(route('campaigns.productos.actualizar', [$this->c, $p]), ['subcampana_id' => $this->largos->id, 'programa_id' => $p9->id,
+        $this->actingAs($this->admin)->post(route('campaigns.productos.actualizar', [$this->c, $p]), ['tipo_id' => $this->largos->id, 'subcampana_id' => $this->vacunacion->id, 'programa_id' => $p9->id,
             'subprograma' => 'Pólvora', 'nombre' => $p->nombre, 'estado' => 'Publicado / Entregado'])->assertRedirect();
         $this->assertSame(['Programa 9. Prevención de lesiones por pólvora', 'Pólvora'], [$x->fresh()->programa, $x->fresh()->subprograma]);
     }
@@ -185,11 +198,11 @@ class ProductosInformeTest extends TestCase
         $vl = $this->pieza();
         $this->publicacion($vl, $this->canal4);
         $this->publicacion($vl, $this->clic, ['alcance' => 546, 'visualizaciones' => 92, 'fb_permalink_url' => 'https://web.facebook.com/share/v/1AScufF58r/']);
-        $ban = $this->pieza(['subcampana_id' => $this->banner->id, 'nombre' => 'Banner vacunación', 'fecha_publicacion' => '2025-12-01', 'fecha_fin' => '2025-12-30', 'acta_aprobacion' => '095', 'acta_publicacion' => '095']);
+        $ban = $this->pieza(['tipo_id' => $this->banner->id, 'nombre' => 'Banner vacunación', 'fecha_publicacion' => '2025-12-01', 'fecha_fin' => '2025-12-30', 'acta_aprobacion' => '095', 'acta_publicacion' => '095']);
         foreach (['Neiva al Día' => 'https://neivaaldia.com/', 'Neiva 24' => 'https://neiva24.com/', 'La Surco' => 'https://lasurco.co/'] as $m => $u) {
             $this->actingAs($this->admin)->post(route('campaigns.productos.publicaciones.guardar', [$this->c, $ban]), ['medio' => $m, 'url' => $u, 'evidencia' => UploadedFile::fake()->image('w.png', 900, 500)]);
         }
-        $ev = $this->pieza(['subcampana_id' => $this->envivo->id, 'nombre' => 'En vivo IRA y EDA', 'fecha_publicacion' => '2025-12-13', 'acta_aprobacion' => '', 'acta_publicacion' => '',
+        $ev = $this->pieza(['tipo_id' => $this->envivo->id, 'nombre' => 'En vivo IRA y EDA', 'fecha_publicacion' => '2025-12-13', 'acta_aprobacion' => '', 'acta_publicacion' => '',
             'descripcion' => 'Transmisión de un (1) en vivo realizado en la Secretaría de Salud Departamental del Huila con la Enfermera Diana Cortes.']);
         $this->actingAs($this->admin)->post(route('campaigns.productos.publicaciones.guardar', [$this->c, $ev]), ['medio' => 'Opanoticias', 'url' => 'https://www.facebook.com/share/v/1SFW82y7K9/', 'alcance' => '599', 'visualizaciones' => '624', 'interacciones' => '7']);
         // Pieza sin publicaciones: no sale
@@ -229,7 +242,12 @@ class ProductosInformeTest extends TestCase
         $this->assertSame(['titulo' => 'VIDEOS LARGOS', 'piezas' => 1, 'publicaciones' => 2, 'alcance' => 1230, 'visualizaciones' => 203, 'interacciones' => 0], $cap['resumen'][0]);
 
         // Filtros: solo banners / otro programa / fechas
-        $this->assertSame(['BANNER 1.600 X 185 PX'], array_column(app(InformeMetricasService::class)->datos($this->c, ['subcampana_ids' => [$this->banner->id]])['capitulos'][0]['secciones'], 'titulo'));
+        $this->assertSame(['BANNER 1.600 X 185 PX'], array_column(app(InformeMetricasService::class)->datos($this->c, ['tipo_ids' => [$this->banner->id]])['capitulos'][0]['secciones'], 'titulo'));
+
+        // Capítulos por subcampaña
+        $porSub = app(InformeMetricasService::class)->datos($this->c, ['agrupar' => 'subcampana', 'subcampana_ids' => [$this->vacunacion->id], 'corte' => '2026-01-06']);
+        $this->assertSame(['SUBCAMPAÑA VACUNACIÓN'], array_column($porSub['capitulos'], 'titulo'));
+        $this->assertSame(3, count($porSub['capitulos'][0]['secciones']));
         $this->assertSame([], app(InformeMetricasService::class)->datos($this->c, ['programa_id' => Programa::where('codigo', '9')->value('id')])['capitulos']);
         $this->assertSame(['BANNER 1.600 X 185 PX', 'EN VIVOS'], array_column(app(InformeMetricasService::class)->datos($this->c, ['hasta' => '2025-12-15'])['capitulos'][0]['secciones'], 'titulo'));
     }
@@ -295,24 +313,26 @@ class ProductosInformeTest extends TestCase
         $dr = new \PhpOffice\PhpSpreadsheet\Worksheet\Drawing();
         $dr->setPath($png)->setCoordinates('E5')->setWorksheet($ws);
         $ws2 = $ss->createSheet()->setTitle('Cuñas');
-        $ws2->fromArray(['#', 'Programa', 'Categoría (carpeta)', 'Tipo', 'Formato / medida', 'Nombre de la pieza', 'Responsable', 'Fecha solicitud', 'Fecha entrega', 'Estado', 'Link a la carpeta / archivo', 'Observaciones'], null, 'A4');
-        $ws2->fromArray([1, 'Campaña 9: Prevención de lesiones por pólvora', 'CUÑAS', 'AUDIO', null, 'P9-PREV LESIONES POLVORA (01 - Pólvora).mp3', null, null, null, 'Aprobado', null, null], null, 'A5');
+        $ws2->fromArray(['#', 'Programa', 'Categoría (carpeta)', 'Tipo', 'Formato / medida', 'Nombre de la pieza', 'Responsable', 'Fecha solicitud', 'Fecha entrega', 'Estado', 'Link a la carpeta / archivo', 'Observaciones', 'Subcampaña'], null, 'A4');
+        $ws2->fromArray([1, 'Campaña 9: Prevención de lesiones por pólvora', 'CUÑAS', 'AUDIO', null, 'P9-PREV LESIONES POLVORA (01 - Pólvora).mp3', null, null, null, 'Aprobado', null, null, 'Pólvora'], null, 'A5');
         $ss->createSheet()->setTitle('Resumen')->setCellValue('A1', 'RESUMEN POR CATEGORÍA');
         $ruta = tempnam(sys_get_temp_dir(), 'imp') . '.xlsx';
         (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss))->save($ruta);
 
         $subir = fn() => $this->actingAs($this->admin)->post(route('campaigns.productos.importar', $this->c), ['archivo' => new UploadedFile($ruta, 'control.xlsx', null, null, true)]);
         $subir()->assertRedirect(route('campaigns.productos', $this->c))->assertSessionHas('success');
-        $largos = Producto::where('subcampana_id', $this->largos->id)->orderBy('numero')->get();
+        $largos = Producto::where('tipo_id', $this->largos->id)->orderBy('numero')->get();
         $this->assertSame(['P8-MOVILIDAD SEGURIDA.mp4', 'P2 Salud nutricional'], $largos->pluck('nombre')->all(), 'la hoja «Videos largos » va al tipo existente');
         $this->assertSame(['8-2', 'Movilidad segura'], [$largos[0]->programa->codigo, $largos[0]->programa->nombre]);
         $this->assertSame(['2-2', 'Salud nutricional', 'En revisión', 'Laura', 'Revisar audio'], [$largos[1]->programa->codigo, $largos[1]->programa->nombre, $largos[1]->estado, $largos[1]->responsable, $largos[1]->observaciones]);
         $this->assertSame(['2026-12-30', 'https://drive.google.com/file/d/1/view'], [$largos[0]->fecha_solicitud->toDateString(), $largos[0]->link_archivo]);
         $this->assertNotNull($largos[0]->muestra_path, 'la miniatura queda como muestra');
-        $cunas = Subcampana::where('nombre', 'Cuñas')->first();
+        $cunas = TipoPublicacion::where('nombre', 'Cuñas')->first();
         $this->assertSame(['Cuña', 'audio'], [$cunas->etiqueta, $cunas->clase]);
-        $this->assertSame(1, Producto::where('subcampana_id', $cunas->id)->count());
-        $this->assertSame('9', Producto::where('subcampana_id', $cunas->id)->first()->programa->codigo);
+        $this->assertSame(1, Producto::where('tipo_id', $cunas->id)->count());
+        $c9 = Producto::where('tipo_id', $cunas->id)->first();
+        $this->assertSame(['9', 'Pólvora'], [$c9->programa->codigo, $c9->subcampana?->nombre], 'la columna «Subcampaña» crea la subcampaña');
+        $this->assertTrue($c9->subcampana->tipos->contains('id', $cunas->id), 'y le asigna el tipo');
 
         // Importar otra vez no repite
         $subir()->assertRedirect();
@@ -334,5 +354,31 @@ class ProductosInformeTest extends TestCase
         $this->assertSame(['', 'Otro texto'], $inf->leerPrograma('Otro texto'));
         $this->assertSame(['Video Largo', 'Cuña', 'En Vivo', 'Banner 600x600', 'Red Social', 'Podcast'],
             array_map(fn($n) => $inf->singular($n), ['Videos largos', 'Cuñas', 'En vivos', 'Banner 600x600', 'Redes sociales', 'Podcast']));
+    }
+
+    public function test_la_migracion_convierte_las_subcampanas_que_eran_tipos_de_publicacion(): void
+    {
+        $this->crearEsquemaPlanMedios(true);
+        (require database_path('migrations/2026_10_29_000001_tipos_de_publicacion.php'))->down(); // estado antes de esta migración
+        $admin = User::factory()->create();
+        $c = Campaign::create(['name' => 'Salud 2027', 'slug' => 'salud-2027', 'is_active' => true, 'plan_medios' => true]);
+        $pg = MetaPage::create(['page_id' => '900', 'name' => 'Pág']);
+        $dengue = Subcampana::create(['campaign_id' => $c->id, 'nombre' => 'Dengue', 'subprograma' => 'Dengue', 'is_active' => true]);
+        $vl = Subcampana::create(['campaign_id' => $c->id, 'nombre' => 'Videos largos', 'etiqueta' => 'Video Largo', 'clase' => 'redes', 'unidad' => 'video largo', 'is_active' => true, 'orden' => 1]);
+        $cunas = Subcampana::create(['campaign_id' => $c->id, 'nombre' => 'Cuñas', 'is_active' => true, 'orden' => 2]);
+        \Illuminate\Support\Facades\DB::table('campaign_productos')->insert(['campaign_id' => $c->id, 'subcampana_id' => $vl->id, 'numero' => 1, 'nombre' => 'Pieza', 'estado' => 'Aprobado', 'created_at' => now(), 'updated_at' => now()]);
+        $post = MetaPost::create(['meta_page_id' => $pg->id, 'user_id' => $admin->id, 'campaign_id' => $c->id, 'type' => 'video', 'status' => 'success', 'subcampana_id' => $vl->id, 'tipo_pieza' => 'Video Largo']);
+        $postDengue = MetaPost::create(['meta_page_id' => $pg->id, 'user_id' => $admin->id, 'campaign_id' => $c->id, 'type' => 'video', 'status' => 'success', 'subcampana_id' => $dengue->id]);
+
+        $m = require database_path('migrations/2026_10_29_000001_tipos_de_publicacion.php');
+        $m->up();
+        $m->up(); // idempotente
+
+        $this->assertSame(['Dengue'], Subcampana::where('campaign_id', $c->id)->pluck('nombre')->all(), 'los temas siguen siendo subcampañas');
+        $this->assertSame([['Videos largos', 'Video Largo', 'video largo'], ['Cuñas', null, null]], TipoPublicacion::where('campaign_id', $c->id)->orderBy('orden')->get()->map(fn($t) => [$t->nombre, $t->etiqueta, $t->unidad])->all());
+        $pieza = Producto::first();
+        $this->assertSame([TipoPublicacion::where('nombre', 'Videos largos')->value('id'), null], [(int) $pieza->tipo_id, $pieza->subcampana_id]);
+        $this->assertSame([null, 'Video Largo'], [$post->fresh()->subcampana_id, $post->fresh()->tipo_pieza]);
+        $this->assertSame($dengue->id, (int) $postDengue->fresh()->subcampana_id);
     }
 }
