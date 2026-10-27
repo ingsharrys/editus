@@ -383,7 +383,7 @@
                     </div>
                     </div>
                     <p class="mt-1 text-[11px] text-gray-500">
-                        {{ __('Al elegir la campaña se marcan las páginas de sus medios; desmarca las que quieras excluir de esta publicación.') }}
+                        {{ __('Al elegir la campaña solo se muestran las páginas de sus medios, ya marcadas; desmarca las que quieras excluir de esta publicación.') }}
                         @if (auth()->user()->isAdmin())
                             <a href="{{ route('campaigns.index') }}" class="text-blue-600 hover:underline">{{ __('Gestionar campañas') }}</a>
                         @endif
@@ -919,7 +919,7 @@
                 const T = @js([
                     'quitar' => __('Quitar'),
                     'noEsImagen' => __('No es imagen: :nombre'),
-                    'seMarcaron' => __('Se marcaron :n página(s) de los medios de la campaña. Desmarca las que quieras excluir.'),
+                    'seMarcaron' => __('Se muestran y quedan marcadas las :n página(s) de la campaña. Desmarca las que quieras excluir.'),
                     'sinToken' => __(':n página(s) de la campaña no tienen token activo.'),
                     'campanaSinPaginas' => __('La campaña no tiene páginas con token activo en esta lista. Marca a mano dónde publicar o revisa sus medios en Campañas.'),
                     'debesCampana' => __('Debes seleccionar una campaña antes de publicar.'),
@@ -1053,6 +1053,9 @@
                     });
                 }
                 // ====== FILTROS Y SELECCIÓN ======
+                // Páginas de la campaña elegida (null = sin campaña: se ven todas)
+                let paginasCampana = null;
+
                 function applyFilters() {
                     if (!grid) return;
                     const q = (searchInput?.value || '').trim().toLowerCase();
@@ -1068,8 +1071,9 @@
                         const matchesText = !q || name.includes(q);
                         const matchesStatus = st === 'all' || st === status;
                         const matchesFav = !onlyFav || isFav;
+                        const matchesCampana = !paginasCampana || paginasCampana.includes(String(card.dataset.id));
 
-                        card.style.display = (matchesText && matchesStatus && matchesFav) ? '' : 'none';
+                        card.style.display = (matchesText && matchesStatus && matchesFav && matchesCampana) ? '' : 'none';
                     });
                 }
 
@@ -1309,13 +1313,17 @@
                     try { mapa = JSON.parse(sel.dataset.paginas || '{}'); } catch (e) {}
                     const aplicar = () => {
                         const ids = (mapa[sel.value] || []).map(String);
-                        if (!sel.value) { hint && hint.classList.add('hidden'); return; }
+                        // Solo se muestran las páginas de la campaña (si no tiene ninguna, se ven todas para marcar a mano)
+                        paginasCampana = sel.value && ids.length ? ids : null;
+                        applyFilters();
+                        if (!sel.value) { hint && hint.classList.add('hidden'); updateCounts(); return; }
                         let marcadas = 0, sinToken = 0;
                         checkboxes().forEach(cb => {
                             const enCampana = ids.includes(String(cb.value));
                             if (cb.disabled) { if (enCampana) sinToken++; return; }
                             cb.checked = enCampana;
                             if (enCampana) marcadas++;
+                            delete cb.dataset.autofav;
                             cb.dispatchEvent(new Event('change', { bubbles: true }));
                         });
                         if (hint) {
