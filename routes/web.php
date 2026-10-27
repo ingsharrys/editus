@@ -223,6 +223,29 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'guardarSubcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas.guardar');
     Route::get('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'cupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos');
     Route::post('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'guardarCupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos.guardar');
+    // Plan de medios: control de productos (piezas), programas, informes de métricas y Excel
+    Route::middleware('permiso:campanas')->group(function () {
+        $P = \App\Http\Controllers\ProductosController::class;
+        $I = \App\Http\Controllers\InformePlanController::class;
+        Route::get('/campanas/{campaign}/productos', [$P, 'index'])->name('campaigns.productos');
+        Route::get('/campanas/{campaign}/productos/nuevo', [$P, 'crear'])->name('campaigns.productos.crear');
+        Route::post('/campanas/{campaign}/productos', [$P, 'guardar'])->name('campaigns.productos.guardar');
+        Route::post('/campanas/{campaign}/productos/importar', [$P, 'importar'])->middleware('throttle:10,1')->name('campaigns.productos.importar');
+        Route::get('/campanas/{campaign}/productos/{producto}', [$P, 'ver'])->whereNumber('producto')->name('campaigns.productos.ver');
+        Route::post('/campanas/{campaign}/productos/{producto}', [$P, 'actualizar'])->whereNumber('producto')->name('campaigns.productos.actualizar');
+        Route::delete('/campanas/{campaign}/productos/{producto}', [$P, 'borrar'])->whereNumber('producto')->name('campaigns.productos.borrar');
+        Route::post('/campanas/{campaign}/productos/{producto}/vincular', [$P, 'vincular'])->name('campaigns.productos.vincular');
+        Route::post('/campanas/{campaign}/productos/{producto}/publicaciones', [$P, 'guardarPublicacion'])->name('campaigns.productos.publicaciones.guardar');
+        Route::post('/campanas/{campaign}/productos/{producto}/publicaciones/{publicacion}', [$P, 'guardarPublicacion'])->name('campaigns.productos.publicaciones.actualizar');
+        Route::delete('/campanas/{campaign}/productos/{producto}/publicaciones/{publicacion}', [$P, 'borrarPublicacion'])->name('campaigns.productos.publicaciones.borrar');
+        Route::get('/campanas/{campaign}/programas', [$P, 'programas'])->name('campaigns.plan.programas');
+        Route::post('/campanas/{campaign}/programas', [$P, 'guardarProgramas'])->name('campaigns.plan.programas.guardar');
+        Route::get('/campanas/{campaign}/archivo', [$P, 'archivo'])->name('campaigns.archivo');
+        Route::get('/campanas/{campaign}/informes', [$I, 'index'])->name('campaigns.informes');
+        Route::post('/campanas/{campaign}/informes/membrete', [$I, 'membrete'])->name('campaigns.informes.membrete');
+        Route::get('/campanas/{campaign}/informes/control.xlsx', [$I, 'excel'])->name('campaigns.informes.excel');
+        Route::get('/campanas/{campaign}/informes/{formato}', [$I, 'generar'])->whereIn('formato', ['word', 'pdf', 'vista'])->name('campaigns.informes.generar');
+    });
     // Certificado del medio inscrito (lo llena y firma el medio; el administrador también lo ve)
     Route::get('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'formulario'])->name('certificados.formulario');
     Route::post('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'guardar'])->middleware('throttle:20,1')->name('certificados.guardar');

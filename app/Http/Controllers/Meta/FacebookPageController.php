@@ -120,7 +120,12 @@ class FacebookPageController extends Controller
             $plan = app(\App\Services\PlanMediosService::class);
             foreach ($campaigns->where('plan_medios', true) as $c) {
                 $campaignPiezas[$c->id] = [
-                    'subs' => $c->subcampanas()->where('is_active', true)->get(['id', 'nombre'])->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre])->values()->all(),
+                    'productos' => \App\Services\ProductosService::disponible()
+                        ? $c->productos()->with('subcampana:id,nombre,etiqueta,orden')->orderBy('subcampana_id')->orderByDesc('numero')->get()
+                            ->map(fn($x) => ['id' => $x->id, 'nombre' => $x->codigo() . ' · ' . $x->nombre, 'grupo' => $x->subcampana?->nombre ?? __('Sin tipo'),
+                                'tipo' => $x->subcampana?->etiquetaSingular(), 'estado' => $x->estado])->values()->all()
+                        : [],
+                    'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipo' => $x->etiquetaSingular()])->values()->all(),
                     'tipos' => $plan->tipos($c),
                     'cupos' => $plan->cuposParaPublicar($c),
                 ];
@@ -190,13 +195,14 @@ class FacebookPageController extends Controller
         return array_filter([
             'programa' => $v('programa', 190), 'subprograma' => $v('subprograma', 190), 'tipo_pieza' => $v('tipo_pieza', 60),
             'subcampana_id' => $request->filled('subcampana_id') && \App\Services\PlanMediosService::disponible() ? (int) $request->input('subcampana_id') : null,
+            'producto_id' => $request->filled('producto_id') && \App\Services\ProductosService::disponible() ? (int) $request->input('producto_id') : null,
         ], fn($x) => $x !== null);
     }
 
     /**
-     * En campañas con plan de medios: la subcampaña (si la campaña tiene) y el tipo de pieza son obligatorios,
-     * y ninguna página puede pasarse de su cupo de ese tipo. Deja en la petición los datos normalizados.
-     * Devuelve los errores o null.
+     * En campañas con plan de medios hay que decir qué se publica: la pieza (si la campaña tiene piezas en el
+     * control de productos), si no la subcampaña (tipo de publicación), y si no el tipo de pieza. Ninguna página
+     * puede pasarse de su cupo de ese tipo. Deja en la petición los datos normalizados. Devuelve los errores o null.
      */
     private function validarPlanDeMedios(Request $request): ?array
     {
@@ -204,20 +210,33 @@ class FacebookPageController extends Controller
         $c = \App\Models\Campaign::find((int) $request->input('campaign_id'));
         if (!$c || !$c->plan_medios) {
             $request->request->remove('subcampana_id');
+            $request->request->remove('producto_id');
             return null;
         }
         $plan = app(\App\Services\PlanMediosService::class);
-        $subs = $c->subcampanas()->where('is_active', true)->get();
-        $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
-        if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
-        $tipo = $plan->tipoValido($c, $request->input('tipo_pieza'));
-        if (!$tipo) return ['tipo_pieza' => __('Elige el tipo de pieza de esta publicación.')];
-        $excedidos = $plan->excedidos($c, (array) $request->input('page_ids', []), $tipo);
-        if ($excedidos) {
-            $lista = collect($excedidos)->map(fn($e) => __(':pagina (:usados de :cupo)', $e))->implode(', ');
-            return ['page_ids' => __('Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.', ['tipo' => $tipo, 'lista' => $lista])];
+        $campos = [];
+        $conProductos = \App\Services\ProductosService::disponible() && $c->productos()->exists();
+        if ($conProductos) {
+            $prod = $request->filled('producto_id') ? $c->productos()->with('subcampana', 'programa')->find((int) $request->input('producto_id')) : null;
+            if (!$prod) return ['producto_id' => __('Elige la pieza que vas a publicar.')];
+            $campos = app(\App\Services\ProductosService::class)->camposDe($prod);
+            $tipo = $campos['tipo_pieza'] ?? null;
+        } else {
+            $subs = $c->subcampanas()->where('is_active', true)->get();
+            $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
+            if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
+            $campos = $sub ? $plan->camposDe($sub) : ['subcampana_id' => null];
+            $tipo = $sub ? $campos['tipo_pieza'] : $plan->tipoValido($c, $request->input('tipo_pieza'));
+            if (!$tipo) return ['tipo_pieza' => __('Elige el tipo de pieza de esta publicación.')];
         }
-        $request->merge(['tipo_pieza' => $tipo] + ($sub ? $plan->camposDe($sub) : ['subcampana_id' => null]));
+        if ($tipo) {
+            $excedidos = $plan->excedidos($c, (array) $request->input('page_ids', []), $tipo);
+            if ($excedidos) {
+                $lista = collect($excedidos)->map(fn($e) => __(':pagina (:usados de :cupo)', $e))->implode(', ');
+                return ['page_ids' => __('Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.', ['tipo' => $tipo, 'lista' => $lista])];
+            }
+        }
+        $request->merge(['tipo_pieza' => $tipo, 'producto_id' => $campos['producto_id'] ?? null] + $campos);
         return null;
     }
 
@@ -362,6 +381,7 @@ class FacebookPageController extends Controller
             'subprograma' => ['nullable', 'string', 'max:190'],
             'tipo_pieza' => ['nullable', 'string', 'max:60'],
             'subcampana_id' => ['nullable', 'integer'],
+            'producto_id' => ['nullable', 'integer'],
 
             'photos' => ['nullable', 'array', 'max:50'],
             'photos.*' => ['file', 'image', 'max:10240'], // 10MB

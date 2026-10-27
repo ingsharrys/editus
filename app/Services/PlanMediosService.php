@@ -40,9 +40,16 @@ class PlanMediosService
         return mb_strtolower(trim((string) $tipo));
     }
 
-    /** Tipos de pieza de la campaña (los del certificado). */
+    /**
+     * Tipos de pieza de la campaña: los de sus subcampañas (cada subcampaña es un tipo de publicación,
+     * p. ej. «Video Largo») o, si aún no tiene, los escritos en el certificado.
+     */
     public function tipos(Campaign $c): array
     {
+        if (self::disponible() && Schema::hasColumn('campaign_subcampanas', 'etiqueta')) {
+            $subs = Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
+            if ($subs->isNotEmpty()) return array_values(array_unique($subs->map(fn($x) => $x->etiquetaSingular())->all()));
+        }
         return $this->cert->config($c)['tipos_pieza'];
     }
 
@@ -53,15 +60,17 @@ class PlanMediosService
         return null;
     }
 
-    // ───────────────────────── Subcampañas ─────────────────────────
+    // ───────────────────────── Subcampañas (tipos de publicación) ─────────────────────────
 
     /**
-     * Guarda las filas del formulario de subcampañas: [['id'?, 'nombre', 'programa', 'subprograma', 'descripcion', 'is_active', 'borrar'?], ...].
-     * Al cambiar el programa o subprograma de una subcampaña se actualizan sus publicaciones (y por tanto los certificados).
+     * Guarda las filas del formulario de subcampañas: [['id'?, 'nombre', 'etiqueta', 'clase', 'tipo', 'formato',
+     * 'unidad', 'plantilla', 'titulo_informe', 'is_active', 'borrar'?], ...]. Si cambia el nombre singular,
+     * se actualizan sus publicaciones y sus cupos.
      */
     public function guardarSubcampanas(Campaign $c, array $filas): void
     {
-        DB::transaction(function () use ($c, $filas) {
+        $conInforme = Schema::hasColumn('campaign_subcampanas', 'etiqueta');
+        DB::transaction(function () use ($c, $filas, $conInforme) {
             $orden = 0;
             foreach ($filas as $f) {
                 $id = (int) ($f['id'] ?? 0);
@@ -70,37 +79,57 @@ class PlanMediosService
                 if (!empty($f['borrar']) || $nombre === '') {
                     if ($sub) {
                         MetaPost::where('subcampana_id', $sub->id)->update(['subcampana_id' => null]);
+                        if (ProductosService::disponible()) \App\Models\Producto::where('subcampana_id', $sub->id)->update(['subcampana_id' => null]);
                         $sub->delete();
                     }
                     continue;
                 }
                 $sub ??= new Subcampana(['campaign_id' => $c->id]);
-                $sub->fill([
+                $antes = $sub->exists ? $sub->etiquetaSingular() : null;
+                $txt = fn($k, $max) => array_key_exists($k, $f) ? (mb_substr(trim((string) $f[$k]), 0, $max) ?: null) : $sub->{$k};
+                $datos = [
                     'nombre' => mb_substr($nombre, 0, 120),
-                    'programa' => mb_substr(trim((string) ($f['programa'] ?? '')), 0, 190) ?: null,
-                    'subprograma' => mb_substr(trim((string) ($f['subprograma'] ?? '')), 0, 190) ?: null,
-                    'descripcion' => mb_substr(trim((string) ($f['descripcion'] ?? '')), 0, 500) ?: null,
+                    'descripcion' => $txt('descripcion', 500),
                     'is_active' => (bool) ($f['is_active'] ?? false),
                     'orden' => $orden++,
-                ]);
-                $cambioCert = $sub->exists && $sub->isDirty(['programa', 'subprograma']);
+                ];
+                if (array_key_exists('programa', $f)) $datos['programa'] = $txt('programa', 190);
+                if (array_key_exists('subprograma', $f)) $datos['subprograma'] = $txt('subprograma', 190);
+                if ($conInforme) {
+                    $clase = (string) ($f['clase'] ?? $sub->clase ?? 'redes');
+                    $datos += [
+                        'etiqueta' => $txt('etiqueta', 80), 'tipo' => $txt('tipo', 40), 'formato' => $txt('formato', 80),
+                        'unidad' => $txt('unidad', 120), 'plantilla' => $txt('plantilla', 500), 'titulo_informe' => $txt('titulo_informe', 120),
+                        'clase' => array_key_exists($clase, Subcampana::CLASES) ? $clase : 'redes',
+                    ];
+                }
+                $sub->fill($datos);
+                $cambioCert = $sub->exists && $sub->isDirty(['programa', 'subprograma']) && $sub->programa;
                 $sub->save();
                 if ($cambioCert) $this->copiarAPublicaciones($sub);
+                $despues = $sub->etiquetaSingular();
+                if ($antes !== null && $antes !== $despues) {
+                    MetaPost::where('subcampana_id', $sub->id)->update(['tipo_pieza' => $despues]);
+                    CampaignCupo::where('campaign_id', $c->id)->get()->filter(fn($q) => self::clave($q->tipo_pieza) === self::clave($antes))
+                        ->each(fn($q) => $q->update(['tipo_pieza' => $despues]));
+                }
             }
         });
     }
 
-    /** Programa y subprograma del certificado: los de la subcampaña, en todas sus publicaciones. */
+    /** Programa y subprograma del certificado escritos en la subcampaña (forma anterior), en todas sus publicaciones. */
     public function copiarAPublicaciones(Subcampana $s): int
     {
-        return MetaPost::where('subcampana_id', $s->id)->update(['programa' => $s->programa ?: $s->nombre, 'subprograma' => $s->subprograma]);
+        return MetaPost::where('subcampana_id', $s->id)->when(ProductosService::disponible(), fn($q) => $q->whereNull('producto_id'))
+            ->update(['programa' => $s->programa ?: $s->nombre, 'subprograma' => $s->subprograma]);
     }
 
-    /** Campos de la publicación según la subcampaña elegida. */
+    /** Campos de la publicación según la subcampaña elegida (sin pieza). */
     public function camposDe(?Subcampana $s): array
     {
         if (!$s) return [];
-        return ['subcampana_id' => $s->id, 'programa' => $s->programa ?: $s->nombre, 'subprograma' => $s->subprograma];
+        return ['subcampana_id' => $s->id, 'tipo_pieza' => $s->etiquetaSingular()]
+            + ($s->programa ? ['programa' => $s->programa, 'subprograma' => $s->subprograma] : []);
     }
 
     // ───────────────────────── Cupos ─────────────────────────

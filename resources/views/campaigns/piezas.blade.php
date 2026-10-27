@@ -1,7 +1,7 @@
 @extends('layouts.app')
 
 @section('content')
-@php $inp = 'w-full h-9 rounded-lg border-gray-200 text-xs'; $conSubs = $subs->isNotEmpty(); @endphp
+@php $inp = 'w-full h-9 rounded-lg border-gray-200 text-xs'; $conProd = ($productos ?? collect())->isNotEmpty(); $conSubs = !$conProd && $subs->isNotEmpty(); @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @if ($c->plan_medios)
         @include('campaigns.plan._nav')
@@ -14,9 +14,9 @@
         @if ($errors->any())<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm">@foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
     @endif
 
-    <p class="text-sm text-gray-600 mb-4">{{ $conSubs
+    <p class="text-sm text-gray-600 mb-4">{{ $conProd ? __('Asigna a cada publicación la pieza que se publicó. El tipo, el programa y el subprograma salen de la pieza; con esto se llenan el informe de métricas, los cupos y el certificado de cada medio.') : ($conSubs
         ? __('Asigna a cada publicación su subcampaña y su tipo de pieza. Con esto se llenan las métricas por subcampaña, los cupos y el certificado de cada medio.')
-        : __('Clasifica cada publicación con su programa, subprograma y tipo de pieza. Con esto se llena la tabla del certificado de cada medio.') }}</p>
+        : __('Clasifica cada publicación con su programa, subprograma y tipo de pieza. Con esto se llena la tabla del certificado de cada medio.')) }}</p>
 
     <form method="GET" class="flex flex-wrap items-end gap-2 mb-4">
         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Página') }}</label>
@@ -24,7 +24,7 @@
                 <option value="">{{ __('Todas') }}</option>
                 @foreach ($paginas as $pg)<option value="{{ $pg->id }}" @selected((string) request('pagina') === (string) $pg->id)>{{ $pg->name }}</option>@endforeach
             </select></div>
-        @if ($conSubs)
+        @if ($conSubs || $conProd)
             <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Subcampaña') }}</label>
                 <select name="sub" class="h-9 rounded-lg border-gray-200 text-sm" onchange="this.form.submit()">
                     <option value="">{{ __('Todas') }}</option>
@@ -44,12 +44,14 @@
                 <thead class="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
                     <tr>
                         <th class="px-3 py-2 text-left">{{ __('Publicación') }}</th>
-                        @if ($conSubs)
+                        @if ($conProd)
+                            <th class="px-3 py-2 text-left w-80">{{ __('Pieza') }}</th>
+                        @elseif ($conSubs)
                             <th class="px-3 py-2 text-left w-64">{{ __('Subcampaña') }}</th>
                         @else
                             <th class="px-3 py-2 text-left w-64">{{ __('Programa') }}</th><th class="px-3 py-2 text-left w-48">{{ __('Subprograma') }}</th>
                         @endif
-                        <th class="px-3 py-2 text-left w-44">{{ __('Tipo de pieza') }}</th>
+                        @unless ($conProd)<th class="px-3 py-2 text-left w-44">{{ __('Tipo de pieza') }}</th>@endunless
                     </tr>
                 </thead>
                 <tbody>
@@ -60,7 +62,17 @@
                                 <div class="text-xs text-gray-600 line-clamp-2 max-w-md">{{ \Illuminate\Support\Str::limit((string) $post->message, 140) ?: '—' }}</div>
                                 @if ($post->fb_permalink_url)<a href="{{ $post->fb_permalink_url }}" target="_blank" rel="noopener" class="text-[11px] text-indigo-700 hover:underline">{{ __('Ver publicación') }}</a>@endif
                             </td>
-                            @if ($conSubs)
+                            @if ($conProd)
+                                <td class="px-3 py-2">
+                                    <select name="piezas[{{ $post->id }}][producto_id]" class="{{ $inp }}">
+                                        <option value="">{{ __('— Sin pieza —') }}</option>
+                                        @foreach ($productos->groupBy(fn($x) => $x->subcampana?->nombre ?? __('Sin tipo')) as $grupo => $lista)
+                                            <optgroup label="{{ $grupo }}">@foreach ($lista as $pr)<option value="{{ $pr->id }}" @selected((int) $post->producto_id === (int) $pr->id)>{{ $pr->codigo() }} · {{ \Illuminate\Support\Str::limit($pr->nombre, 60) }}</option>@endforeach</optgroup>
+                                        @endforeach
+                                    </select>
+                                    @if ($post->tipo_pieza)<div class="text-[10px] text-gray-400 mt-0.5">{{ $post->tipo_pieza }}{{ $post->programa ? ' · ' . $post->programa : '' }}</div>@endif
+                                </td>
+                            @elseif ($conSubs)
                                 <td class="px-3 py-2">
                                     <select name="piezas[{{ $post->id }}][subcampana_id]" class="{{ $inp }}">
                                         <option value="">{{ __('— Sin subcampaña —') }}</option>
@@ -72,7 +84,7 @@
                                 <td class="px-3 py-2"><input name="piezas[{{ $post->id }}][programa]" maxlength="190" value="{{ $post->programa }}" class="{{ $inp }}"></td>
                                 <td class="px-3 py-2"><input name="piezas[{{ $post->id }}][subprograma]" maxlength="190" value="{{ $post->subprograma }}" class="{{ $inp }}"></td>
                             @endif
-                            <td class="px-3 py-2"><input name="piezas[{{ $post->id }}][tipo_pieza]" list="dlTipos" maxlength="60" value="{{ $post->tipo_pieza }}" placeholder="{{ $cert->tipoPieza($post) }}" class="{{ $inp }}"></td>
+                            @unless ($conProd)<td class="px-3 py-2"><input name="piezas[{{ $post->id }}][tipo_pieza]" list="dlTipos" maxlength="60" value="{{ $post->tipo_pieza }}" placeholder="{{ $cert->tipoPieza($post) }}" class="{{ $inp }}"></td>@endunless
                         </tr>
                     @empty
                         <tr><td colspan="4" class="px-3 py-8 text-center text-sm text-gray-500">{{ __('No hay publicaciones exitosas en esta campaña.') }}</td></tr>

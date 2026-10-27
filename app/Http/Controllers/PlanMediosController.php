@@ -36,7 +36,7 @@ class PlanMediosController extends Controller
     public function subcampanas(Campaign $campaign)
     {
         $this->exigirPlan($campaign);
-        $subs = $campaign->subcampanas()->withCount('posts')->get();
+        $subs = $campaign->subcampanas()->withCount(\App\Services\ProductosService::disponible() ? ['posts', 'productos'] : ['posts'])->get();
         return view('campaigns.plan.subcampanas', ['c' => $campaign, 'subs' => $subs]);
     }
 
@@ -51,9 +51,21 @@ class PlanMediosController extends Controller
             'subs.*.subprograma' => ['nullable', 'string', 'max:190'],
             'subs.*.descripcion' => ['nullable', 'string', 'max:500'],
             'subs.*.is_active' => ['nullable', 'boolean'],
+            'subs.*.etiqueta' => ['nullable', 'string', 'max:80'],
+            'subs.*.clase' => ['nullable', 'string', 'max:20'],
+            'subs.*.tipo' => ['nullable', 'string', 'max:40'],
+            'subs.*.formato' => ['nullable', 'string', 'max:80'],
+            'subs.*.unidad' => ['nullable', 'string', 'max:120'],
+            'subs.*.plantilla' => ['nullable', 'string', 'max:500'],
+            'subs.*.titulo_informe' => ['nullable', 'string', 'max:120'],
             'subs.*.borrar' => ['nullable', 'boolean'],
         ]);
         $this->plan->guardarSubcampanas($campaign, array_values($d['subs'] ?? []));
+        if (\App\Services\ProductosService::disponible()) {
+            // El tipo de las piezas puede haber cambiado de nombre: se actualizan sus publicaciones
+            $prod = app(\App\Services\ProductosService::class);
+            foreach ($campaign->productos()->whereNotNull('subcampana_id')->get() as $p) $prod->aplicarAPosts($p);
+        }
         return redirect()->route('campaigns.plan.subcampanas', $campaign)->with('success', __('Subcampañas guardadas.'));
     }
 

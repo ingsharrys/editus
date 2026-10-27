@@ -11,15 +11,20 @@
     </div>
     @php
         $pestanas = [
-            ['campaigns.plan', __('Tablero')],
-            ['campaigns.plan.subcampanas', __('Subcampañas')],
-            ['campaigns.plan.cupos', __('Cupos por página')],
-            ['campaigns.piezas', __('Clasificar publicaciones')],
+            ['campaigns.plan', __('Tablero'), 'campaigns.plan'],
+            ['campaigns.productos', __('Productos'), 'campaigns.productos*'],
+            ['campaigns.plan.subcampanas', __('Subcampañas'), 'campaigns.plan.subcampanas*'],
+            ['campaigns.plan.programas', __('Programas'), 'campaigns.plan.programas*'],
+            ['campaigns.plan.cupos', __('Cupos por página'), 'campaigns.plan.cupos*'],
+            ['campaigns.piezas', __('Clasificar publicaciones'), 'campaigns.piezas*'],
+            ['campaigns.informes', __('Informes'), 'campaigns.informes*'],
         ];
+        // Productos, programas e informes existen después de migrar
+        if (!\App\Services\ProductosService::disponible()) $pestanas = array_values(array_filter($pestanas, fn($x) => !in_array($x[0], ['campaigns.productos', 'campaigns.plan.programas', 'campaigns.informes'], true)));
     @endphp
     <nav class="mt-4 flex gap-1 overflow-x-auto border-b border-gray-200">
-        @foreach ($pestanas as [$ruta, $et])
-            <a href="{{ route($ruta, $c) }}" class="shrink-0 px-3 py-2 text-sm font-semibold border-b-2 -mb-px {{ request()->routeIs($ruta) ? 'border-[#00024f] text-[#00024f]' : 'border-transparent text-gray-500 hover:text-gray-800' }}">{{ $et }}</a>
+        @foreach ($pestanas as [$ruta, $et, $patron])
+            <a href="{{ route($ruta, $c) }}" class="shrink-0 px-3 py-2 text-sm font-semibold border-b-2 -mb-px {{ request()->routeIs($patron) ? 'border-[#00024f] text-[#00024f]' : 'border-transparent text-gray-500 hover:text-gray-800' }}">{{ $et }}</a>
         @endforeach
     </nav>
 </div>

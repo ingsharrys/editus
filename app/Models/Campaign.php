@@ -25,6 +25,7 @@ class Campaign extends Model
         'certificado',
         'piezas',
         'plan_medios',
+        'informe',
     ];
 
     protected $casts = [
@@ -37,7 +38,20 @@ class Campaign extends Model
         'certificado' => 'array',
         'piezas' => 'array',
         'plan_medios' => 'boolean',
+        'informe' => 'array',
     ];
+
+    /** Programas del contrato (con sus subprogramas). */
+    public function programas()
+    {
+        return $this->hasMany(Programa::class)->orderBy('orden')->orderBy('id');
+    }
+
+    /** Piezas del plan de medios (control de productos). */
+    public function productos()
+    {
+        return $this->hasMany(Producto::class);
+    }
 
     /** Subcampañas del plan de medios (p. ej. «Dengue»), en su orden. */
     public function subcampanas()

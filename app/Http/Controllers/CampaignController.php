@@ -164,7 +164,8 @@ class CampaignController extends Controller
     {
         $q = MetaPost::with('page:id,name')->where('campaign_id', $campaign->id)->where('status', 'success')
             ->when($request->query('pagina'), fn($x, $v) => $x->where('meta_page_id', (int) $v))
-            ->when($request->query('sin'), fn($x) => $x->where(fn($y) => $y->whereNull('tipo_pieza')->orWhere('tipo_pieza', '')
+            ->when($request->query('sin') && \App\Services\ProductosService::disponible() && $campaign->productos()->exists(), fn($x) => $x->whereNull('producto_id'))
+            ->when($request->query('sin') && !(\App\Services\ProductosService::disponible() && $campaign->productos()->exists()), fn($x) => $x->where(fn($y) => $y->whereNull('tipo_pieza')->orWhere('tipo_pieza', '')
                 ->orWhere(fn($z) => $z->whereNull('programa')->orWhere('programa', ''))))
             ->when($request->query('sub') !== null && $request->query('sub') !== '', fn($x) => (int) $request->query('sub') === 0
                 ? $x->whereNull('subcampana_id') : $x->where('subcampana_id', (int) $request->query('sub')))
@@ -174,6 +175,7 @@ class CampaignController extends Controller
         return view('campaigns.piezas', [
             'c' => $campaign, 'posts' => $posts, 'paginas' => $paginas,
             'subs' => \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get() : collect(),
+            'productos' => \App\Services\ProductosService::disponible() ? $campaign->productos()->with('subcampana')->orderBy('subcampana_id')->orderByDesc('numero')->get() : collect(),
             'tipos' => $this->cert->config($campaign)['tipos_pieza'], 'cert' => $this->cert,
         ]);
     }
@@ -183,16 +185,30 @@ class CampaignController extends Controller
         $d = $request->validate([
             'piezas' => ['required', 'array'],
             'piezas.*.subcampana_id' => ['nullable', 'integer'],
+            'piezas.*.producto_id' => ['nullable', 'integer'],
             'piezas.*.programa' => ['nullable', 'string', 'max:190'],
             'piezas.*.subprograma' => ['nullable', 'string', 'max:190'],
             'piezas.*.tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $plan = app(\App\Services\PlanMediosService::class);
         $subs = \App\Services\PlanMediosService::disponible() ? $campaign->subcampanas()->get()->keyBy('id') : collect();
+        $productos = \App\Services\ProductosService::disponible() ? $campaign->productos()->with('subcampana', 'programa')->get()->keyBy('id') : collect();
+        $prodSrv = app(\App\Services\ProductosService::class);
         $n = 0;
         foreach ($d['piezas'] as $id => $f) {
             $post = MetaPost::where('campaign_id', $campaign->id)->whereKey((int) $id)->first();
             if (!$post) continue;
+            // Con pieza: el tipo, programa y subprograma salen de la pieza
+            if (array_key_exists('producto_id', $f)) {
+                $prod = $productos->get((int) $f['producto_id']);
+                if ($prod) $post->fill($prodSrv->camposDe($prod));
+                else $post->fill(['producto_id' => null, 'subcampana_id' => null, 'tipo_pieza' => null, 'programa' => null, 'subprograma' => null]);
+                if ($post->isDirty()) {
+                    $post->save();
+                    $n++;
+                }
+                continue;
+            }
             $tipo = trim((string) ($f['tipo_pieza'] ?? ''));
             $post->tipo_pieza = $tipo === '' ? null : ($plan->tipoValido($campaign, $tipo) ?? mb_substr($tipo, 0, 60));
             if (array_key_exists('subcampana_id', $f) && ($sub = $subs->get((int) $f['subcampana_id']))) {
