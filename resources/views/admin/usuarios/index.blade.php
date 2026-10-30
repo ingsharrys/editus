@@ -89,11 +89,11 @@
                 </div>
                 <div>
                     <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Rol *') }}</label>
-                    <select name="role_id" x-model="f.role_id" :disabled="f.yo" class="w-full h-10 rounded-lg border-gray-200 text-sm">
+                    <select name="role_id" x-model="f.role_id" :disabled="f.yo === true" class="w-full h-10 rounded-lg border-gray-200 text-sm">
                         @foreach ($asignables as $r)<option value="{{ $r->id }}">{{ $r->name }}{{ $r->descripcion ? ' — ' . \Illuminate\Support\Str::limit($r->descripcion, 60) : '' }}</option>@endforeach
                     </select>
-                    <template x-if="f.yo"><input type="hidden" name="role_id" :value="f.role_id"></template>
-                    <p class="text-[11px] text-gray-500 mt-1" x-show="f.yo">{{ __('No puedes cambiar tu propio rol.') }}</p>
+                    <template x-if="f.yo === true"><input type="hidden" name="role_id" :value="f.role_id"></template>
+                    <p class="text-[11px] text-gray-500 mt-1" x-show="f.yo === true">{{ __('No puedes cambiar tu propio rol.') }}</p>
                 </div>
                 <div>
                     <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1" x-text="f.id ? @js(__('Nueva contraseña (opcional)')) : @js(__('Contraseña'))"></label>
@@ -114,7 +114,7 @@
 function usuarios() {
   return {
     visible: false, f: {},
-    abrir(datos) { this.f = Object.assign({ password: '' }, datos, { role_id: datos.role_id ? String(datos.role_id) : '' }); this.visible = true; },
+    abrir(datos) { this.f = Object.assign({ password: '', yo: false }, datos, { role_id: datos.role_id ? String(datos.role_id) : '' }); this.visible = true; },
     generar() {
       const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', a = new Uint32Array(12);
       crypto.getRandomValues(a); return Array.from(a, n => c[n % c.length]).join('');
