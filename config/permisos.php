@@ -17,6 +17,7 @@ return [
         'Redes y publicaciones' => [
             'paginas' => ['Mis páginas', 'Ver y conectar páginas de Facebook e Instagram'],
             'paginas.publicar' => ['Publicar desde editus', 'Publicar en las páginas desde el panel de Mis páginas'],
+            'redes' => ['Redes (como la app)', 'Publicar la nota en la web de los medios y la imagen o el video en sus Facebook e Instagram, igual que la sección Redes de la app'],
             'paginas.medio' => ['Vincular páginas con medios', 'Asociar cada página a un medio de esnoticia (publicación automática)'],
             'publicaciones' => ['Publicaciones (todas)', 'Ver todas las publicaciones enviadas y sus métricas'],
             'mis_publicaciones' => ['Mis publicaciones', 'Ver y editar las publicaciones propias'],

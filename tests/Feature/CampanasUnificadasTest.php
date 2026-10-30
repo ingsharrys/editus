@@ -159,29 +159,25 @@ class CampanasUnificadasTest extends TestCase
         $this->assertSame(['222', '444'], $c->perfil()->first()->paginas()->pluck('page_id')->sort()->values()->all());
     }
 
-    public function test_la_app_recibe_las_campanas_y_publica_dentro_de_una(): void
+    public function test_todo_lo_de_redes_va_a_la_campana_esnoticia(): void
     {
         $this->unificar();
         $c = app(CampanasService::class)->guardar(new Campaign(), ['name' => 'Salud Huila', 'tipo' => 'institucional', 'medios' => ['opanoticias']], $this->admin->id);
         $api = $this->withHeaders(['X-Editus-Token' => self::TOKEN, 'Accept' => 'application/json']);
 
-        $r = $api->get('/api/campanas')->assertOk();
-        $lista = collect($r->json('campanas'))->keyBy('nombre');
-        $this->assertArrayHasKey('Salud Huila', $lista->all());
-        $this->assertArrayNotHasKey('Esnoticia', $lista->all(), 'la de sistema no se elige al publicar');
-        $this->assertSame(['opanoticias'], $lista['Salud Huila']['medios']);
-        $this->assertSame(['111', '112'], collect($lista['Salud Huila']['page_ids'])->sort()->values()->all());
+        // La app ya no pide campaña: la lista va vacía
+        $this->assertSame([], $api->get('/api/campanas')->assertOk()->json('campanas'));
 
         Http::fake([
             'graph.facebook.com/v23.0/111/photos' => Http::response(['id' => '9', 'post_id' => '111_9'], 200),
             'graph.facebook.com/*' => Http::response(['permalink_url' => 'https://fb.com/x'], 200),
         ]);
-        $api->postJson('/api/publicaciones/foto', ['texto' => 'Hola', 'imagen_url' => 'https://img.test/a.jpg', 'paginas' => [['page_id' => '111', 'facebook' => true]], 'campaign_id' => $c->id])->assertOk();
-        $this->assertSame($c->id, (int) MetaPost::latest('id')->first()->campaign_id);
-        // Esnoticia no se acepta desde la app: queda sin campaña
         $esn = Campaign::where('slug', 'esnoticia')->first();
-        $api->postJson('/api/publicaciones/foto', ['texto' => 'Hola 2', 'imagen_url' => 'https://img.test/a.jpg', 'paginas' => [['page_id' => '111', 'facebook' => true]], 'campaign_id' => $esn->id])->assertOk();
-        $this->assertNull(MetaPost::latest('id')->first()->campaign_id);
+        // Sin campaña, o aunque una app vieja mande otra, queda en Esnoticia
+        $api->postJson('/api/publicaciones/foto', ['texto' => 'Hola', 'imagen_url' => 'https://img.test/a.jpg', 'paginas' => [['page_id' => '111', 'facebook' => true]]])->assertOk();
+        $this->assertSame($esn->id, (int) MetaPost::latest('id')->first()->campaign_id);
+        $api->postJson('/api/publicaciones/foto', ['texto' => 'Hola 2', 'imagen_url' => 'https://img.test/a.jpg', 'paginas' => [['page_id' => '111', 'facebook' => true]], 'campaign_id' => $c->id])->assertOk();
+        $this->assertSame($esn->id, (int) MetaPost::latest('id')->first()->campaign_id);
     }
 
     public function test_la_ia_automatica_no_analiza_esnoticia_salvo_que_se_pida(): void

@@ -51,29 +51,19 @@ class PublicacionesController extends Controller
     }
 
     /**
-     * GET /api/campanas: campañas que se pueden elegir al publicar desde la app (activas, no de sistema),
-     * con sus medios y las páginas que incluyen (para marcar los medios al elegirla).
+     * GET /api/campanas: la app ya no elige campaña (todo lo de Redes va a la campaña de sistema
+     * Esnoticia), así que la lista va vacía y la app no muestra el selector.
      */
-    public function campanas(\App\Services\CampanasService $servicio): JsonResponse
+    public function campanas(): JsonResponse
     {
-        if (!Schema::hasTable('campaigns')) return response()->json(['success' => true, 'campanas' => []]);
-        $lista = \App\Models\Campaign::selectable()->with('perfil.paginas')->get()->map(fn($c) => [
-            'id' => $c->id,
-            'nombre' => $c->name,
-            'tipo' => $c->tipo,
-            'descripcion' => $c->description,
-            'medios' => array_values((array) $c->medios),
-            'medios_nombres' => $c->nombresMedios(),
-            'page_ids' => $servicio->paginasDe($c)->pluck('page_id')->map(fn($v) => (string) $v)->values()->all(),
-        ])->values();
-        return response()->json(['success' => true, 'campanas' => $lista]);
+        return response()->json(['success' => true, 'campanas' => []]);
     }
 
-    /** La campaña indicada si existe, está activa y no es de sistema. */
-    private function campanaValida($id): ?int
+    /** Todo lo que se publica desde Redes (app o web de editus) queda en la campaña de sistema Esnoticia. */
+    private function campanaEsnoticia(): ?int
     {
-        if (!$id || !Schema::hasTable('campaigns')) return null;
-        return \App\Models\Campaign::selectable()->whereKey((int) $id)->value('id');
+        if (!Schema::hasTable('campaigns')) return null;
+        return \App\Models\Campaign::esnoticia()->id;
     }
 
     /** Plantillas de imagen activas (Configuración → App del editor). */
@@ -109,7 +99,7 @@ class PublicacionesController extends Controller
             'campaign_id' => ['nullable', 'integer'],
         ]);
         \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
-        $publisher->campaignId = $this->campanaValida($datos['campaign_id'] ?? null);
+        $publisher->campaignId = $this->campanaEsnoticia();
 
         $batch = (string) Str::uuid();
         $resultados = [];
@@ -229,7 +219,7 @@ class PublicacionesController extends Controller
             'campaign_id' => ['nullable', 'integer'],
         ]);
         \App\Services\MetaPageTokenResolver::preferirUsuarioApp($datos['usuario'] ?? null);
-        $publisher->campaignId = $this->campanaValida($datos['campaign_id'] ?? null);
+        $publisher->campaignId = $this->campanaEsnoticia();
         @set_time_limit(600);
 
         // Video subido temporalmente desde la app (SubidasController): se usa

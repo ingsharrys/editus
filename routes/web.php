@@ -139,6 +139,19 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/suscripcion/sitio/liberar', [\App\Http\Controllers\SuscripcionController::class, 'liberarSitio'])->middleware('permiso:suscripcion')->name('suscripcion.sitio.liberar');
     // Estudio de transmisión en vivo en la web (mismo flujo que la app del editor)
     Route::get('/en-vivo', [\App\Http\Controllers\Web\EnVivoWebController::class, 'index'])->middleware('permiso:en_vivo')->name('en-vivo.web');
+
+    // Redes (igual que la sección Redes de la app del editor): nota web + Facebook / Instagram, campaña Esnoticia
+    Route::middleware('permiso:redes')->prefix('redes')->name('redes.')->group(function () {
+        $R = \App\Http\Controllers\Web\RedesController::class;
+        Route::get('/', [$R, 'index'])->name('index');
+        Route::get('/catalogos', [$R, 'catalogos'])->name('catalogos');
+        Route::post('/previsualizar', [$R, 'previsualizar'])->name('previsualizar');
+        Route::post('/publicar', [$R, 'publicar'])->name('publicar');
+        Route::get('/historial', [$R, 'historial'])->name('historial');
+        Route::get('/video/autorizar', [$R, 'autorizarVideo'])->name('video.autorizar');
+        Route::get('/videos', [$R, 'videos'])->name('videos');
+        Route::post('/publicar-video', [$R, 'publicarVideo'])->name('publicar-video');
+    });
     // Videos pregrabados que salen en vivo a una hora programada
     Route::get('/en-vivo/pregrabados', [\App\Http\Controllers\Web\PregrabadosController::class, 'index'])->middleware('permiso:en_vivo')->name('pregrabados.index');
     Route::get('/en-vivo/pregrabados/estado', [\App\Http\Controllers\Web\PregrabadosController::class, 'estado'])->middleware('permiso:en_vivo')->name('pregrabados.estado');
