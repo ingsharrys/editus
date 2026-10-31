@@ -26,12 +26,12 @@ class MarcosService
     /** Zonas listas para los diseños de Canva (lienzo 1080 × 1350). */
     public static function presets(): array
     {
-        $etiqueta = ['fuente' => 'montserrat-black', 'tam' => 40, 'color' => '#FFFFFF', 'fondo' => null, 'alinear' => 'centro', 'espaciado' => 4, 'mayusculas' => true];
+        $etiqueta = ['fuente' => 'montserrat-black', 'tam' => 44, 'color' => '#FFFFFF', 'fondo' => null, 'alinear' => 'centro', 'espaciado' => 4, 'mayusculas' => true];
         return [
             'opa-titulo' => ['nombre' => 'Opa Noticias · con título', 'zonas' => [
                 'foto' => ['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1350],
                 'etiqueta' => ['x' => 81, 'y' => 876, 'w' => 416, 'h' => 56] + $etiqueta,
-                'titulo' => ['x' => 81, 'y' => 940, 'w' => 914, 'h' => 186, 'fuente' => 'bree', 'tam_max' => 58, 'tam_min' => 40, 'color' => '#FFFFFF', 'interlineado' => 1.12, 'alinear' => 'izquierda', 'max_lineas' => 3, 'sombra' => false],
+                'titulo' => ['x' => 81, 'y' => 940, 'w' => 914, 'h' => 186, 'fuente' => 'bree', 'tam_max' => 61, 'tam_min' => 40, 'color' => '#FFFFFF', 'interlineado' => 1.0, 'alinear' => 'izquierda', 'max_lineas' => 3, 'sombra' => false],
             ]],
             'opa-etiqueta' => ['nombre' => 'Opa Noticias · solo categoría', 'zonas' => [
                 'foto' => ['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1083],
@@ -40,8 +40,8 @@ class MarcosService
             ]],
             'neiva24' => ['nombre' => 'Neiva 24', 'zonas' => [
                 'foto' => ['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1350],
-                'etiqueta' => ['x' => 68, 'y' => 960, 'w' => 268, 'h' => 62, 'tam' => 34] + $etiqueta,
-                'titulo' => ['x' => 110, 'y' => 1036, 'w' => 880, 'h' => 190, 'fuente' => 'montserrat-extrabold', 'tam_max' => 54, 'tam_min' => 36, 'color' => '#FFFFFF', 'interlineado' => 1.12, 'alinear' => 'izquierda', 'max_lineas' => 3, 'sombra' => false],
+                'etiqueta' => ['x' => 68, 'y' => 960, 'w' => 268, 'h' => 62, 'tam' => 42] + $etiqueta,
+                'titulo' => ['x' => 110, 'y' => 1036, 'w' => 880, 'h' => 190, 'fuente' => 'montserrat-extrabold', 'tam_max' => 56, 'tam_min' => 36, 'color' => '#FFFFFF', 'interlineado' => 1.08, 'alinear' => 'izquierda', 'max_lineas' => 3, 'sombra' => false],
             ]],
         ];
     }
@@ -147,5 +147,47 @@ class MarcosService
         }
         imagedestroy($img);
         return false;
+    }
+
+    /**
+     * Para un PNG sin transparencia (blanco donde va la foto): desde el centro de la zona de la
+     * foto se recorren los píxeles grises conectados (blanco, el degradado y hasta casi negro) y
+     * se vuelven negro con transparencia (alfa = 1 − brillo). Lo de color (logos, franjas) y lo
+     * que no se alcanza (textos blancos sobre la banda negra) queda igual.
+     */
+    public function blancoATransparente(string $bytes, array $foto): string
+    {
+        $img = @imagecreatefromstring($bytes);
+        if (!$img) throw new \RuntimeException(__('No se pudo leer el marco.'));
+        if (!imageistruecolor($img)) imagepalettetotruecolor($img);
+        $W = imagesx($img); $H = imagesy($img);
+        $sx = (int) min($W - 1, max(0, ($foto['x'] ?? 0) + ($foto['w'] ?? $W) / 2));
+        $sy = (int) min($H - 1, max(0, ($foto['y'] ?? 0) + ($foto['h'] ?? $H) / 3));
+        $out = imagecreatetruecolor($W, $H);
+        imagealphablending($out, false); imagesavealpha($out, true);
+        imagecopy($out, $img, 0, 0, 0, 0, $W, $H);
+        $visto = str_repeat("\0", $W * $H);
+        $pila = [$sy * $W + $sx];
+        while ($pila) {
+            $i = array_pop($pila);
+            if ($visto[$i] !== "\0") continue;
+            $visto[$i] = "\1";
+            $x = $i % $W; $y = intdiv($i, $W);
+            $c = imagecolorat($img, $x, $y);
+            $r = ($c >> 16) & 255; $g = ($c >> 8) & 255; $b = $c & 255;
+            if (max($r, $g, $b) - min($r, $g, $b) > 14) continue;   // color: es parte del diseño
+            $v = ($r + $g + $b) / 3;
+            $a = 1 - $v / 255;
+            imagesetpixel($out, $x, $y, $a < 0.02 ? 0x7F000000 : ((127 - (int) round($a * 127)) << 24));
+            if ($v < 8) continue;                                    // negro: no se sigue (protege el pie)
+            if ($x > 0) $pila[] = $i - 1;
+            if ($x < $W - 1) $pila[] = $i + 1;
+            if ($y > 0) $pila[] = $i - $W;
+            if ($y < $H - 1) $pila[] = $i + $W;
+        }
+        imagedestroy($img);
+        ob_start(); imagepng($out, null, 9); $png = (string) ob_get_clean();
+        imagedestroy($out);
+        return $png;
     }
 }

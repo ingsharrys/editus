@@ -162,8 +162,13 @@ class EditorAppAdminTest extends TestCase
         Storage::fake('public');
         $base = ['nombre' => 'Opa con título', 'tipo' => 'marco', 'medio_slug' => 'opanoticias', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1', 'orden' => 1,
             'zonas' => json_encode(\App\Services\MarcosService::presets()['opa-titulo']['zonas'])];
-        // Un PNG sin transparencia se rechaza (taparía la foto)
-        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco' => $this->pngMarco([255, 255, 255])])->assertSessionHasErrors('marco');
+        // Un PNG sin transparencia (blanco donde va la foto): se vuelve transparente el blanco desde la zona de la foto
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', ['nombre' => 'Sin alfa'] + $base + ['marco' => $this->pngMarco([255, 255, 255])])
+            ->assertSessionHasNoErrors()->assertSessionHas('success', fn($m) => str_contains($m, 'no tenía transparencia'));
+        $sinAlfa = PlantillaEditor::where('nombre', 'Sin alfa')->first();
+        $img = imagecreatefromstring(Storage::disk('public')->get($sinAlfa->marco_path));
+        $this->assertSame([127, 0], [(imagecolorat($img, 50, 40) >> 24) & 0x7F, (imagecolorat($img, 50, 120) >> 24) & 0x7F], 'el blanco queda transparente y la franja roja opaca');
+        $sinAlfa->delete();
         // Solo una de las dos versiones: pide la otra
         $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco_blanco' => $this->pngMarco([255, 255, 255])])->assertSessionHasErrors('marco_negro');
 
@@ -182,5 +187,13 @@ class EditorAppAdminTest extends TestCase
         $this->assertStringContainsString('plantillas-editor/marcos/', $api['marco_url']);
         $this->assertNull($api['zonas']['titulo'], 'la zona del título (y=940) queda fuera de un marco de 135 px de alto');
         $this->actingAs($this->admin)->get('/admin/app-editor/plantillas?editar=' . $t->id)->assertOk()->assertSee('Marco de Canva')->assertSee('Opa Noticias · solo categoría');
+
+        // Un diseño viejo con el PNG completo subido como logo se convierte en marco sin volver a subirlo
+        $viejo = PlantillaEditor::create(['nombre' => 'Neiva 24', 'logo_path' => 'plantillas-editor/neiva.png', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => true]);
+        Storage::disk('public')->put('plantillas-editor/neiva.png', file_get_contents($this->pngMarco([255, 255, 255])->getRealPath()));
+        $this->actingAs($this->admin)->put('/admin/app-editor/plantillas/' . $viejo->id, ['nombre' => 'Neiva 24', 'tipo' => 'marco', 'medio_slug' => 'neiva24', 'marco_desde_logo' => '1', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1',
+            'zonas' => json_encode(\App\Services\MarcosService::presets()['neiva24']['zonas'])])->assertSessionHasNoErrors();
+        $this->assertTrue($viejo->fresh()->esMarco());
+        $this->assertSame('neiva24', $viejo->fresh()->medio_slug);
     }
 }

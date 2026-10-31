@@ -104,14 +104,14 @@ class EditorAppController extends Controller
         $plantilla = new PlantillaEditor();
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.plantillas.index')->with('success', __('Plantilla «:nombre» creada.', ['nombre' => $plantilla->nombre]));
+        return redirect()->route('editor-app.plantillas.index')->with('success', trim(__('Plantilla «:nombre» creada.', ['nombre' => $plantilla->nombre]) . ' ' . $this->avisoMarco));
     }
 
     public function plantillaUpdate(Request $request, PlantillaEditor $plantilla): RedirectResponse
     {
         $this->guardarPlantilla($request, $plantilla);
 
-        return redirect()->route('editor-app.plantillas.index')->with('success', __('Plantilla «:nombre» guardada.', ['nombre' => $plantilla->nombre]));
+        return redirect()->route('editor-app.plantillas.index')->with('success', trim(__('Plantilla «:nombre» guardada.', ['nombre' => $plantilla->nombre]) . ' ' . $this->avisoMarco));
     }
 
     public function plantillaDestroy(PlantillaEditor $plantilla): RedirectResponse
@@ -162,6 +162,9 @@ class EditorAppController extends Controller
         return redirect()->route('editor-app.index', ['tab' => 'recursos'])->with('success', __('Recurso «:nombre» eliminado.', ['nombre' => $nombre]));
     }
 
+    /** Aviso para el mensaje de éxito (p. ej. el marco no tenía transparencia y se calculó). */
+    private ?string $avisoMarco = null;
+
     private function guardarPlantilla(Request $request, PlantillaEditor $plantilla): void
     {
         $datos = $request->validate([
@@ -185,6 +188,7 @@ class EditorAppController extends Controller
             'marco_negro' => ['nullable', 'file', 'mimes:png,jpg,jpeg', 'max:10240'],
             'medio_slug' => ['nullable', 'string', 'in:' . implode(',', array_keys((array) config('services.editus.medios', [])))],
             'zonas' => ['nullable', 'string', 'max:5000'],
+            'marco_desde_logo' => ['nullable', 'boolean'],
         ], [
             'marco.mimes' => __('El marco debe ser un PNG con fondo transparente.'),
             'logo.mimes' => __('El logo debe ser PNG (con fondo transparente) o WEBP.'),
@@ -224,10 +228,16 @@ class EditorAppController extends Controller
         if ($plantilla->tipo === 'marco') {
             $marcos = app(\App\Services\MarcosService::class);
             $png = null;
-            if ($request->hasFile('marco')) {
-                $png = (string) file_get_contents($request->file('marco')->getRealPath());
+            $unico = $request->hasFile('marco') ? (string) file_get_contents($request->file('marco')->getRealPath())
+                : (($request->boolean('marco_desde_logo') && $plantilla->logo_path) ? (string) Storage::disk('public')->get($plantilla->logo_path) : null);
+            if ($unico !== null) {
+                $png = $unico;
                 if (!$marcos->tieneTransparencia($png)) {
-                    throw \Illuminate\Validation\ValidationException::withMessages(['marco' => __('Ese PNG no tiene partes transparentes, así que taparía la foto. Si lo exportaste de Canva gratis, sube la versión con fondo blanco y la de fondo negro (abajo) y editus calcula la transparencia.')]);
+                    // Sin transparencia (blanco donde va la foto): se vuelve transparente ese blanco y su degradado
+                    $info = @getimagesizefromstring($png) ?: [1080, 1350];
+                    $zFoto = \App\Services\MarcosService::normalizarZonas($datos['zonas'] ?? '', (int) $info[0], (int) $info[1])['foto'];
+                    $png = $marcos->blancoATransparente($png, $zFoto);
+                    $this->avisoMarco = __('El PNG no tenía transparencia: editus volvió transparente el blanco donde va la foto (y su degradado). Revisa la vista previa en Redes.');
                 }
             } elseif ($request->hasFile('marco_blanco') || $request->hasFile('marco_negro')) {
                 if (!$request->hasFile('marco_blanco') || !$request->hasFile('marco_negro')) {

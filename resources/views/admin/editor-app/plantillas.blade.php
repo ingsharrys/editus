@@ -28,7 +28,7 @@
             <div class="rounded-3xl border border-gray-200 bg-white p-5 shadow-md">
                 <h2 class="text-xl font-bold text-gray-800">{{ __('Plantillas de imagen') }}</h2>
                 <p class="text-sm text-gray-500 mb-4">
-                    {!! __('La app siempre incluye la plantilla del sistema <strong>Opa Noticias</strong> (logo en cajas, etiqueta roja, título grande). Aquí puedes crear variantes con otro logo, otros colores o textos. En la app el periodista elige la plantilla y puede cambiar el color del título y del logo antes de publicar.') !!}
+                    {!! __('La plantilla <strong>Opa Noticias · Del sistema</strong> viene incluida en el servidor de esnoticia y no aparece en esta lista. Aquí se suben las demás: <strong>marcos de Canva</strong> (cada medio usa el suyo al publicar) o diseños de editus con otro logo y colores.') !!}
                 </p>
 
                 @if ($plantillas->isEmpty())
@@ -37,8 +37,13 @@
                     <div class="space-y-3">
                         @foreach ($plantillas as $t)
                             <div class="flex items-center gap-4 rounded-2xl border border-gray-100 p-3 {{ $t->activa ? '' : 'opacity-60' }}">
+                                @php
+                                    $pareceMarco = !$t->esMarco() && $t->logo_path && (($dim = @getimagesize(\Illuminate\Support\Facades\Storage::disk('public')->path($t->logo_path))) && $dim[1] >= 800);
+                                @endphp
                                 <div class="h-14 w-24 shrink-0 rounded-xl flex items-center justify-center overflow-hidden" style="background:#1f2937">
-                                    @if ($t->logoUrl())
+                                    @if ($t->esMarco())
+                                        <img src="{{ $t->marcoUrl() }}" alt="" class="h-14 object-contain">
+                                    @elseif ($t->logoUrl())
                                         <img src="{{ $t->logoUrl() }}" alt="" class="max-h-12 max-w-[88px] object-contain">
                                     @else
                                         <span class="text-white font-black text-sm tracking-wide">{{ $t->logo_texto ?: '—' }}</span>
@@ -53,8 +58,13 @@
                                         @unless ($t->activa)
                                             <span class="rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-xs font-semibold">{{ __('Inactiva') }}</span>
                                         @endunless
+                                        <span class="rounded-full px-2 py-0.5 text-xs font-semibold {{ $t->esMarco() ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600' }}">{{ $t->esMarco() ? __('Marco de Canva') : __('Diseño de editus') }}</span>
+                                        @if ($t->medio_slug)<span class="rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 text-xs font-semibold">{{ $medios[$t->medio_slug] ?? $t->medio_slug }}</span>@endif
                                     </div>
-                                    <div class="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap">
+                                    @if ($pareceMarco)
+                                        <p class="mt-1 text-xs text-amber-700">{{ __('Subiste un diseño completo como logo. Para que funcione como marco: Editar → Tipo «Marco de Canva» → sube el PNG en «Marco».') }}</p>
+                                    @endif
+                                    <div class="text-xs text-gray-500 mt-1 flex items-center gap-3 flex-wrap {{ $t->esMarco() ? 'hidden' : '' }}">
                                         <span>{!! __('Etiqueta: <strong>:etiqueta</strong>', ['etiqueta' => e($t->etiqueta ?: '—')]) !!}</span>
                                         <span>{{ __('Pie: :pie', ['pie' => $t->pie ?: '—']) }}</span>
                                         <span>{{ $t->hashtag }}</span>
@@ -124,6 +134,10 @@
                             <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Marco (PNG con fondo transparente, 1080 × 1350)') }}</label>
                             <input type="file" name="marco" accept="image/png" class="w-full text-sm" @change="leerMarco($event.target.files[0])">
                             @if ($t && $t->marcoUrl())<p class="text-[11px] text-emerald-700 mt-1">✓ {{ __('Ya tiene marco. Sube otro solo si lo quieres cambiar.') }}</p>@endif
+                            @if ($t && !$t->marcoUrl() && $t->logoUrl())
+                                <label class="mt-2 flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" name="marco_desde_logo" value="1" class="h-4 w-4 rounded border-gray-300" @change="if ($event.target.checked) leerMarco(null, @js($t->logoUrl()))">
+                                    {{ __('Usar como marco la imagen que subí como logo') }}</label>
+                            @endif
                             <details class="mt-2 text-xs text-gray-600">
                                 <summary class="cursor-pointer font-semibold text-indigo-700">{{ __('¿Canva gratis? Sube la versión de fondo blanco y la de fondo negro') }}</summary>
                                 <p class="mt-1">{{ __('Canva gratis no exporta con fondo transparente. Quita la foto y los textos de ejemplo, descarga el diseño como PNG con fondo blanco, ponle un fondo negro y descárgalo otra vez: editus calcula la transparencia comparando las dos.') }}</p>
@@ -287,7 +301,7 @@ function plantillaMarco() {
             const base = PRESETS['opa-titulo'][k];
             this.z[k] = si ? copia(base) : null; this.dibujar();
         },
-        leerMarco(f) { if (!f) return; const im = new Image(); im.onload = () => { this.marco = im; this.dibujar(); }; im.src = URL.createObjectURL(f); },
+        leerMarco(f, url = null) { if (!f && !url) return; const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { this.marco = im; this.dibujar(); }; im.src = url || URL.createObjectURL(f); },
         leerPar(cual, f) {
             if (!f) return;
             const im = new Image();
@@ -345,7 +359,7 @@ function plantillaMarco() {
                 for (; t >= (ti.tam_min || 36); t -= 2) { x.font = fuente(ti.fuente, t); lineas = envolver(); if (lineas.length <= (ti.max_lineas || 3) && lineas.length * t * (ti.interlineado || 1.05) <= ti.h + t * 0.2) break; }
                 lineas = lineas.slice(0, ti.max_lineas || 3);
                 x.fillStyle = ti.color || '#fff'; x.textBaseline = 'alphabetic';
-                let y = ti.y + t * 0.92;
+                let y = ti.y + t * 0.8;
                 lineas.forEach(l => { const w = x.measureText(l).width; x.fillText(l, ti.alinear === 'centro' ? ti.x + (ti.w - w) / 2 : ti.x, y); y += t * (ti.interlineado || 1.05); });
             }
         },
