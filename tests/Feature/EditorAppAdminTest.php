@@ -223,4 +223,59 @@ class EditorAppAdminTest extends TestCase
         $this->assertSame(['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1083], $t->zonas['foto'], 'medidas de «Opa solo categoría»');
         $this->assertSame(994, $t->zonas['etiqueta']['y']);
     }
+
+    /** Marco transparente de 1080×1350 con banda oscura abajo y la caja roja fija de la categoría. */
+    private function marcoConCaja(): string
+    {
+        $im = imagecreatetruecolor(1080, 1350);
+        imagealphablending($im, false); imagesavealpha($im, true);
+        imagefill($im, 0, 0, 0x7F000000);
+        imagefilledrectangle($im, 0, 800, 1079, 1349, imagecolorallocatealpha($im, 10, 10, 10, 30));
+        imagefilledrectangle($im, 81, 876, 497, 932, imagecolorallocate($im, 171, 16, 16));
+        ob_start(); imagepng($im); return ob_get_clean();
+    }
+
+    public function test_la_caja_de_la_categoria_se_quita_del_marco_para_ajustarse_al_texto(): void
+    {
+        Storage::fake('public');
+        $ruta = tempnam(sys_get_temp_dir(), 'marco') . '.png';
+        file_put_contents($ruta, $this->marcoConCaja());
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', ['nombre' => 'Opa con título', 'tipo' => 'marco', 'medio_slug' => 'opanoticias', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1',
+            'zonas' => json_encode(\App\Services\MarcosService::presets()['opa-titulo']['zonas']), 'marco' => new UploadedFile($ruta, 'marco.png', 'image/png', null, true)])->assertSessionHasNoErrors();
+        $t = PlantillaEditor::firstWhere('nombre', 'Opa con título');
+        $e = $t->zonas['etiqueta'];
+        $this->assertTrue($e['ajustar']);
+        $this->assertSame('izquierda', $e['alinear']);
+        $this->assertMatchesRegularExpression('/^#A[89AB]1[0-3]1[0-3]$/', $e['fondo'], 'toma el color de la caja del marco');
+        // La copia sin caja: donde estaba la caja queda la banda oscura; el original se conserva
+        $limpio = imagecreatefromstring(Storage::disk('public')->get($t->marcoAjustadoPath()));
+        $c = imagecolorat($limpio, 300, 900);
+        $this->assertLessThan(40, ($c >> 16) & 255, 'ya no hay rojo en la zona de la categoría');
+        $original = imagecreatefromstring(Storage::disk('public')->get($t->marco_path));
+        $this->assertSame(171, (imagecolorat($original, 300, 900) >> 16) & 255);
+        // La API entrega el marco sin caja y la caja con su color
+        $api = $this->withHeaders(['X-Editus-Token' => 'tok-int'])->getJson('/api/plantillas')->json('plantillas.0');
+        $this->assertStringContainsString('/ajustado-', $api['marco_url']);
+        $this->assertSame($e['fondo'], $api['zonas']['etiqueta']['fondo']);
+
+        // Si se desactiva, vuelve el marco tal cual
+        $z = $t->zonas; $z['etiqueta']['ajustar'] = false; $z['etiqueta']['fondo'] = null;
+        $this->actingAs($this->admin)->put('/admin/app-editor/plantillas/' . $t->id, ['nombre' => 'Opa con título', 'tipo' => 'marco', 'medio_slug' => 'opanoticias', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1', 'zonas' => json_encode($z)])->assertSessionHasNoErrors();
+        $this->assertStringNotContainsString('/ajustado-', $t->fresh()->marcoUrl());
+    }
+
+    public function test_la_migracion_activa_la_caja_ajustable_en_los_marcos_ya_subidos(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('plantillas-editor/marcos/n24.png', $this->marcoConCaja());
+        $zonas = \App\Services\MarcosService::presets()['neiva24']['zonas'];
+        unset($zonas['etiqueta']['ajustar'], $zonas['etiqueta']['radio']);
+        $zonas['etiqueta'] = ['x' => 81, 'y' => 876, 'w' => 416, 'h' => 56] + $zonas['etiqueta'];
+        $t = PlantillaEditor::create(['nombre' => 'Neiva 24', 'tipo' => 'marco', 'marco_path' => 'plantillas-editor/marcos/n24.png', 'medio_slug' => 'neiva24', 'zonas' => $zonas, 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E']);
+        (require database_path('migrations/2026_10_31_000003_marcos_caja_ajustable.php'))->up();
+        $e = $t->fresh()->zonas['etiqueta'];
+        $this->assertSame([true, 'izquierda', 31], [$e['ajustar'], $e['alinear'], $e['radio']]);
+        $this->assertNotEmpty($e['fondo']);
+        $this->assertTrue(Storage::disk('public')->exists($t->fresh()->marcoAjustadoPath()));
+    }
 }

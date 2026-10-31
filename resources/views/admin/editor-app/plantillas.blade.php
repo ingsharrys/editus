@@ -184,7 +184,19 @@
                                         <template x-if="k !== 'foto'"><label>{{ __('Color') }}<input type="color" x-model="z[k].color" @input="dibujar()" class="h-6 w-full rounded border-gray-200"></label></template>
                                         <template x-if="k !== 'foto'"><label>{{ __('Alinear') }}<select x-model="z[k].alinear" @change="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"><option value="izquierda">{{ __('Izq.') }}</option><option value="centro">{{ __('Centro') }}</option></select></label></template>
                                         <template x-if="k === 'etiqueta'"><label>{{ __('Tamaño') }}<input type="number" min="10" max="120" x-model.number="z[k].tam" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
-                                        <template x-if="k === 'etiqueta'"><label class="col-span-3">{{ __('Caja de color (si el marco no la trae)') }} <input type="checkbox" :checked="!!z[k].fondo" @change="z[k].fondo = $event.target.checked ? '#AB1010' : null; dibujar()"> <input type="color" x-show="z[k].fondo" x-model="z[k].fondo" @input="dibujar()" class="h-5 w-10 align-middle"></label></template>
+                                        <template x-if="k === 'etiqueta'">
+                                            <div class="col-span-4 mt-1 space-y-1 rounded-lg bg-amber-50 p-1.5">
+                                                <label class="flex items-center gap-1 font-semibold text-gray-800"><input type="checkbox" :checked="!!z[k].ajustar || !!z[k].fondo" @change="cajaAjustable($event.target.checked)" class="h-3.5 w-3.5 rounded"> {{ __('La caja de color se ajusta al largo de la categoría') }}</label>
+                                                <template x-if="z[k].ajustar || z[k].fondo">
+                                                    <div class="flex flex-wrap items-center gap-2 pl-4">
+                                                        <label class="flex items-center gap-1"><input type="checkbox" x-model="z[k].ajustar" @change="dibujar()" class="h-3.5 w-3.5 rounded"> {{ __('El marco ya trae la caja: quitarla') }}</label>
+                                                        <label class="flex items-center gap-1">{{ __('Color') }} <input type="color" :value="z[k].fondo || colorCaja || '#AB1010'" @input="z[k].fondo = $event.target.value; dibujar()" class="h-5 w-9"></label>
+                                                        <button type="button" x-show="z[k].fondo" @click="z[k].fondo = null; dibujar()" class="text-[10px] text-indigo-700 underline">{{ __('el del marco') }}</button>
+                                                        <label class="flex items-center gap-1">{{ __('Redondeo') }} <input type="number" min="0" max="60" x-model.number="z[k].radio" @input="dibujar()" class="w-12 rounded border-gray-200 px-1 py-0.5 text-xs"></label>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
                                         <template x-if="k === 'titulo'"><label>{{ __('Máx.') }}<input type="number" min="12" max="160" x-model.number="z[k].tam_max" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
                                         <template x-if="k === 'titulo'"><label>{{ __('Mín.') }}<input type="number" min="10" max="160" x-model.number="z[k].tam_min" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
                                         <template x-if="k === 'titulo'"><label>{{ __('Líneas') }}<input type="number" min="1" max="6" x-model.number="z[k].max_lineas" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
@@ -289,14 +301,39 @@ function plantillaMarco() {
         tipo: @js(old('tipo', $editar->tipo ?? 'diseno') === 'marco' ? 'marco' : 'diseno'),
         z: copia(@js(old('zonas') ? json_decode(old('zonas'), true) : ($editar?->zonas ?: null)) || PRESETS['opa-titulo']),
         nombres: {foto: @js(__('Foto')), etiqueta: @js(__('Categoría')), titulo: @js(__('Título'))},
-        marco: null, par: {blanco: null, negro: null},
+        marco: null, par: {blanco: null, negro: null}, colorCaja: null,
         iniciar() {
-            const url = @js($editar?->marcoUrl());
+            const url = @js($editar?->marcoOriginalUrl());
             if (url) { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { this.marco = im; this.dibujar(); }; im.src = url; }
             (document.fonts?.ready || Promise.resolve()).then(() => this.dibujar());
             this.$watch('tipo', () => this.$nextTick(() => this.dibujar()));
         },
         aplicarPreset(k) { if (PRESETS[k]) { this.z = copia(PRESETS[k]); this.dibujar(); } },
+        cajaAjustable(si) {
+            const e = this.z.etiqueta; if (!e) return;
+            e.ajustar = si; if (!si) e.fondo = null;
+            this.dibujar();
+        },
+        /** Copia del marco sin la caja de la categoría (misma regla que el servidor). */
+        marcoSinCaja() {
+            const e = this.z.etiqueta, im = this.marco;
+            const c = document.createElement('canvas'); c.width = 1080; c.height = 1350; const x = c.getContext('2d');
+            x.drawImage(im, 0, 0, 1080, 1350);
+            const x0 = Math.max(0, e.x - 3), x1 = Math.min(1079, e.x + e.w + 3), y0 = Math.max(0, e.y - 3), y1 = Math.min(1349, e.y + e.h + 3);
+            const d = x.getImageData(0, 0, 1080, 1350), px = d.data, at = (xx, yy) => (yy * 1080 + xx) * 4;
+            const cuenta = {};
+            for (let yy = y0; yy <= y1; yy += 2) for (let xx = x0; xx <= x1; xx += 2) { const i = at(xx, yy); if (px[i + 3] < 170) continue; const r = px[i], g = px[i + 1], b = px[i + 2]; if (Math.max(r, g, b) - Math.min(r, g, b) < 60) continue; const k = [r & 248, g & 248, b & 248].join(','); cuenta[k] = (cuenta[k] || 0) + 1; }
+            const top = Object.entries(cuenta).sort((a, b) => b[1] - a[1])[0]; if (!top) return {lienzo: c, color: null};
+            const [cr, cg, cb] = top[0].split(',').map(Number);
+            const cerca = (i) => Math.abs(px[i] - cr) + Math.abs(px[i + 1] - cg) + Math.abs(px[i + 2] - cb) < 150 && Math.max(px[i], px[i + 1], px[i + 2]) - Math.min(px[i], px[i + 1], px[i + 2]) > 25;
+            const arriba = Math.max(0, y0 - 1), abajo = Math.min(1349, y1 + 1);
+            for (let xx = x0; xx <= x1; xx++) {
+                const ia = at(xx, arriba), ib = at(xx, abajo); if (cerca(ia) || cerca(ib)) continue;
+                for (let yy = y0; yy <= y1; yy++) { const i = at(xx, yy); if (!cerca(i)) continue; const t = (yy - arriba) / Math.max(1, abajo - arriba); for (let k = 0; k < 4; k++) px[i + k] = px[ia + k] * (1 - t) + px[ib + k] * t; }
+            }
+            x.putImageData(d, 0, 0);
+            return {lienzo: c, color: '#' + [cr + 3, cg + 3, cb + 3].map(v => Math.min(255, v).toString(16).padStart(2, '0')).join('')};
+        },
         alternar(k, si) {
             const base = PRESETS['opa-titulo'][k];
             this.z[k] = si ? copia(base) : null; this.dibujar();
@@ -340,15 +377,27 @@ function plantillaMarco() {
             const g = x.createLinearGradient(0, f.y, 0, f.y + f.h); g.addColorStop(0, '#4b6584'); g.addColorStop(1, '#8a6d5a');
             x.fillStyle = g; x.fillRect(f.x, f.y, f.w, f.h);
             x.fillStyle = 'rgba(230,190,160,.9)'; x.beginPath(); x.ellipse(f.x + f.w / 2, f.y + f.h * 0.38, f.w * 0.2, f.h * 0.25, 0, 0, 7); x.fill();
-            if (this.marco) x.drawImage(this.marco, 0, 0, 1080, 1350);
+            if (this.marco) {
+                let dibujado = false;
+                if (this.z.etiqueta?.ajustar) { try { const r = this.marcoSinCaja(); x.drawImage(r.lienzo, 0, 0); this.colorCaja = r.color; dibujado = true; } catch (e) {} }
+                if (!dibujado) x.drawImage(this.marco, 0, 0, 1080, 1350);
+            }
             const fuente = (k, t) => (FUENTES[k] || FUENTES.bree).replace('{t}', t);
             const e = this.z.etiqueta;
             if (e) {
-                const txt = 'NACIONAL'; let t = e.tam || 40; const pad = Math.round(e.h * 0.35); x.letterSpacing = (e.espaciado ?? 4) + 'px';
-                x.font = fuente(e.fuente, t); while (t > 12 && x.measureText(txt).width > e.w - 2 * pad) { t--; x.font = fuente(e.fuente, t); }
+                const txt = 'INTERNACIONAL'; let t = e.tam || 40; x.letterSpacing = (e.espaciado ?? 4) + 'px';
+                const fondo = e.fondo || (e.ajustar ? (this.colorCaja || '#AB1010') : null), centro = e.alinear !== 'izquierda';
+                const pad = Math.round(e.h * (fondo ? 0.9 : 0.35));
+                const maxW = fondo ? Math.max(e.w, centro ? 1080 - 162 : 1080 - e.x - Math.max(81, e.x)) : e.w;
+                x.font = fuente(e.fuente, t); while (t > 12 && x.measureText(txt).width > maxW - 2 * pad) { t--; x.font = fuente(e.fuente, t); }
                 const ancho = x.measureText(txt).width; let tx;
-                if (e.fondo) { const wc = Math.min(e.w, ancho + 2 * pad); x.fillStyle = e.fondo; x.fillRect(e.x, e.y, wc, e.h); tx = e.x + (wc - ancho) / 2; }
-                else tx = e.alinear === 'izquierda' ? e.x + pad : e.x + (e.w - ancho) / 2;
+                if (fondo) {
+                    const wc = Math.max(ancho + 2 * pad, 2 * e.h), xc = centro ? e.x + e.w / 2 - wc / 2 : e.x, r = Math.min(e.radio || 0, e.h / 2);
+                    x.fillStyle = fondo; x.beginPath();
+                    if (x.roundRect) x.roundRect(xc, e.y, wc, e.h, centro ? r : [0, r, r, 0]); else x.rect(xc, e.y, wc, e.h);
+                    x.fill(); tx = xc + (wc - ancho) / 2;
+                }
+                else tx = !centro ? e.x + pad : e.x + (e.w - ancho) / 2;
                 x.fillStyle = e.color || '#fff'; x.textBaseline = 'middle'; x.fillText(txt, tx, e.y + e.h / 2 + t * 0.04); x.letterSpacing = '0px';
             }
             const ti = this.z.titulo;

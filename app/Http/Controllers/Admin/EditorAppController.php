@@ -116,6 +116,7 @@ class EditorAppController extends Controller
 
     public function plantillaDestroy(PlantillaEditor $plantilla): RedirectResponse
     {
+        if ($plantilla->marco_path) Storage::disk('public')->delete($plantilla->marcoAjustadoPath());
         foreach (['logo_path', 'marco_path'] as $c) {
             if ($plantilla->$c) Storage::disk('public')->delete($plantilla->$c);
         }
@@ -266,6 +267,7 @@ class EditorAppController extends Controller
             }
             $info = @getimagesizefromstring((string) Storage::disk('public')->get($plantilla->marco_path)) ?: [1080, 1350];
             $plantilla->zonas = \App\Services\MarcosService::normalizarZonas($datos['zonas'] ?? '', (int) $info[0], (int) $info[1]);
+            $plantilla->prepararCaja();
         }
 
         $plantilla->save();
