@@ -80,6 +80,43 @@ class User extends Authenticatable
         return $rol->tiene($permiso);
     }
 
+    /**
+     * Módulos en el orden en que se elige la página de inicio: el primero al que el rol
+     * tiene acceso (un rol que solo tiene Redes entra directo a Redes).
+     */
+    public const INICIO = [
+        'paginas' => 'meta.pages.index',
+        'redes' => 'redes.index',
+        'en_vivo' => 'en-vivo.web',
+        'publicaciones' => 'meta.posts.index',
+        'mis_publicaciones' => 'mis-posts.index',
+        'campanas' => 'campaigns.index',
+        'estadisticas' => 'stats.index',
+        'informes' => 'reports.posts',
+        'inteligencia' => 'inteligencia.index',
+        'informe_admin' => 'informe.index',
+        'app_editor' => 'editor-app.index',
+        'plantillas' => 'editor-app.plantillas.index',
+        'usuarios' => 'usuarios.index',
+        'roles' => 'roles.index',
+        'suscripciones_admin' => 'admin.suscripciones',
+        'suscripcion' => 'suscripcion.index',
+    ];
+
+    /** Nombre de la ruta de inicio de este usuario (si no tiene ningún módulo, su perfil). */
+    public function rutaInicio(): string
+    {
+        foreach (self::INICIO as $permiso => $ruta) {
+            if ($this->tienePermiso($permiso) && \Illuminate\Support\Facades\Route::has($ruta)) return $ruta;
+        }
+        return 'profile.edit';
+    }
+
+    public function urlInicio(): string
+    {
+        return route($this->rutaInicio());
+    }
+
     /** @return string[] */
     public function permisos(): array
     {

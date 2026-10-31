@@ -45,6 +45,6 @@ class RegisteredUserController extends Controller
 
         Auth::login($user);
 
-        return redirect()->route('meta.pages.index');
+        return redirect($user->urlInicio());
     }
 }

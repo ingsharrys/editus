@@ -61,7 +61,8 @@ class EditorAppAdminTest extends TestCase
     public function test_solo_admin_entra(): void
     {
         $user = User::factory()->create(['role_id' => Role::where('slug', 'user')->first()->id]);
-        $this->actingAs($user)->get('/admin/app-editor')->assertStatus(403);
+        $this->actingAs($user)->get('/admin/app-editor')->assertRedirect(route('meta.pages.index'));
+        $this->actingAs($user)->getJson('/admin/app-editor')->assertStatus(403);
         MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias']);
         $this->actingAs($this->admin)->get('/admin/app-editor')->assertOk()->assertSee('App del editor')->assertSee('Todos los periodistas')->assertSee('willy')->assertSee('Karol');
         $this->actingAs($this->admin)->get('/admin/app-editor?tab=youtube')->assertOk()->assertSee('Canales de YouTube');

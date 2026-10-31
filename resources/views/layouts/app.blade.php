@@ -419,6 +419,9 @@
                 </div>
                 <div class="px-2 w-full min-w-0 flex-1">
                     <!-- Tu contenido -->
+                    @if (session('aviso_permiso'))
+                        <div class="max-w-7xl mx-auto px-2 sm:px-4 pt-6"><div class="mt-8 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">{{ session('aviso_permiso') }}</div></div>
+                    @endif
                     @yield('content')
                 </div>
             </div>

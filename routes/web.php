@@ -71,7 +71,7 @@ Route::get('/inscripcion/{token}', [\App\Http\Controllers\CertificadoController:
 
 Route::view('/data-deletion', 'data-deletion')->name('data-deletion');
 
-Route::get('/dashboard', fn() => view('dashboard'))
+Route::get('/dashboard', fn() => redirect(auth()->user()->urlInicio()))
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
 

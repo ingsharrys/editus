@@ -98,7 +98,7 @@ class PlanMediosTest extends TestCase
         }
         // Quien no tiene el permiso de campañas no entra
         $normal = User::factory()->create(['role_id' => null]);
-        $this->actingAs($normal)->get(route('campaigns.plan', $this->c))->assertForbidden();
+        $this->actingAs($normal)->get(route('campaigns.plan', $this->c))->assertRedirect(route('meta.pages.index'));
     }
 
     public function test_subcampanas_son_temas_con_sus_tipos_de_publicacion(): void

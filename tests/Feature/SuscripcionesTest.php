@@ -269,6 +269,7 @@ class SuscripcionesTest extends TestCase
         $this->actingAs($admin)->get(route('admin.suscripciones'))->assertOk()->assertSee('Cliente')->assertSee('Full · anual');
         $this->actingAs($admin)->post(route('admin.suscripciones.exento', $this->cliente))->assertRedirect();
         $this->assertTrue(app(PlanService::class)->sinLimites($this->cliente->fresh()));
-        $this->actingAs($this->cliente)->get(route('admin.suscripciones'))->assertStatus(403);
+        $this->actingAs($this->cliente)->get(route('admin.suscripciones'))->assertRedirect();
+        $this->actingAs($this->cliente)->getJson(route('admin.suscripciones'))->assertStatus(403);
     }
 }

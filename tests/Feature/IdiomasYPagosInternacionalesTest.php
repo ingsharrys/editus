@@ -93,7 +93,7 @@ class IdiomasYPagosInternacionalesTest extends TestCase
         // Con sesión, el perfil manda aunque el navegador diga otra cosa
         $this->limpio()->actingAs($this->cliente->fresh())->withHeader('Accept-Language', 'es-CO')->get('/profile')->assertOk()->assertSee('My profile')->assertSee('Personal details');
         // Mensajes del servidor y validación también en inglés
-        $this->limpio()->actingAs($this->cliente->fresh())->get('/admin/usuarios')->assertForbidden()->assertSee('Your role doesn’t have permission for this module.', false);
+        $this->limpio()->actingAs($this->cliente->fresh())->getJson('/admin/usuarios')->assertForbidden()->assertJsonPath('message', 'Your role doesn’t have permission for this module. Ask an administrator for access.');
         $this->limpio()->actingAs($this->cliente->fresh())->patch('/profile', ['name' => '', 'email' => 'cliente@prueba.co'])->assertSessionHasErrors(['name' => 'The name field is required.']);
         $this->cliente->forceFill(['idioma' => 'es'])->save();
         $this->limpio()->actingAs($this->cliente->fresh())->patch('/profile', ['name' => '', 'email' => 'cliente@prueba.co'])->assertSessionHasErrors(['name' => 'nombre es obligatorio.']);

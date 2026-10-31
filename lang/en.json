@@ -474,5 +474,6 @@
     "¿Seguro que quieres eliminar tu cuenta?": "Are you sure you want to delete your account?",
     "¿Volver a activar a :nombre?": "Reactivate :nombre?",
     "¿Ya tienes cuenta?": "Already have an account?",
-    "Último acceso": "Last access"
+    "Último acceso": "Last access",
+    "Tu rol no tiene acceso a ese módulo; te llevamos a uno que sí puedes usar.": "Your role doesn’t have access to that module; we took you to one you can use."
 }

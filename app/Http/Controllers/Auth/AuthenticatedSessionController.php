@@ -23,7 +23,9 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('meta.pages.index'));
+        // Al módulo de inicio del rol (si venía de una página a la que no tiene acceso, el
+        // middleware de permisos lo vuelve a mandar a su inicio en vez de mostrar un error)
+        return redirect()->intended($request->user()->urlInicio());
     }
   
     public function destroy(Request $request): RedirectResponse

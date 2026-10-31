@@ -59,8 +59,8 @@ class RedesWebTest extends TestCase
         $this->assertStringContainsString("'8'", $r->getContent(), 'propone a Karol (mismo correo)');
 
         $comun = User::factory()->create(['role_id' => Role::where('slug', 'user')->value('id')]);
-        $this->actingAs($comun)->get(route('redes.index'))->assertForbidden();
-        $this->actingAs($comun)->get(route('redes.catalogos'))->assertForbidden();
+        $this->actingAs($comun)->get(route('redes.index'))->assertRedirect(route('meta.pages.index'));
+        $this->actingAs($comun)->getJson(route('redes.catalogos'))->assertForbidden();
     }
 
     public function test_catalogos_y_publicar_pasan_al_backend_con_el_periodista(): void

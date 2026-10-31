@@ -61,10 +61,12 @@ class UsuariosRolesPermisosTest extends TestCase
     public function test_el_middleware_de_permisos_bloquea_los_modulos_que_el_rol_no_tiene(): void
     {
         $periodista = User::factory()->create(['role_id' => $this->rol('Periodista', ['mis_publicaciones'])->id]);
-        $this->actingAs($periodista)->get('/en-vivo')->assertForbidden();
-        $this->actingAs($periodista)->get('/admin/usuarios')->assertForbidden();
-        $this->actingAs($periodista)->get('/admin/roles')->assertForbidden();
-        $this->actingAs($periodista)->get('/meta/pages')->assertForbidden();
+        // Navegando: se le lleva a su módulo (no a una página de error); pidiendo datos: 403
+        foreach (['/en-vivo', '/admin/usuarios', '/admin/roles', '/meta/pages'] as $url) {
+            $this->actingAs($periodista)->get($url)->assertRedirect(route('mis-posts.index'))->assertSessionHas('aviso_permiso');
+            $this->actingAs($periodista)->getJson($url)->assertForbidden();
+        }
+        $this->actingAs($periodista)->post('/admin/roles', ['nombre' => 'X'])->assertForbidden();
 
         $this->actingAs($this->admin)->get('/admin/usuarios')->assertOk()->assertSee('Usuarios')->assertSee('Dario Charry');
         $this->actingAs($this->admin)->get('/admin/roles')->assertOk()->assertSee('Roles y permisos')->assertSee('Mis páginas');
@@ -173,7 +175,7 @@ class UsuariosRolesPermisosTest extends TestCase
         // Los cambios de permisos aplican al instante
         $rol2 = $this->rol('Invitado', []);
         $p = User::factory()->create(['role_id' => $rol2->id]);
-        $this->actingAs($p)->get('/admin/usuarios')->assertForbidden();
+        $this->actingAs($p)->get('/admin/usuarios')->assertRedirect(route('profile.edit'));
         $this->actingAs($this->admin)->put("/admin/roles/{$rol2->id}", ['name' => 'Invitado', 'permisos' => ['usuarios']]);
         $this->actingAs($p->fresh())->get('/admin/usuarios')->assertOk();
     }
@@ -214,5 +216,44 @@ class UsuariosRolesPermisosTest extends TestCase
         // El perfil no permite cambiarse el rol
         $this->actingAs($this->admin)->patch('/profile', ['name' => 'Dario', 'email' => 'dario@prueba.co', 'role_id' => $this->rolUser->id, 'activo' => 0]);
         $this->assertTrue($this->admin->refresh()->isAdmin());
+    }
+
+    public function test_un_rol_de_redes_entra_directo_a_redes_y_no_ve_paginas_de_error(): void
+    {
+        $redes = $this->rol('Redes', ['redes']);
+        $u = User::factory()->create(['email' => 'redes@prueba.co', 'role_id' => $redes->id]);
+        $this->assertSame('redes.index', $u->rutaInicio());
+
+        // Al iniciar sesión va a Redes
+        $this->post('/login', ['email' => 'redes@prueba.co', 'password' => 'password'])->assertRedirect(route('redes.index'));
+        $this->get(route('redes.index'))->assertOk()->assertSee('Redes');
+        // El menú solo le muestra Redes
+        $this->get(route('redes.index'))->assertSee(route('redes.index'), false)->assertDontSee(route('meta.pages.index'), false)->assertDontSee(route('en-vivo.web'), false);
+
+        // Cualquier módulo que no tiene lo devuelve a Redes con un aviso (no un error)
+        foreach (['/meta/pages', '/en-vivo', '/campanas', '/estadisticas', '/admin/usuarios', '/dashboard'] as $url) {
+            $r = $this->get($url);
+            $r->assertRedirect(route('redes.index'));
+        }
+        $this->followingRedirects()->get('/meta/pages')->assertOk()->assertSee('Tu rol no tiene acceso a ese módulo');
+        auth()->logout();
+
+        // Si antes de entrar intentó abrir Mis páginas, después del login también termina en Redes
+        $this->get('/meta/pages')->assertRedirect(route('login'));
+        $this->post('/login', ['email' => 'redes@prueba.co', 'password' => 'password'])->assertRedirect(url('/meta/pages'));
+        $this->get('/meta/pages')->assertRedirect(route('redes.index'));
+    }
+
+    public function test_cada_rol_entra_a_su_primer_modulo(): void
+    {
+        $this->assertSame('meta.pages.index', $this->admin->rutaInicio());
+        $this->assertSame('meta.pages.index', User::factory()->create(['role_id' => $this->rolUser->id])->rutaInicio());
+        $this->assertSame('en-vivo.web', User::factory()->create(['role_id' => $this->rol('Estudio', ['en_vivo', 'estadisticas'])->id])->rutaInicio());
+        $this->assertSame('meta.pages.index', User::factory()->create(['role_id' => $this->rol('Redes y páginas', ['redes', 'paginas'])->id])->rutaInicio());
+        // Sin ningún módulo: a su perfil (que siempre puede abrir)
+        $nada = User::factory()->create(['email' => 'nada@prueba.co', 'role_id' => $this->rol('Sin nada', [])->id]);
+        $this->assertSame('profile.edit', $nada->rutaInicio());
+        $this->post('/login', ['email' => 'nada@prueba.co', 'password' => 'password'])->assertRedirect(route('profile.edit'));
+        $this->get('/meta/pages')->assertRedirect(route('profile.edit'));
     }
 }

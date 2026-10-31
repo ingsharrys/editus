@@ -41,7 +41,8 @@ class RevisorMetaTest extends TestCase
 
         // Puede entrar, ve el panel en inglés y no puede administrar usuarios
         $this->actingAs($u)->get('/profile')->assertOk()->assertSee('My profile');
-        $this->actingAs($u)->get('/admin/usuarios')->assertForbidden();
+        $this->actingAs($u)->get('/admin/usuarios')->assertRedirect();
+        $this->actingAs($u)->getJson('/admin/usuarios')->assertForbidden();
 
         // Repetir no duplica; --desactivar le quita el acceso
         $this->artisan('editus:revisor-meta')->assertSuccessful();
