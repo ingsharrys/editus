@@ -98,6 +98,9 @@ class PlanMediosController extends Controller
             'tipos.*.titulo_informe' => ['nullable', 'string', 'max:120'],
             'tipos.*.is_active' => ['nullable', 'boolean'],
             'tipos.*.borrar' => ['nullable', 'boolean'],
+            'tipos.*.canal' => ['nullable', 'string', 'in:' . implode(',', array_keys(\App\Models\TipoPublicacion::CANALES))],
+            'tipos.*.meta_alcance' => ['nullable', 'integer', 'min:0'],
+            'tipos.*.valor_unitario' => ['nullable', 'numeric', 'min:0'],
         ]);
         $this->plan->guardarTipos($campaign, array_values($d['tipos'] ?? []));
         if (\App\Services\ProductosService::disponible()) {
@@ -106,6 +109,20 @@ class PlanMediosController extends Controller
             foreach ($campaign->productos()->whereNotNull('tipo_id')->get() as $p) $prod->aplicarAPosts($p);
         }
         return redirect()->route('campaigns.plan.tipos', $campaign)->with('success', __('Tipos de publicación guardados.'));
+    }
+
+    /** Importa la hoja «Ficha técnica 1» del Excel del plan de medios. */
+    public function importarFicha(Request $request, Campaign $campaign)
+    {
+        $this->exigirPlan($campaign);
+        $request->validate(['archivo' => ['required', 'file', 'mimes:xlsx,xls', 'max:10240']], ['archivo.mimes' => __('Sube el Excel de la ficha técnica (.xlsx).')]);
+        try {
+            $r = app(\App\Services\FichaTecnicaService::class)->importar($campaign, $request->file('archivo')->getRealPath());
+        } catch (\Throwable $e) {
+            return back()->withErrors(['archivo' => $e->getMessage()]);
+        }
+        $msg = __('Ficha técnica importada: :t tipos nuevos, :s subcampañas nuevas, :p campañas del plan y :n cantidades.', ['t' => $r['tipos'], 's' => $r['subcampanas'], 'p' => $r['programas'], 'n' => $r['cantidades']]);
+        return redirect()->route('campaigns.plan', $campaign)->with('success', trim($msg . ' ' . implode(' ', $r['avisos'])));
     }
 
     public function cupos(Campaign $campaign)

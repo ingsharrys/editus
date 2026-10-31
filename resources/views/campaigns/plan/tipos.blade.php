@@ -4,6 +4,8 @@
 @php
     $inp = 'w-full h-9 rounded-lg border-gray-200 text-sm';
     $clases = \App\Models\TipoPublicacion::CLASES;
+    $canales = \App\Models\TipoPublicacion::CANALES;
+    $conCanal = \Illuminate\Support\Facades\Schema::hasColumn('campaign_tipos', 'canal');
     $conInforme = true;
     $sugeridos = [
         ['Videos largos', 'Video Largo', 'redes', 'VIDEO', '', 'video largo'],
@@ -19,7 +21,17 @@
 <div class="max-w-7xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
 
-    <p class="text-sm text-gray-600 mb-4">{{ __('Tipos de publicación de la campaña (Videos largos, Banner 1600x185, En vivos…). Se asignan a cada subcampaña; cada pieza es de un tipo, el informe de métricas tiene una sección por tipo y los cupos se ponen por tipo.') }}</p>
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <p class="text-sm text-gray-600 max-w-3xl">{{ __('Tipos de publicación de la campaña (Videos largos, Banner 1600x185, En vivos…). Se asignan a cada subcampaña; cada pieza es de un tipo, el informe de métricas tiene una sección por tipo y los cupos se ponen por tipo.') }}</p>
+        @if ($conCanal)
+            <form method="POST" action="{{ route('campaigns.plan.ficha', $c) }}" enctype="multipart/form-data" class="rounded-2xl border border-indigo-200 bg-indigo-50 p-3 text-sm">
+                @csrf
+                <div class="font-semibold text-indigo-900">{{ __('Importar la ficha técnica (Excel)') }}</div>
+                <p class="text-[11px] text-indigo-900/70 mb-2 max-w-xs">{{ __('Hoja «Ficha técnica 1»: crea los tipos por canal (radio, medios digitales, redes con pauta), las campañas del plan, las subcampañas y las cantidades.') }}</p>
+                <div class="flex items-center gap-2"><input type="file" name="archivo" accept=".xlsx,.xls" required class="text-xs"><button class="h-9 rounded-xl bg-[#00024f] text-white px-3 text-xs font-semibold">{{ __('Importar') }}</button></div>
+            </form>
+        @endif
+    </div>
 
     <form method="POST" action="{{ route('campaigns.plan.tipos.guardar', $c) }}">
         @csrf
@@ -28,6 +40,11 @@
                 <thead class="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
                     <tr>
                         <th class="px-2 py-2 text-left w-44">{{ __('Tipo de publicación') }} *</th>
+                        @if ($conCanal)
+                            <th class="px-2 py-2 text-left w-44">{{ __('Canal') }}</th>
+                            <th class="px-2 py-2 text-left w-28" title="{{ __('Personas que debe alcanzar cada pieza (redes con pauta)') }}">{{ __('Meta de alcance') }}</th>
+                            <th class="px-2 py-2 text-left w-32">{{ __('Valor unitario') }}</th>
+                        @endif
                         @if ($conInforme)
                             <th class="px-2 py-2 text-left w-36" title="{{ __('Para numerar en el informe: «Video Largo No. 1»') }}">{{ __('Nombre singular') }}</th>
                             <th class="px-2 py-2 text-left w-44">{{ __('En el informe') }}</th>
@@ -43,7 +60,13 @@
                 <tbody>
                     @foreach ($tipos as $i => $s)
                         <tr class="border-t border-gray-100 align-top">
-                            <td class="px-2 py-2"><input type="hidden" name="tipos[{{ $i }}][id]" value="{{ $s->id }}"><input name="tipos[{{ $i }}][nombre]" maxlength="120" value="{{ $s->nombre }}" class="{{ $inp }} font-semibold"></td>
+                            <td class="px-2 py-2"><input type="hidden" name="tipos[{{ $i }}][id]" value="{{ $s->id }}"><input name="tipos[{{ $i }}][nombre]" maxlength="120" value="{{ $s->nombre }}" class="{{ $inp }} font-semibold">
+                                @if ($conCanal && $s->caracteristica)<p class="mt-1 text-[10px] text-gray-500 max-w-[16rem]">{{ $s->caracteristica }}</p>@endif</td>
+                            @if ($conCanal)
+                                <td class="px-2 py-2"><select name="tipos[{{ $i }}][canal]" class="{{ $inp }}"><option value="">{{ __('— Sin canal —') }}</option>@foreach ($canales as $k => $et)<option value="{{ $k }}" @selected($s->canal === $k)>{{ __($et) }}</option>@endforeach</select></td>
+                                <td class="px-2 py-2"><input type="number" min="0" name="tipos[{{ $i }}][meta_alcance]" value="{{ $s->meta_alcance }}" placeholder="—" class="{{ $inp }}"></td>
+                                <td class="px-2 py-2"><input type="number" min="0" step="1" name="tipos[{{ $i }}][valor_unitario]" value="{{ $s->valor_unitario !== null ? (int) $s->valor_unitario : '' }}" placeholder="$" class="{{ $inp }}"></td>
+                            @endif
                             @if ($conInforme)
                                 <td class="px-2 py-2"><input name="tipos[{{ $i }}][etiqueta]" maxlength="80" value="{{ $s->etiqueta }}" placeholder="{{ $s->nombre }}" class="{{ $inp }}"></td>
                                 <td class="px-2 py-2"><select name="tipos[{{ $i }}][clase]" class="{{ $inp }}">@foreach ($clases as $k => $et)<option value="{{ $k }}" @selected(($s->clase ?: 'redes') === $k)>{{ __($et) }}</option>@endforeach</select></td>
@@ -71,6 +94,11 @@
         <template id="filaTipo">
             <tr class="border-t border-gray-100 bg-indigo-50/30 align-top">
                 <td class="px-2 py-2"><input name="tipos[__i__][nombre]" maxlength="120" placeholder="{{ __('Ej: Videos largos') }}" class="{{ $inp }} font-semibold" data-campo="nombre"></td>
+                @if ($conCanal)
+                    <td class="px-2 py-2"><select name="tipos[__i__][canal]" class="{{ $inp }}"><option value="">{{ __('— Sin canal —') }}</option>@foreach ($canales as $k => $et)<option value="{{ $k }}">{{ __($et) }}</option>@endforeach</select></td>
+                    <td class="px-2 py-2"><input type="number" min="0" name="tipos[__i__][meta_alcance]" class="{{ $inp }}"></td>
+                    <td class="px-2 py-2"><input type="number" min="0" name="tipos[__i__][valor_unitario]" class="{{ $inp }}"></td>
+                @endif
                 @if ($conInforme)
                     <td class="px-2 py-2"><input name="tipos[__i__][etiqueta]" maxlength="80" placeholder="{{ __('Ej: Video Largo') }}" class="{{ $inp }}" data-campo="etiqueta"></td>
                     <td class="px-2 py-2"><select name="tipos[__i__][clase]" class="{{ $inp }}" data-campo="clase">@foreach ($clases as $k => $et)<option value="{{ $k }}">{{ __($et) }}</option>@endforeach</select></td>

@@ -20,6 +20,8 @@
     <div class="cert-logo">@if ($logo)<img src="{{ $logo }}" alt="{{ $participante->medio_nombre }}">@endif</div>
     <div class="cert-titulo">CERTIFICA:</div>
     <p class="cert-cuerpo">{!! $cuerpo !!}</p>
+    @php $emisiones = $emisiones ?? collect(); @endphp
+    @if ($piezas->isNotEmpty() || $emisiones->isEmpty())
     <table class="cert-tabla">
         <thead><tr><th style="width:42%">Programa</th><th style="width:30%">Sub programa</th><th>Tipo de pieza</th></tr></thead>
         <tbody>
@@ -30,6 +32,17 @@
             @endforelse
         </tbody>
     </table>
+    @endif
+    @if ($emisiones->isNotEmpty())
+    <table class="cert-tabla">
+        <thead><tr><th style="width:30%">Campaña</th><th style="width:22%">Subcampaña</th><th>Tipo</th><th style="width:11%">Emisiones</th><th style="width:17%">Fechas</th></tr></thead>
+        <tbody>
+            @foreach ($emisiones as $f)
+                <tr><td>{{ $f['programa'] }}</td><td>{{ $f['subcampana'] }}</td><td>{{ $f['tipo'] }}</td><td>{{ $f['cantidad'] }}</td><td>{{ $f['fechas'] }}</td></tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endif
     <p class="cert-cierre">{!! $cierre !!}</p>
     <div class="cert-firma">
         @if ($firma)<img src="{{ $firma }}" alt="Firma">@else<div class="cert-sinfirma">Pendiente de firma</div>@endif

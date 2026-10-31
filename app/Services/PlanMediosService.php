@@ -202,6 +202,11 @@ class PlanMediosService
                     'is_active' => (bool) ($f['is_active'] ?? false),
                     'orden' => $orden++,
                 ]);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('campaign_tipos', 'canal')) {
+                    if (array_key_exists('canal', $f)) $t->canal = array_key_exists((string) $f['canal'], TipoPublicacion::CANALES) ? $f['canal'] : null;
+                    if (array_key_exists('meta_alcance', $f)) $t->meta_alcance = ($f['meta_alcance'] ?? '') === '' || $f['meta_alcance'] === null ? null : (int) $f['meta_alcance'];
+                    if (array_key_exists('valor_unitario', $f)) $t->valor_unitario = ($f['valor_unitario'] ?? '') === '' || $f['valor_unitario'] === null ? null : (float) $f['valor_unitario'];
+                }
                 $t->save();
                 $despues = $t->etiquetaSingular();
                 if ($antes !== null && $antes !== $despues) {

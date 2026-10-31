@@ -236,6 +236,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/campanas/{campaign}/subcampanas', [\App\Http\Controllers\PlanMediosController::class, 'guardarSubcampanas'])->middleware('permiso:campanas')->name('campaigns.plan.subcampanas.guardar');
     Route::get('/campanas/{campaign}/tipos', [\App\Http\Controllers\PlanMediosController::class, 'tipos'])->middleware('permiso:campanas')->name('campaigns.plan.tipos');
     Route::post('/campanas/{campaign}/tipos', [\App\Http\Controllers\PlanMediosController::class, 'guardarTipos'])->middleware('permiso:campanas')->name('campaigns.plan.tipos.guardar');
+    Route::post('/campanas/{campaign}/ficha-tecnica', [\App\Http\Controllers\PlanMediosController::class, 'importarFicha'])->middleware(['permiso:campanas', 'throttle:10,1'])->name('campaigns.plan.ficha');
     Route::get('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'cupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos');
     Route::post('/campanas/{campaign}/cupos', [\App\Http\Controllers\PlanMediosController::class, 'guardarCupos'])->middleware('permiso:campanas')->name('campaigns.plan.cupos.guardar');
     // Plan de medios: control de productos (piezas), programas, informes de métricas y Excel
@@ -271,6 +272,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'guardar'])->middleware('throttle:20,1')->name('certificados.guardar');
     Route::get('/certificados/{participante}', [\App\Http\Controllers\CertificadoController::class, 'ver'])->name('certificados.ver');
     Route::get('/certificados/{participante}/pdf', [\App\Http\Controllers\CertificadoController::class, 'pdf'])->name('certificados.pdf');
+    // Radio: la emisora reporta y firma sus cuñas emitidas
+    Route::post('/certificados/{participante}/emisiones', [\App\Http\Controllers\EmisionesRadioController::class, 'guardar'])->middleware('throttle:30,1')->name('emisiones.guardar');
+    Route::delete('/emisiones-radio/{emision}', [\App\Http\Controllers\EmisionesRadioController::class, 'borrar'])->name('emisiones.borrar');
+    Route::get('/emisiones-radio/{emision}/soporte', [\App\Http\Controllers\EmisionesRadioController::class, 'soporte'])->name('emisiones.soporte');
 
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.index');

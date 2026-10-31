@@ -12,9 +12,48 @@ class TipoPublicacion extends Model
 {
     protected $table = 'campaign_tipos';
 
-    protected $fillable = ['campaign_id', 'nombre', 'etiqueta', 'clase', 'tipo', 'formato', 'unidad', 'plantilla', 'titulo_informe', 'is_active', 'orden'];
+    protected $fillable = ['campaign_id', 'nombre', 'etiqueta', 'clase', 'canal', 'meta_alcance', 'valor_unitario', 'caracteristica', 'tipo', 'formato', 'unidad', 'plantilla', 'titulo_informe', 'is_active', 'orden'];
 
-    protected $casts = ['is_active' => 'boolean', 'orden' => 'integer'];
+    protected $casts = ['is_active' => 'boolean', 'orden' => 'integer', 'meta_alcance' => 'integer', 'valor_unitario' => 'float'];
+
+    /**
+     * Canales de la ficha técnica: cómo se publica cada tipo.
+     *  radio     → lo registran y firman las emisoras (no se publica desde editus)
+     *  digital   → medios digitales: se publica desde editus en las páginas, alcance orgánico
+     *  facebook / instagram → redes sociales con pauta paga: se publica desde editus y se registra la pauta
+     *  tiktok    → se publica a mano y se registran el enlace y el alcance
+     */
+    public const CANALES = [
+        'radio' => 'Radio',
+        'digital' => 'Medios digitales (orgánico)',
+        'facebook' => 'Redes sociales · Facebook (pauta)',
+        'instagram' => 'Redes sociales · Instagram (pauta)',
+        'tiktok' => 'Redes sociales · TikTok (pauta, manual)',
+    ];
+
+    /** Grupos del tablero e informes. */
+    public const GRUPOS = ['radio' => 'Radio', 'digital' => 'Medios digitales', 'pauta' => 'Redes sociales (pauta paga)'];
+
+    public function grupo(): ?string
+    {
+        return match ($this->canal) {
+            'radio' => 'radio',
+            'digital' => 'digital',
+            'facebook', 'instagram', 'tiktok' => 'pauta',
+            default => null,
+        };
+    }
+
+    /** ¿Se publica desde editus? (radio y TikTok se registran a mano). */
+    public function sePublicaEnEditus(): bool
+    {
+        return !in_array($this->canal, ['radio', 'tiktok'], true);
+    }
+
+    public function conPauta(): bool
+    {
+        return in_array($this->canal, ['facebook', 'instagram', 'tiktok'], true);
+    }
 
     /** Cómo se presenta en el informe cada clase de publicación. */
     public const CLASES = [

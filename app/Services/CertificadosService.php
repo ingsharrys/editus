@@ -227,6 +227,7 @@ class CertificadosService
             'cuerpo' => $cuerpo,
             'cierre' => $html($cfg['cierre']),
             'piezas' => $this->piezas($p),
+            'emisiones' => app(EmisionesRadioService::class)->paraCertificado($p),
             'nombre' => mb_strtoupper(trim((string) $p->representante) ?: '—'),
             'documento' => trim(($p->documento_tipo ?: 'C.C.') . ' ' . $this->formatoDocumento((string) $p->documento)),
             'cargo' => mb_strtoupper(trim((string) $p->cargo)),

@@ -14,7 +14,7 @@ class Producto extends Model
     protected $fillable = [
         'campaign_id', 'subcampana_id', 'tipo_id', 'programa_id', 'subprograma', 'numero', 'nombre', 'descripcion', 'responsable',
         'fecha_solicitud', 'fecha_entrega', 'fecha_publicacion', 'fecha_fin', 'estado', 'acta_aprobacion', 'acta_publicacion',
-        'link_archivo', 'muestra_path', 'observaciones',
+        'link_archivo', 'muestra_path', 'observaciones', 'pauta_asignada', 'pauta_gastada', 'pauta_desde', 'pauta_hasta',
     ];
 
     protected $casts = [
@@ -23,6 +23,10 @@ class Producto extends Model
         'fecha_entrega' => 'date',
         'fecha_publicacion' => 'date',
         'fecha_fin' => 'date',
+        'pauta_desde' => 'date',
+        'pauta_hasta' => 'date',
+        'pauta_asignada' => 'float',
+        'pauta_gastada' => 'float',
     ];
 
     public function campaign()
