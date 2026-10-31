@@ -409,9 +409,11 @@ class ProductosService
         $tipos = TipoPublicacion::where('campaign_id', $c->id)->whereNotNull('canal')->orderBy('orden')->orderBy('id')->get();
         if ($tipos->isEmpty()) return [];
         $matriz = $this->matrizSubcampanas($c);
-        if ($subId !== null) $matriz = [$subId => $matriz[$subId] ?? []];
+        // Una subcampaña que agrupa otras suma lo de sus hijas
+        $ids = $subId === null ? null : ($subId === 0 ? [0] : (Subcampana::find($subId)?->idsConHijas() ?? [$subId]));
+        if ($ids !== null) $matriz = array_intersect_key($matriz, array_flip($ids));
         $piezas = Producto::where('campaign_id', $c->id)->whereIn('tipo_id', $tipos->pluck('id'))
-            ->when($subId !== null, fn($q) => $q->where('subcampana_id', $subId))->get();
+            ->when($ids !== null, fn($q) => $subId === 0 ? $q->whereNull('subcampana_id') : $q->whereIn('subcampana_id', $ids))->get();
 
         $out = [];
         foreach (TipoPublicacion::GRUPOS as $g => $nombre) {

@@ -40,7 +40,8 @@ class FichaTecnicaService
         $codigosVistos = [];
         $avisos = [];
         for ($col = 1; $col <= $maxCol; $col++) {
-            $h1 = $val($col, 1);
+            // Quita restos de fórmulas o rangos pegados en el texto («…vulnerables+H1:Q2»)
+            $h1 = trim(preg_replace('/\s*\+?\s*\$?[A-Z]{1,3}\$?[0-9]+\s*:\s*\$?[A-Z]{1,3}\$?[0-9]+\s*$/u', '', $val($col, 1)));
             if ($h1 !== '' && preg_match('/^campa[ñn]a\s*([0-9]+(?:\s*-\s*[0-9]+)?)\s*:?\s*(.*)$/iu', $h1, $m)) {
                 $codigo = preg_replace('/\s+/', '', $m[1]);
                 // Código repetido (p. ej. dos «6-2»): el segundo pasa al siguiente libre (6-3)
@@ -61,7 +62,7 @@ class FichaTecnicaService
                     }
                 }
                 for ($k = $col; $k <= $hasta; $k++) {
-                    $columnas[$k] = ['grupo' => $grupoActual, 'sub' => $val($k, 2) ?: $grupoActual['nombre']];
+                    $columnas[$k] = ['grupo' => $grupoActual, 'sub' => $val($k, 2)];
                 }
                 $col = $hasta;
             }
@@ -92,7 +93,7 @@ class FichaTecnicaService
         if (!$filas) throw new \RuntimeException(__('No encontré filas de productos (RADIO, MEDIOS DIGITALES, REDES SOCIALES…).'));
 
         return DB::transaction(function () use ($c, $filas, $columnas, $avisos) {
-            $res = ['tipos' => 0, 'subcampanas' => 0, 'programas' => 0, 'cantidades' => 0, 'avisos' => $avisos];
+            $res = ['tipos' => 0, 'subcampanas' => 0, 'programas' => 0, 'cantidades' => 0, 'grupos' => 0, 'avisos' => $avisos];
             // Tipos
             $existentes = TipoPublicacion::where('campaign_id', $c->id)->get()->keyBy(fn($t) => mb_strtolower($t->nombre));
             $orden = (int) TipoPublicacion::where('campaign_id', $c->id)->max('orden');
@@ -117,32 +118,72 @@ class FichaTecnicaService
                 ])->save();
                 $filas[$i]['tipo_id'] = $t->id;
             }
-            // Subcampañas (con su campaña del plan como programa) y cantidades
-            $subs = Subcampana::where('campaign_id', $c->id)->get()->keyBy(fn($s) => mb_strtolower($s->nombre));
-            $programas = [];
-            $ordenSub = (int) Subcampana::where('campaign_id', $c->id)->max('orden');
-            foreach ($columnas as $k => $info) {
-                $g = $info['grupo'];
-                $claveProg = $g['codigo'];
-                if (!isset($programas[$claveProg])) {
-                    $antes = \App\Models\Programa::where('campaign_id', $c->id)->count();
-                    $programas[$claveProg] = $this->productos->programaDesdeTexto($c, $g['codigo'] . '. ' . $g['nombre']);
-                    if (\App\Models\Programa::where('campaign_id', $c->id)->count() > $antes) $res['programas']++;
-                }
-                $prog = $programas[$claveProg];
-                $s = $subs[mb_strtolower($info['sub'])] ?? null;
-                if (!$s) {
-                    $s = Subcampana::create(['campaign_id' => $c->id, 'nombre' => mb_substr($info['sub'], 0, 120), 'is_active' => true, 'orden' => ++$ordenSub]);
-                    $subs[mb_strtolower($info['sub'])] = $s;
-                    $res['subcampanas']++;
-                }
-                $s->forceFill(['programa_id' => $prog?->id, 'programa' => $prog ? mb_substr($prog->etiqueta(), 0, 190) : $s->programa])->save();
+            // Subcampañas: cada campaña del plan es una subcampaña; si en la fila 2 tiene subcampañas, quedan dentro
+            // de ella con sus cantidades. Si no tiene, la misma subcampaña lleva las cantidades.
+            $anidadas = Subcampana::anidadas();
+            $todas = Subcampana::where('campaign_id', $c->id)->get();
+            $buscar = function (string $nombre, ?int $padre) use (&$todas) {
+                $n = mb_strtolower($nombre);
+                return $todas->first(fn($s) => mb_strtolower($s->nombre) === $n && (int) $s->parent_id === (int) $padre)
+                    ?? $todas->first(fn($s) => mb_strtolower($s->nombre) === $n && !$s->parent_id);
+            };
+            $crear = function (string $nombre) use ($c, &$todas, &$res) {
+                $s = Subcampana::create(['campaign_id' => $c->id, 'nombre' => mb_substr($nombre, 0, 120), 'is_active' => true, 'orden' => 0]);
+                $todas->push($s);
+                $res['subcampanas']++;
+                return $s;
+            };
+            $cantidadesDe = function (array $cols) use ($filas) {
                 $sync = [];
                 foreach ($filas as $fila) {
-                    if (!empty($fila['cantidades'][$k])) $sync[$fila['tipo_id']] = ['cantidad' => $fila['cantidades'][$k]];
+                    $n = 0;
+                    foreach ($cols as $k) $n += (int) ($fila['cantidades'][$k] ?? 0);
+                    if ($n > 0) $sync[$fila['tipo_id']] = ['cantidad' => $n];
                 }
-                $s->tipos()->syncWithoutDetaching($sync);
-                $res['cantidades'] += count($sync);
+                return $sync;
+            };
+            $grupos = [];
+            foreach ($columnas as $k => $info) {
+                $grupos[$info['grupo']['codigo']] ??= ['g' => $info['grupo'], 'cols' => []];
+                $grupos[$info['grupo']['codigo']]['cols'][$k] = $info['sub'];
+            }
+            $orden = 0;
+            foreach ($grupos as $codigo => $grupo) {
+                $g = $grupo['g'];
+                $antes = \App\Models\Programa::where('campaign_id', $c->id)->count();
+                $prog = $this->productos->programaDesdeTexto($c, $g['codigo'] . '. ' . $g['nombre']);
+                if (\App\Models\Programa::where('campaign_id', $c->id)->count() > $antes) $res['programas']++;
+                $progTexto = $prog ? mb_substr($prog->etiqueta(), 0, 190) : null;
+
+                $hijas = array_filter($grupo['cols'], fn($n) => $n !== '');
+                $padre = $buscar($g['nombre'], null) ?? $crear($g['nombre']);
+                $padre->forceFill(['programa_id' => $prog?->id, 'programa' => $progTexto, 'orden' => ++$orden] + ($anidadas ? ['parent_id' => null] : []))->save();
+
+                if (!$hijas || !$anidadas) {
+                    // Sin subcampañas (o sin la migración): las columnas sin nombre van a la campaña del plan
+                    $sinNombre = array_keys(array_filter($grupo['cols'], fn($n) => $n === ''));
+                    if ($sinNombre) {
+                        $sync = $cantidadesDe($sinNombre);
+                        $padre->tipos()->syncWithoutDetaching($sync);
+                        $res['cantidades'] += count($sync);
+                    }
+                    if (!$anidadas) foreach ($hijas as $k => $nombre) {
+                        $s = $buscar($nombre, null) ?? $crear($nombre);
+                        $s->forceFill(['programa_id' => $prog?->id, 'programa' => $progTexto, 'orden' => ++$orden])->save();
+                        $sync = $cantidadesDe([$k]);
+                        $s->tipos()->syncWithoutDetaching($sync);
+                        $res['cantidades'] += count($sync);
+                    }
+                    continue;
+                }
+                foreach ($hijas as $k => $nombre) {
+                    $s = $buscar($nombre, $padre->id) ?? $crear($nombre);
+                    $s->forceFill(['parent_id' => $padre->id, 'programa_id' => $prog?->id, 'programa' => $progTexto, 'orden' => ++$orden])->save();
+                    $sync = $cantidadesDe([$k]);
+                    $s->tipos()->syncWithoutDetaching($sync);
+                    $res['cantidades'] += count($sync);
+                }
+                $res['grupos'] = ($res['grupos'] ?? 0) + 1;
             }
             return $res;
         });

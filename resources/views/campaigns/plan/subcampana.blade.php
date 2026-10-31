@@ -7,6 +7,8 @@
     $puedePublicar = auth()->user()->tienePermiso('paginas.publicar');
     $tiposVista = $s->tipos->isNotEmpty() ? $s->tipos : $tipos->filter(fn($t) => isset($matriz[$t->id]));
     $canales = $canales ?? [];
+    $esGrupo = $s->esGrupo();
+    $avanceHijas = $avanceHijas ?? collect();
     // Los tipos con canal salen en el avance por canal; aquí solo los demás
     if ($canales) $tiposVista = $tiposVista->filter(fn($t) => !$t->canal)->values();
 @endphp
@@ -15,17 +17,21 @@
 
     <div class="flex flex-wrap items-end justify-between gap-3 mb-5">
         <div>
-            <a href="{{ route('campaigns.plan.subcampanas', $c) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Subcampañas') }}</a>
+            @if ($s->parent_id && $s->parent)
+                <a href="{{ route('campaigns.subcampanas.ver', [$c, $s->parent]) }}" class="text-xs text-indigo-700 hover:underline">← {{ $s->parent->nombre }}</a>
+            @else
+                <a href="{{ route('campaigns.plan.subcampanas', $c) }}" class="text-xs text-indigo-700 hover:underline">← {{ __('Subcampañas') }}</a>
+            @endif
             <h2 class="text-2xl font-bold text-gray-900 mt-0.5">{{ $s->nombre }} @unless ($s->is_active)<span class="text-xs font-semibold text-gray-400">· {{ __('inactiva') }}</span>@endunless</h2>
             <p class="text-xs text-gray-500">{{ $s->programaContrato?->etiqueta() ?? __('Sin programa') }}{{ $s->subprograma ? ' · ' . $s->subprograma : '' }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
-            @if ($puedePublicar && $s->is_active && $c->is_active)
+            @if ($puedePublicar && $s->is_active && $c->is_active && !$esGrupo)
                 <a href="{{ route('campaigns.subcampanas.publicar', [$c, $s]) }}" class="h-10 inline-flex items-center gap-1.5 rounded-xl bg-[#00024f] text-white px-4 text-sm font-semibold shadow-sm hover:opacity-90">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                     {{ __('Publicar en :nombre', ['nombre' => $s->nombre]) }}</a>
             @endif
-            <a href="{{ route('campaigns.banners.crear', [$c, 'subcampana' => $s->id]) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ __('Registrar banner en páginas web') }}</a>
+            @unless ($esGrupo)<a href="{{ route('campaigns.banners.crear', [$c, 'subcampana' => $s->id]) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ __('Registrar banner en páginas web') }}</a>@endunless
             <a href="{{ route('campaigns.informes', [$c, 'subcampana' => $s->id]) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ __('Informe') }}</a>
         </div>
     </div>
@@ -37,8 +43,32 @@
         @endforeach
     </div>
 
+    @if ($esGrupo)
+        {{-- Subcampañas que agrupa --}}
+        <div class="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4 mb-6">
+            <h3 class="text-sm font-bold text-gray-900">{{ __('Subcampañas de :n', ['n' => $s->nombre]) }}</h3>
+            <p class="text-[11px] text-gray-500 mb-3">{{ __('Se publica y se reporta en cada una; aquí ves la suma de todas.') }}</p>
+            <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                @foreach ($s->hijas as $h)
+                    @php $av = $avanceHijas->firstWhere('sub.id', $h->id); $plan = collect($av['tipos'] ?? [])->sum('planeadas'); $hecho = collect($av['tipos'] ?? [])->sum(fn($x) => min($x['publicadas'], $x['planeadas'] ?? $x['publicadas'])); $pct = $plan ? min(100, (int) round($hecho * 100 / $plan)) : null; @endphp
+                    <div class="rounded-xl border border-gray-200 bg-white p-3 flex flex-col gap-2">
+                        <div class="flex items-baseline justify-between gap-2">
+                            <a href="{{ route('campaigns.subcampanas.ver', [$c, $h]) }}" class="text-sm font-semibold text-indigo-800 hover:underline">{{ $h->nombre }}</a>
+                            <span class="text-sm font-bold tabular-nums">{{ $hecho }}@if ($plan)<span class="text-xs font-semibold text-gray-400"> / {{ $plan }}</span>@endif</span>
+                        </div>
+                        @if ($pct !== null)<div class="h-1.5 rounded-full bg-gray-100"><div class="h-1.5 rounded-full {{ $pct >= 100 ? 'bg-emerald-500' : 'bg-indigo-500' }}" style="width: {{ $pct }}%"></div></div>@endif
+                        <div class="flex flex-wrap gap-2">
+                            <a href="{{ route('campaigns.subcampanas.ver', [$c, $h]) }}" class="h-8 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Abrir') }}</a>
+                            @if ($puedePublicar && $h->is_active && $s->is_active && $c->is_active)<a href="{{ route('campaigns.subcampanas.publicar', [$c, $h]) }}" class="h-8 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">{{ __('Publicar') }}</a>@endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    @endif
+
     @if ($canales)
-        @include('campaigns.plan._canales', ['canales' => $canales, 's' => $s, 'emisoras' => $emisoras ?? collect()])
+        @include('campaigns.plan._canales', ['canales' => $canales, 's' => $esGrupo ? null : $s, 'emisoras' => $emisoras ?? collect()])
     @endif
 
     {{-- Avance por tipo de publicación --}}
@@ -78,7 +108,7 @@
                 <a href="{{ route('campaigns.productos.ver', [$c, $p]) }}" class="flex flex-wrap items-center gap-4 px-4 py-3 hover:bg-gray-50">
                     @if ($mini)<img src="{{ $mini }}" alt="" class="h-12 w-16 object-cover rounded-md border border-gray-100">@else<div class="h-12 w-16 rounded-md bg-gray-50 border border-dashed border-gray-200"></div>@endif
                     <div class="flex-1 min-w-[12rem]">
-                        <div class="text-sm font-semibold text-gray-900">{{ $p->nombre }}</div>
+                        <div class="text-sm font-semibold text-gray-900">{{ $p->nombre }}@if ($esGrupo && $p->subcampana)<span class="ml-1 text-[11px] font-normal text-indigo-700">· {{ $p->subcampana->nombre }}</span>@endif</div>
                         <div class="text-[11px] text-gray-500">@if ($p->tipo?->conPauta())<span class="rounded-full bg-amber-50 text-amber-800 px-1.5 py-0.5 text-[10px] font-semibold mr-1">{{ __('Pauta') }}{{ $p->pauta_asignada ? ' $ ' . number_format((float) $p->pauta_asignada, 0, ',', '.') : '' }}</span>@endif{{ $p->tipo?->nombre ?? __('Sin tipo') }} · {{ $x['fecha']?->format('d/m/Y') ?? '—' }} · {{ __(':n medio(s)', ['n' => $x['tot']['medios']]) }}
                             @if ($p->acta_aprobacion) · {{ __('Acta') }} {{ $p->acta_aprobacion }}@endif</div>
                     </div>

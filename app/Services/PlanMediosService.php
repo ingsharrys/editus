@@ -88,6 +88,7 @@ class PlanMediosService
                 $nombre = trim((string) ($f['nombre'] ?? ''));
                 if (!empty($f['borrar']) || $nombre === '') {
                     if ($sub) {
+                        if (Subcampana::anidadas()) Subcampana::where('parent_id', $sub->id)->update(['parent_id' => null]);
                         MetaPost::where('subcampana_id', $sub->id)->update(['subcampana_id' => null]);
                         if (ProductosService::disponible()) \App\Models\Producto::where('subcampana_id', $sub->id)->update(['subcampana_id' => null]);
                         $sub->delete();
@@ -101,6 +102,12 @@ class PlanMediosService
                     'is_active' => (bool) ($f['is_active'] ?? false),
                     'orden' => $orden++,
                 ];
+                // Dentro de otra subcampaña (dos niveles: la principal no puede estar dentro de otra)
+                if (Subcampana::anidadas() && array_key_exists('parent_id', $f)) {
+                    $padre = (int) $f['parent_id'] ? Subcampana::where('campaign_id', $c->id)->whereNull('parent_id')->find((int) $f['parent_id']) : null;
+                    $tieneHijas = $sub?->exists && Subcampana::where('parent_id', $sub->id)->exists();
+                    $datos['parent_id'] = $padre && $padre->id !== $sub?->id && !$tieneHijas ? $padre->id : null;
+                }
                 if (array_key_exists('subprograma', $f)) $datos['subprograma'] = mb_substr(trim((string) $f['subprograma']), 0, 190) ?: null;
                 if ($conTipos && array_key_exists('programa_texto', $f)) {
                     // Programa escrito a mano («6-1. ETV: dengue…»): se busca o se crea en el catálogo
@@ -168,6 +175,17 @@ class PlanMediosService
             if ($asignados || $todos->isNotEmpty()) return $asignados;
         }
         return $this->publicables($c);
+    }
+
+    /**
+     * Subcampañas activas donde se puede publicar: las que no agrupan otras (en una que agrupa se publica en sus hijas),
+     * en orden de árbol y con su subcampaña principal cargada para el nombre completo.
+     */
+    public function subcampanasParaPublicar(Campaign $c): Collection
+    {
+        $todas = Subcampana::arbol(Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get());
+        $padres = $todas->pluck('parent_id')->filter()->unique()->all();
+        return $todas->filter(fn($s) => $s->is_active && !in_array($s->id, $padres) && (!$s->parent_id || ($s->parent?->is_active ?? true)))->values();
     }
 
     /** Tipos de la campaña que se publican desde editus (sin radio ni TikTok). */
@@ -367,12 +385,15 @@ class PlanMediosService
                 'ultima' => $g->max('published_at'),
             ];
         };
-        $subs = Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
-        $porSub = $subs->map(fn($s) => ['sub' => $s] + $resumen($posts->where('subcampana_id', $s->id)));
+        $subs = Subcampana::arbol(Subcampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get());
+        // Una subcampaña que agrupa otras suma lo de sus hijas
+        $idsDe = fn(Subcampana $s) => array_merge([$s->id], $subs->where('parent_id', $s->id)->pluck('id')->all());
+        $porSub = $subs->map(fn($s) => ['sub' => $s] + $resumen($posts->whereIn('subcampana_id', $idsDe($s))));
         $sinSub = $posts->whereNull('subcampana_id');
         if ($sinSub->isNotEmpty()) $porSub->push(['sub' => null] + $resumen($sinSub));
 
-        $sel = $subcampanaId === null ? $posts : ($subcampanaId === 0 ? $sinSub : $posts->where('subcampana_id', $subcampanaId));
+        $elegida = $subcampanaId ? $subs->firstWhere('id', $subcampanaId) : null;
+        $sel = $subcampanaId === null ? $posts : ($subcampanaId === 0 ? $sinSub : $posts->whereIn('subcampana_id', $elegida ? $idsDe($elegida) : [$subcampanaId]));
         return [
             'total' => $resumen($posts),
             'seleccion' => $resumen($sel),

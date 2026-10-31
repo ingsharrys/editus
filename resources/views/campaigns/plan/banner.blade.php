@@ -18,7 +18,7 @@
         <div class="grid sm:grid-cols-2 gap-3">
             <div><label class="{{ $lbl }}">{{ __('Subcampaña') }}</label>
                 <select name="subcampana_id" class="{{ $inp }}"><option value="">{{ __('— De toda la campaña —') }}</option>
-                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $subElegida) === $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
+                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $subElegida) === $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach</select></div>
             <div><label class="{{ $lbl }}">{{ __('Tipo de publicación') }} *</label>
                 <select name="tipo_id" required class="{{ $inp }}"><option value="">—</option>
                     @foreach ($tipos as $t)<option value="{{ $t->id }}" @selected((int) old('tipo_id', $tipoElegido) === $t->id)>{{ $t->nombre }}{{ $t->formato ? ' · ' . $t->formato : '' }}</option>@endforeach</select></div>

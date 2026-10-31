@@ -33,7 +33,7 @@ class EmisionesRadioService
     {
         if (!self::disponible()) return collect();
         return Subcampana::where('campaign_id', $c->id)->where('is_active', true)->orderBy('orden')->orderBy('id')
-            ->with(['tipos' => fn($q) => $q->where('campaign_tipos.canal', 'radio')])->get()
+            ->with(['tipos' => fn($q) => $q->where('campaign_tipos.canal', 'radio')] + (Subcampana::anidadas() ? ['parent'] : []))->get()
             ->filter(fn($s) => $s->tipos->isNotEmpty())
             ->map(fn($s) => ['sub' => $s, 'tipos' => $s->tipos->map(fn($t) => [$t, $t->pivot->cantidad])->values()])->values();
     }
@@ -101,7 +101,7 @@ class EmisionesRadioService
     {
         if (!self::disponible()) return collect();
         return EmisionRadio::with(['participante', 'tipo'])->where('campaign_id', $c->id)
-            ->when($subId !== null, fn($q) => $q->where('subcampana_id', $subId))->get()
+            ->when($subId !== null, fn($q) => $q->whereIn('subcampana_id', $subId ? (Subcampana::find($subId)?->idsConHijas() ?? [$subId]) : [0]))->get()
             ->groupBy(fn($e) => $e->participante_id . '|' . $e->tipo_id)
             ->map(fn($g) => [
                 'emisora' => $g->first()->participante?->medio_nombre ?: '—',

@@ -29,7 +29,7 @@
                 <select name="sub" class="h-9 rounded-lg border-gray-200 text-sm" onchange="this.form.submit()">
                     <option value="">{{ __('Todas') }}</option>
                     <option value="0" @selected(request('sub') === '0')>{{ __('Sin subcampaña') }}</option>
-                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) request('sub') === (string) $s->id)>{{ $s->nombre }}</option>@endforeach
+                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) request('sub') === (string) $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach
                 </select></div>
         @endif
         <label class="flex items-center gap-2 h-9 text-sm text-gray-700"><input type="checkbox" name="sin" value="1" @checked(request('sin')) onchange="this.form.submit()" class="h-4 w-4 rounded border-gray-300 text-indigo-600"> {{ __('Solo sin clasificar') }}</label>
@@ -76,7 +76,7 @@
                                 <td class="px-3 py-2">
                                     <select name="piezas[{{ $post->id }}][subcampana_id]" class="{{ $inp }}">
                                         <option value="">{{ __('— Sin subcampaña —') }}</option>
-                                        @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) $post->subcampana_id === (int) $s->id)>{{ $s->nombre }}</option>@endforeach
+                                        @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) $post->subcampana_id === (int) $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach
                                     </select>
                                     @if (!$post->subcampana_id && $post->programa)<div class="text-[10px] text-gray-400 mt-0.5">{{ $post->programa }}{{ $post->subprograma ? ' · ' . $post->subprograma : '' }}</div>@endif
                                 </td>

@@ -15,7 +15,7 @@
             <select name="sub" class="{{ $selF }}" onchange="this.form.submit()">
                 <option value="0" @selected($sub === '0')>{{ __('Sin subcampaña') }} ({{ $sinSub }})</option>
                 <option value="todas" @selected($sub === 'todas')>{{ __('Todas') }}</option>
-                @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) $sub === (string) $s->id)>{{ $s->nombre }}</option>@endforeach
+                @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) $sub === (string) $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach
             </select></div>
         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Tipo') }}</label>
             <select name="tipo" class="{{ $selF }}" onchange="this.form.submit()">
@@ -45,7 +45,7 @@
                             <td class="px-3 py-2">
                                 <select name="mover[{{ $p->id }}][subcampana_id]" class="{{ $inp }}">
                                     <option value="">{{ __('— Sin subcampaña —') }}</option>
-                                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) $p->subcampana_id === $s->id)>{{ $s->nombre }}</option>@endforeach
+                                    @foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) $p->subcampana_id === $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach
                                 </select>
                             </td>
                             <td class="px-3 py-2">

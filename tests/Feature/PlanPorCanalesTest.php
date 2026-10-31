@@ -44,7 +44,7 @@ class PlanPorCanalesTest extends TestCase
         $x = new Spreadsheet();
         $h = $x->getActiveSheet()->setTitle('Ficha técnica 1 - cantidades');
         $h->fromArray([
-            ['TIPO DE PRODUCTO', 'PRODUCTO', 'FORMATO', 'CARACTERÍSTICA', 'VALOR UNITARIO', '', '', 'Campaña 1: Poblaciones vulnerables', '', 'Campaña 6-2: Zoonosis', 'Campaña 6-2: Zoonosis'],
+            ['TIPO DE PRODUCTO', 'PRODUCTO', 'FORMATO', 'CARACTERÍSTICA', 'VALOR UNITARIO', '', '', "Campaña 1:\nPoblaciones vulnerables+H1:Q2", '', 'Campaña 6-2: Zoonosis', 'Campaña 6-2: Zoonosis'],
             ['', '', '', '', '', '', '', 'Discapacidad', 'Envejecimiento y vejez', '', ''],
             ['RADIO', 'Comercial', 'Cuña', 'Cuña de 30 segundos en programa general', '$ 25,000', '', '', '71', '40', '10', ''],
             ['', 'Comercial', 'Entrevista', 'Entrevista de 3 min', '$ 90,000', '', '', '2', '', '', '1'],
@@ -64,7 +64,7 @@ class PlanPorCanalesTest extends TestCase
         $ruta = $this->ficha();
         $this->actingAs($this->admin)->post(route('campaigns.plan.ficha', $this->c), [
             'archivo' => new UploadedFile($ruta, 'plan.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true),
-        ])->assertRedirect(route('campaigns.plan', $this->c))->assertSessionHas('success', fn($m) => str_contains($m, 'quedó como Campaña 6-3'));
+        ])->assertRedirect(route('campaigns.plan.subcampanas', $this->c))->assertSessionHas('success', fn($m) => str_contains($m, 'quedó como Campaña 6-3') && str_contains($m, '1 de ellas con sus propias subcampañas'));
 
         $tipos = TipoPublicacion::where('campaign_id', $this->c->id)->get()->keyBy('nombre');
         $this->assertSame(['Radio comercial · Cuña programa general', 'Radio comercial · Entrevista 3 min', 'Digital · Banner largo', 'Facebook · Post / Flyer', 'TikTok · Video corto (Reel)'], $tipos->keys()->all());
@@ -80,13 +80,22 @@ class PlanPorCanalesTest extends TestCase
         $disc = Subcampana::where('nombre', 'Discapacidad')->with('tipos')->firstOrFail();
         $this->assertStringContainsString('Poblaciones vulnerables', $disc->programa);
         $this->assertSame([71, 2, 4, 3, 1], $disc->tipos->sortBy('orden')->pluck('pivot.cantidad')->map(fn($n) => (int) $n)->values()->all());
-        $this->assertSame(3, Subcampana::where('campaign_id', $this->c->id)->count(), 'Discapacidad, Envejecimiento y Zoonosis (las dos columnas de zoonosis van a la misma subcampaña)');
-        $this->assertStringContainsString('6-3', Subcampana::where('nombre', 'Zoonosis')->value('programa'));
+        $this->assertSame(4, Subcampana::where('campaign_id', $this->c->id)->count(), 'Poblaciones vulnerables (con Discapacidad y Envejecimiento) y Zoonosis');
+        $pv = Subcampana::where('nombre', 'Poblaciones vulnerables')->firstOrFail();
+        $this->assertNull($pv->parent_id);
+        $this->assertSame([$pv->id, $pv->id], Subcampana::whereIn('nombre', ['Discapacidad', 'Envejecimiento y vejez'])->pluck('parent_id')->map(fn($v) => (int) $v)->all());
+        $this->assertSame(0, $pv->tipos()->count(), 'las cantidades van en sus subcampañas');
+        $this->assertTrue($pv->esGrupo());
+        $this->assertSame('Poblaciones vulnerables › Discapacidad', $disc->nombreCompleto());
+        $this->assertSame(['Poblaciones vulnerables', 'Discapacidad', 'Envejecimiento y vejez', 'Zoonosis'], Subcampana::arbol(Subcampana::orderBy('orden')->get())->pluck('nombre')->all());
+        $zoo = Subcampana::where('nombre', 'Zoonosis')->firstOrFail();
+        $this->assertStringContainsString('6-3', $zoo->programa);
+        $this->assertSame(11, (int) $zoo->tipos()->sum('cantidad'), 'sin subcampañas: la misma lleva las cantidades (10 cuñas + 1 entrevista)');
 
         // Volver a importar no duplica
         app(FichaTecnicaService::class)->importar($this->c, $ruta);
         $this->assertSame(5, TipoPublicacion::where('campaign_id', $this->c->id)->count());
-        $this->assertSame(3, Subcampana::where('campaign_id', $this->c->id)->count());
+        $this->assertSame(4, Subcampana::where('campaign_id', $this->c->id)->count());
 
         $this->actingAs($this->admin)->get(route('campaigns.plan.tipos', $this->c))->assertOk()->assertSee('Importar la ficha técnica (Excel)')->assertSee('Cuña de 30 segundos en programa general');
         @unlink($ruta);
@@ -204,5 +213,33 @@ class PlanPorCanalesTest extends TestCase
             ->assertSee('Redes sociales (pauta paga)')->assertSee('Medios digitales')->assertSee('Radio Sur')
             ->assertSee('Registrar TikTok · Video corto (Reel)')->assertSee('$ 700.000');
         $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertOk()->assertSee('Avance por canal')->assertDontSee('Registrar TikTok');
+
+        // La subcampaña principal suma a sus subcampañas y no se publica directamente en ella
+        $pv = Subcampana::where('nombre', 'Poblaciones vulnerables')->firstOrFail();
+        $this->assertSame(['Poblaciones vulnerables › Discapacidad', 'Poblaciones vulnerables › Envejecimiento y vejez', 'Zoonosis'],
+            $plan->subcampanasParaPublicar($this->c)->map->nombreCompleto()->all());
+        $grupo = $prod->porCanal($this->c, $pv->id);
+        $this->assertSame(73 + 40, $grupo['radio']['planeadas'], 'Discapacidad + Envejecimiento');
+        $this->assertSame(20, $grupo['radio']['hechas']);
+        $this->assertSame(700000, (int) $grupo['pauta']['pauta_asignada']);
+        $this->actingAs($this->admin)->get(route('campaigns.subcampanas.ver', [$this->c, $pv]))->assertOk()
+            ->assertSee('Subcampañas de Poblaciones vulnerables')->assertSee('Envejecimiento y vejez')->assertSee('Flyer inclusión')->assertSee('Radio Sur')
+            ->assertDontSee('Registrar TikTok');
+        $this->actingAs($this->admin)->get(route('campaigns.subcampanas.publicar', [$this->c, $pv]))->assertRedirect(route('campaigns.subcampanas.ver', [$this->c, $pv]));
+        $this->actingAs($this->admin)->get(route('campaigns.subcampanas.ver', [$this->c, $disc]))->assertSee('← Poblaciones vulnerables', false);
+        $this->actingAs($this->admin)->get(route('campaigns.plan', $this->c))->assertSee('↳ Discapacidad');
+        $this->actingAs($this->admin)->get(route('campaigns.plan', [$this->c, 'sub' => $pv->id]))->assertOk();
+        $this->actingAs($this->admin)->get(route('campaigns.plan.subcampanas', $this->c))->assertOk()->assertSee('Agrupa 2 subcampañas')->assertSee('Subcampaña de Poblaciones vulnerables');
+
+        // Mover una subcampaña dentro de otra desde el formulario
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['id' => $zoo = Subcampana::where('nombre', 'Zoonosis')->value('id'), 'nombre' => 'Zoonosis', 'is_active' => '1', 'parent_id' => $pv->id],
+        ]])->assertRedirect();
+        $this->assertSame($pv->id, (int) Subcampana::find($zoo)->parent_id);
+        // Una principal con hijas no puede quedar dentro de otra
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [
+            ['id' => $pv->id, 'nombre' => 'Poblaciones vulnerables', 'is_active' => '1', 'parent_id' => $zoo],
+        ]])->assertRedirect();
+        $this->assertNull(Subcampana::find($pv->id)->parent_id);
     }
 }

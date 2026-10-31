@@ -15,7 +15,7 @@
     <div class="flex gap-2 overflow-x-auto pb-1 mb-4">
         <a href="{{ route('campaigns.plan', $c) }}" class="{{ $chip($subId === null) }}">{{ __('Toda la campaña') }}</a>
         @foreach ($m['subcampanas'] as $s)
-            <a href="{{ route('campaigns.plan', [$c, 'sub' => $s->id]) }}" class="{{ $chip($subId === $s->id) }}">{{ $s->nombre }}</a>
+            <a href="{{ route('campaigns.plan', [$c, 'sub' => $s->id]) }}" class="{{ $chip($subId === $s->id) }}">{{ ($s->nivel ?? 0) ? '↳ ' : '' }}{{ $s->nombre }}</a>
         @endforeach
         @if (collect($m['por_subcampana'])->contains(fn($r) => $r['sub'] === null))
             <a href="{{ route('campaigns.plan', [$c, 'sub' => 0]) }}" class="{{ $chip($subId === 0) }}">{{ __('Sin subcampaña') }}</a>
@@ -36,7 +36,23 @@
     @endif
 
     @if ($tiposPub->isNotEmpty() && ($m['subcampanas']->isNotEmpty() || $matriz))
-        @php $filasMatriz = $m['subcampanas']->map(fn($s) => [$s, $matriz[$s->id] ?? []]); if (!empty($matriz[0])) $filasMatriz->push([null, $matriz[0]]); @endphp
+        @php
+            // Una subcampaña que agrupa otras muestra la suma de sus hijas
+            $sumar = function (array $filas) {
+                $out = [];
+                foreach ($filas as $f) foreach ($f as $tipoId => $x) {
+                    $out[$tipoId] ??= ['piezas' => 0, 'publicaciones' => 0, 'planeadas' => null];
+                    $out[$tipoId]['piezas'] += $x['piezas']; $out[$tipoId]['publicaciones'] += $x['publicaciones'];
+                    if ($x['planeadas'] !== null) $out[$tipoId]['planeadas'] = (int) $out[$tipoId]['planeadas'] + (int) $x['planeadas'];
+                }
+                return $out;
+            };
+            $filasMatriz = $m['subcampanas']->map(function ($s) use ($matriz, $m, $sumar) {
+                $hijas = $m['subcampanas']->where('parent_id', $s->id);
+                return [$s, $hijas->isNotEmpty() ? $sumar(array_merge([$matriz[$s->id] ?? []], $hijas->map(fn($h) => $matriz[$h->id] ?? [])->values()->all())) : ($matriz[$s->id] ?? []), $hijas->isNotEmpty()];
+            });
+            if (!empty($matriz[0])) $filasMatriz->push([null, $matriz[0], false]);
+        @endphp
         <div class="rounded-2xl border border-gray-200 bg-white shadow-sm mb-6 overflow-hidden">
             <div class="px-4 py-3 border-b border-gray-100">
                 <h3 class="text-sm font-bold text-gray-900">{{ __('Publicado por subcampaña') }}</h3>
@@ -50,10 +66,10 @@
                         <th class="px-3 py-2 text-center">{{ __('Total') }}</th>
                     </tr></thead>
                     <tbody>
-                        @foreach ($filasMatriz as [$s, $fila])
-                            <tr class="border-t border-gray-100">
-                                <td class="px-3 py-2 sticky left-0 bg-white">
-                                    @if ($s)<a href="{{ route('campaigns.subcampanas.ver', [$c, $s]) }}" class="font-semibold text-gray-900 hover:text-indigo-700">{{ $s->nombre }}</a>@else<span class="font-semibold text-gray-500">{{ __('Sin subcampaña') }}</span>@endif
+                        @foreach ($filasMatriz as [$s, $fila, $esGrupo])
+                            <tr class="border-t border-gray-100 {{ $esGrupo ? 'bg-indigo-50/40' : '' }}">
+                                <td class="px-3 py-2 sticky left-0 {{ $esGrupo ? 'bg-indigo-50' : 'bg-white' }} {{ ($s?->nivel ?? 0) ? 'pl-8' : '' }}">
+                                    @if ($s)<a href="{{ route('campaigns.subcampanas.ver', [$c, $s]) }}" class="{{ ($s->nivel ?? 0) ? 'font-medium text-gray-700' : 'font-semibold text-gray-900' }} hover:text-indigo-700">{{ ($s->nivel ?? 0) ? '↳ ' : '' }}{{ $s->nombre }}</a>@else<span class="font-semibold text-gray-500">{{ __('Sin subcampaña') }}</span>@endif
                                 </td>
                                 @foreach ($tiposPub as $t)
                                     @php $x = $fila[$t->id] ?? null; @endphp
@@ -94,9 +110,9 @@
                         @php $pct = $m['total']['alcance'] ? round($r['alcance'] * 100 / $m['total']['alcance']) : 0; @endphp
                         <tr class="border-t border-gray-100">
                             <td class="px-3 py-2">
-                                <a href="{{ route('campaigns.plan', [$c, 'sub' => $r['sub']?->id ?? 0]) }}" class="font-semibold text-gray-900 hover:text-indigo-700">{{ $r['sub']?->nombre ?? __('Sin subcampaña') }}</a>
+                                <a href="{{ route('campaigns.plan', [$c, 'sub' => $r['sub']?->id ?? 0]) }}" class="font-semibold text-gray-900 hover:text-indigo-700 {{ ($r['sub']?->nivel ?? 0) ? 'pl-5 font-medium' : '' }}">{{ ($r['sub']?->nivel ?? 0) ? '↳ ' : '' }}{{ $r['sub']?->nombre ?? __('Sin subcampaña') }}</a>
                                 @if ($r['sub'] && !$r['sub']->is_active)<span class="text-[10px] text-gray-400">· {{ __('inactiva') }}</span>@endif
-                                @if ($r['sub']?->programa)<div class="text-[11px] text-gray-500">{{ $r['sub']->programa }}</div>@endif
+                                @if ($r['sub']?->programa && !($r['sub']->nivel ?? 0))<div class="text-[11px] text-gray-500">{{ $r['sub']->programa }}</div>@endif
                             </td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($r['piezas']) }}</td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $fmt($r['alcance']) }}</td>

@@ -39,6 +39,7 @@ trait EsquemaPlanMedios
         if ($conPlan) (require database_path('migrations/2026_10_28_000001_productos_e_informes.php'))->up();
         if ($conPlan) (require database_path('migrations/2026_10_29_000001_tipos_de_publicacion.php'))->up();
         if ($conPlan) (require database_path('migrations/2026_11_01_000001_plan_por_canales.php'))->up();
+        if ($conPlan) (require database_path('migrations/2026_11_01_000002_subcampanas_anidadas.php'))->up();
 
     }
 }

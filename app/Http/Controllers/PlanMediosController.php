@@ -44,7 +44,7 @@ class PlanMediosController extends Controller
     {
         $this->exigirPlan($campaign);
         $conTipos = PlanMediosService::conTipos() && \App\Services\ProductosService::disponible();
-        $subs = $campaign->subcampanas()->withCount($conTipos ? ['posts', 'productos'] : ['posts'])->with($conTipos ? ['tipos'] : [])->get();
+        $subs = \App\Models\Subcampana::arbol($campaign->subcampanas()->withCount($conTipos ? ['posts', 'productos'] : ['posts'])->with($conTipos ? ['tipos'] : [])->get());
         return view('campaigns.plan.subcampanas', [
             'c' => $campaign, 'subs' => $subs, 'conTipos' => $conTipos,
             'tipos' => $conTipos ? $campaign->tiposPublicacion()->get() : collect(),
@@ -60,6 +60,7 @@ class PlanMediosController extends Controller
             'subs' => ['nullable', 'array', 'max:200'],
             'subs.*.id' => ['nullable', 'integer'],
             'subs.*.nombre' => ['nullable', 'string', 'max:120'],
+            'subs.*.parent_id' => ['nullable', 'integer'],
             'subs.*.programa_id' => ['nullable', 'integer'],
             'subs.*.programa_texto' => ['nullable', 'string', 'max:200'],
             'subs.*.programa' => ['nullable', 'string', 'max:190'],
@@ -123,8 +124,8 @@ class PlanMediosController extends Controller
         } catch (\Throwable $e) {
             return back()->withErrors(['archivo' => $e->getMessage()]);
         }
-        $msg = __('Ficha técnica importada: :t tipos nuevos, :s subcampañas nuevas, :p campañas del plan y :n cantidades.', ['t' => $r['tipos'], 's' => $r['subcampanas'], 'p' => $r['programas'], 'n' => $r['cantidades']]);
-        return redirect()->route('campaigns.plan', $campaign)->with('success', trim($msg . ' ' . implode(' ', $r['avisos'])));
+        $msg = __('Ficha técnica importada: :t tipos nuevos, :s subcampañas nuevas (:g de ellas con sus propias subcampañas), :p campañas del plan y :n cantidades.', ['t' => $r['tipos'], 's' => $r['subcampanas'], 'g' => $r['grupos'] ?? 0, 'p' => $r['programas'], 'n' => $r['cantidades']]);
+        return redirect()->route('campaigns.plan.subcampanas', $campaign)->with('success', trim($msg . ' ' . implode(' ', $r['avisos'])));
     }
 
     public function cupos(Campaign $campaign)

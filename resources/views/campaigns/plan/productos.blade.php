@@ -80,7 +80,7 @@
     {{-- Filtros --}}
     <form method="GET" class="flex flex-wrap items-end gap-2 mb-4">
         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Subcampaña') }}</label>
-            <select name="subcampana" class="{{ $sel }}" onchange="this.form.submit()"><option value="">{{ __('Todas') }}</option><option value="-1" @selected(request('subcampana') === '-1')>{{ __('Sin subcampaña') }}</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) request('subcampana') === (string) $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
+            <select name="subcampana" class="{{ $sel }}" onchange="this.form.submit()"><option value="">{{ __('Todas') }}</option><option value="-1" @selected(request('subcampana') === '-1')>{{ __('Sin subcampaña') }}</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((string) request('subcampana') === (string) $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach</select></div>
         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Tipo') }}</label>
             <select name="tipo" class="{{ $sel }}" onchange="this.form.submit()"><option value="">{{ __('Todos') }}</option>@foreach ($tipos as $s)<option value="{{ $s->id }}" @selected((string) request('tipo') === (string) $s->id)>{{ $s->nombre }}</option>@endforeach</select></div>
         <div><label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Programa') }}</label>

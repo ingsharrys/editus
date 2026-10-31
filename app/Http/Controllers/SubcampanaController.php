@@ -31,17 +31,28 @@ class SubcampanaController extends Controller
     {
         $this->exigir($campaign, $subcampana);
         $this->prod->asegurarPiezas($campaign);
-        $subcampana->load('tipos', 'programaContrato');
-        $piezas = Producto::with('tipo')->where('campaign_id', $campaign->id)->where('subcampana_id', $subcampana->id)
+        $subcampana->load(Subcampana::anidadas() ? ['tipos', 'programaContrato', 'parent', 'hijas.tipos'] : ['tipos', 'programaContrato']);
+        $ids = $subcampana->idsConHijas();
+        $piezas = Producto::with('tipo', 'subcampana')->where('campaign_id', $campaign->id)->whereIn('subcampana_id', $ids)
             ->orderByDesc('fecha_publicacion')->orderByDesc('id')->get()
             ->map(function (Producto $p) {
                 $pubs = $this->prod->publicaciones($p);
                 return ['pieza' => $p, 'tot' => $this->prod->totales($pubs), 'fecha' => $this->prod->fechaPublicacion($p, $pubs),
                     'sinCaptura' => $pubs->filter(fn($x) => !$x['evidencia'])->count()];
             });
-        $matriz = $this->prod->matrizSubcampanas($campaign)[$subcampana->id] ?? [];
+        $todo = $this->prod->matrizSubcampanas($campaign);
+        $matriz = $todo[$subcampana->id] ?? [];
+        // La que agrupa suma lo de sus hijas
+        foreach (array_slice($ids, 1) as $h) foreach ($todo[$h] ?? [] as $tipoId => $x) {
+            $matriz[$tipoId] ??= ['piezas' => 0, 'publicaciones' => 0, 'planeadas' => null];
+            $matriz[$tipoId]['piezas'] += $x['piezas'];
+            $matriz[$tipoId]['publicaciones'] += $x['publicaciones'];
+            if ($x['planeadas'] !== null) $matriz[$tipoId]['planeadas'] = (int) $matriz[$tipoId]['planeadas'] + (int) $x['planeadas'];
+        }
+        $avanceHijas = count($ids) > 1 ? $this->prod->avanceSubcampanas($campaign)->filter(fn($a) => in_array($a['sub']->id, array_slice($ids, 1)))->values() : collect();
         $m = app(PlanMediosService::class)->metricas($campaign, $subcampana->id);
         return view('campaigns.plan.subcampana', [
+            'avanceHijas' => $avanceHijas,
             'canales' => $this->prod->porCanal($campaign, $subcampana->id),
             'emisoras' => app(\App\Services\EmisionesRadioService::class)->porEmisora($campaign, $subcampana->id),
             'c' => $campaign, 's' => $subcampana, 'piezas' => $piezas, 'matriz' => $matriz, 'm' => $m,
@@ -55,6 +66,7 @@ class SubcampanaController extends Controller
         $this->exigir($campaign, $subcampana);
         abort_unless($request->user()->tienePermiso('paginas.publicar'), 403);
         abort_unless($campaign->is_active && $subcampana->is_active, 404, __('La campaña o la subcampaña está inactiva.'));
+        if ($subcampana->esGrupo()) return redirect()->route('campaigns.subcampanas.ver', [$campaign, $subcampana])->with('error', __('«:n» agrupa otras subcampañas: elige en cuál de ellas publicar.', ['n' => $subcampana->nombre]));
         $request->attributes->set('plan_fijo', ['campana' => $campaign, 'sub' => $subcampana]);
         return app(\App\Http\Controllers\Meta\FacebookPageController::class)->index($request);
     }

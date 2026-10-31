@@ -121,7 +121,7 @@ class FacebookPageController extends Controller
             foreach ($campaigns->where('plan_medios', true) as $c) {
                 $campaignPiezas[$c->id] = [
                     'productos' => [], // cada publicación es una pieza nueva (se crea sola al publicar)
-                    'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
+                    'subs' => $plan->subcampanasParaPublicar($c)->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombreCompleto(), 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
                     'tipos' => $plan->publicables($c),
                     'cupos' => $plan->cuposParaPublicar($c),
                 ];
@@ -216,7 +216,7 @@ class FacebookPageController extends Controller
             return null;
         }
         $plan = app(\App\Services\PlanMediosService::class);
-        $subs = $c->subcampanas()->where('is_active', true)->get();
+        $subs = $plan->subcampanasParaPublicar($c);
         $sub = $request->filled('subcampana_id') ? $subs->firstWhere('id', (int) $request->input('subcampana_id')) : null;
         if ($subs->isNotEmpty() && !$sub) return ['subcampana_id' => __('Elige la subcampaña de esta publicación.')];
         $tipo = null;

@@ -5,11 +5,18 @@
     $inp = 'w-full h-9 rounded-lg border-gray-200 text-sm';
     $lbl = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1';
     $mapaSubprog = $programas->mapWithKeys(fn($x) => [$x->etiqueta() => $x->listaSubprogramas()]);
+    $anidadas = \App\Models\Subcampana::anidadas();
+    $principales = $subs->filter(fn($x) => !$x->parent_id)->values();
+    $padres = $subs->pluck('parent_id')->filter()->unique()->all();
 @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
 
-    <p class="text-sm text-gray-600 mb-4">{{ __('Cada subcampaña es un tema de la campaña (p. ej. «Dengue»). Dentro de ella asignas los tipos de publicación que lleva (Videos largos, Post 600x600, En vivo…) y cuántas piezas de cada uno. Al publicar eliges la subcampaña y el tipo, y tienes métricas por subcampaña y de toda la campaña.') }}</p>
+    <p class="text-sm text-gray-600 mb-2">{{ __('Cada subcampaña es un tema de la campaña (p. ej. «Dengue»). Dentro de ella asignas los tipos de publicación que lleva (Videos largos, Post 600x600, En vivo…) y cuántas piezas de cada uno. Al publicar eliges la subcampaña y el tipo, y tienes métricas por subcampaña y de toda la campaña.') }}</p>
+    @if (\App\Models\Subcampana::anidadas())
+        <p class="text-sm text-gray-600 mb-4">{{ __('Una subcampaña puede tener subcampañas (p. ej. «Poblaciones vulnerables» → «Discapacidad» y «Envejecimiento y vejez»): se publica en cada una y la principal suma todo.') }}
+            @if ($conTipos)<a href="{{ route('campaigns.plan.tipos', $c) }}" class="font-semibold text-indigo-700 hover:underline">{{ __('Crearlas todas desde la ficha técnica (Excel)') }}</a>@endif</p>
+    @endif
 
     @if ($conTipos && $tipos->isEmpty())
         <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">
@@ -25,11 +32,12 @@
         <datalist id="dlProgramas">@foreach ($programas as $p)<option value="{{ $p->etiqueta() }}">@endforeach</datalist>
         <div id="listaSubs" class="space-y-4">
             @foreach ($subs as $i => $s)
-                @php $asig = $conTipos ? $s->tipos->keyBy('id') : collect(); $av = $avance->get($s->id); @endphp
-                <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 space-y-3">
+                @php $asig = $conTipos ? $s->tipos->keyBy('id') : collect(); $av = $avance->get($s->id); $grupo = in_array($s->id, $padres); $nHijas = $subs->where('parent_id', $s->id)->count(); @endphp
+                <div class="rounded-2xl border shadow-sm p-4 space-y-3 {{ $s->parent_id ? 'sm:ml-10 border-gray-200 border-l-4 border-l-indigo-300 bg-white' : ($grupo ? 'border-indigo-200 bg-indigo-50/40' : 'border-gray-200 bg-white') }}">
                     <input type="hidden" name="subs[{{ $i }}][id]" value="{{ $s->id }}">
+                    @if ($grupo)<div class="text-[11px] font-semibold text-indigo-800">{{ __('Agrupa :n subcampañas (abajo). Su avance es la suma de ellas.', ['n' => $nHijas]) }}</div>@endif
                     <div class="grid sm:grid-cols-12 gap-3 items-end">
-                        <div class="sm:col-span-3"><label class="{{ $lbl }}">{{ __('Subcampaña') }} *</label><input name="subs[{{ $i }}][nombre]" maxlength="120" value="{{ $s->nombre }}" class="{{ $inp }} font-semibold"></div>
+                        <div class="sm:col-span-3"><label class="{{ $lbl }}">{{ $s->parent_id ? __('Subcampaña de :p', ['p' => $s->parent?->nombre]) : __('Subcampaña') }} *</label><input name="subs[{{ $i }}][nombre]" maxlength="120" value="{{ $s->nombre }}" class="{{ $inp }} font-semibold"></div>
                         @if ($conTipos)
                             <div class="sm:col-span-4"><label class="{{ $lbl }}">{{ __('Programa') }}</label>
                                 <input name="subs[{{ $i }}][programa_texto]" list="dlProgramas" maxlength="200" value="{{ $s->programaContrato?->etiqueta() }}" placeholder="{{ __('Ej: 6. ETV: Dengue y Fiebre Amarilla') }}" class="{{ $inp }}" data-prog="{{ $i }}"></div>
@@ -42,7 +50,18 @@
                             <label class="inline-flex items-center gap-1 text-xs text-rose-600 cursor-pointer"><input type="checkbox" name="subs[{{ $i }}][borrar]" value="1" class="h-3.5 w-3.5 rounded border-gray-300 text-rose-600"> {{ __('Borrar') }}</label>
                         </div>
                     </div>
-                    @if ($conTipos)
+                    @if ($anidadas && !$grupo)
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                            <label for="padre{{ $i }}">{{ __('Dentro de') }}</label>
+                            <select id="padre{{ $i }}" name="subs[{{ $i }}][parent_id]" class="h-8 rounded-lg border-gray-200 text-xs">
+                                <option value="">{{ __('— Ninguna (subcampaña principal) —') }}</option>
+                                @foreach ($principales as $pp)@if ($pp->id !== $s->id)<option value="{{ $pp->id }}" @selected((int) $s->parent_id === $pp->id)>{{ $pp->nombre }}</option>@endif @endforeach
+                            </select>
+                        </div>
+                    @endif
+                    @if ($conTipos && $grupo && $asig->isEmpty())
+                        <p class="text-xs text-gray-500">{{ __('Las cantidades por tipo de publicación van en cada una de sus subcampañas.') }}</p>
+                    @elseif ($conTipos)
                         <div>
                             <label class="{{ $lbl }}">{{ __('Tipos de publicación de esta subcampaña') }} <span class="normal-case font-normal text-gray-400">({{ __('y cuántas piezas se planean') }})</span></label>
                             <div class="flex flex-wrap gap-2">
@@ -66,7 +85,7 @@
                         <div class="flex flex-wrap items-center gap-2 text-xs">
                             @if ($conTipos)
                                 <a href="{{ route('campaigns.subcampanas.ver', [$c, $s]) }}" class="h-8 inline-flex items-center rounded-lg bg-indigo-50 text-indigo-800 px-3 font-semibold hover:bg-indigo-100">{{ __('Abrir') }} · {{ __(':n publicación(es)', ['n' => $s->posts_count]) }}</a>
-                                @if ($s->is_active && auth()->user()->tienePermiso('paginas.publicar'))
+                                @if ($s->is_active && !$grupo && auth()->user()->tienePermiso('paginas.publicar'))
                                     <a href="{{ route('campaigns.subcampanas.publicar', [$c, $s]) }}" class="h-8 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 font-semibold hover:opacity-90">{{ __('Publicar') }}</a>
                                 @endif
                             @else
@@ -107,6 +126,15 @@
                                 </label>
                             @endforeach
                         </div>
+                    </div>
+                @endif
+                @if ($anidadas && $principales->isNotEmpty())
+                    <div class="flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                        <label>{{ __('Dentro de') }}</label>
+                        <select name="subs[__i__][parent_id]" class="h-8 rounded-lg border-gray-200 text-xs">
+                            <option value="">{{ __('— Ninguna (subcampaña principal) —') }}</option>
+                            @foreach ($principales as $pp)<option value="{{ $pp->id }}">{{ $pp->nombre }}</option>@endforeach
+                        </select>
                     </div>
                 @endif
                 <input name="subs[__i__][descripcion]" maxlength="500" placeholder="{{ __('Descripción (opcional)') }}" class="w-full h-9 rounded-lg border-gray-200 text-xs">

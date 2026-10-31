@@ -48,7 +48,7 @@
                 @endforeach
                 <div class="grid sm:grid-cols-2 gap-3">
                     <div><label class="{{ $lbl }}">{{ __('Subcampaña') }}</label>
-                        <select name="subcampana_id" id="subSel" class="{{ $inp }}"><option value="">{{ __('— Sin subcampaña —') }}</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombre }}</option>@endforeach</select>
+                        <select name="subcampana_id" id="subSel" class="{{ $inp }}"><option value="">{{ __('— Sin subcampaña —') }}</option>@foreach ($subs as $s)<option value="{{ $s->id }}" @selected((int) old('subcampana_id', $p->subcampana_id) === $s->id)>{{ $s->nombreCompleto() }}</option>@endforeach</select>
                         <p class="text-[11px] text-gray-400 mt-1">{{ __('El programa y el subprograma salen de la subcampaña.') }}</p></div>
                     <div><label class="{{ $lbl }}">{{ __('Tipo de publicación') }} *</label>
                         <select name="tipo_id" id="tipoSel" required class="{{ $inp }}"><option value="">—</option>@foreach ($tipos as $t)<option value="{{ $t->id }}" @selected((int) old('tipo_id', $p->tipo_id) === $t->id)>{{ $t->nombre }}</option>@endforeach</select></div>
