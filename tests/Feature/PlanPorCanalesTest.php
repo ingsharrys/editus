@@ -242,4 +242,43 @@ class PlanPorCanalesTest extends TestCase
         ]])->assertRedirect();
         $this->assertNull(Subcampana::find($pv->id)->parent_id);
     }
+
+    public function test_guardar_muchas_subcampanas_empaquetadas_y_sin_nombre_no_se_borra(): void
+    {
+        $ruta = $this->ficha();
+        app(FichaTecnicaService::class)->importar($this->c, $ruta);
+        @unlink($ruta);
+        $tipos = TipoPublicacion::pluck('id')->all();
+        // Muchas filas (más que el límite de 1000 campos de PHP) enviadas en un solo campo
+        $pares = [];
+        $subs = Subcampana::orderBy('orden')->get();
+        for ($n = 0; $n < 100; $n++) {
+            $s = $subs[$n] ?? null;
+            if ($s) $pares[] = ["subs[$n][id]", (string) $s->id];
+            $pares[] = ["subs[$n][nombre]", $s ? $s->nombre : "Nueva $n"];
+            $pares[] = ["subs[$n][is_active]", '0'];
+            $pares[] = ["subs[$n][is_active]", '1'];
+            if ($s?->parent_id) $pares[] = ["subs[$n][parent_id]", (string) $s->parent_id];
+            foreach ($tipos as $t) {
+                $pares[] = ["subs[$n][tipos][$t][on]", '0'];
+                if ($n < 4) $pares[] = ["subs[$n][tipos][$t][on]", '1'];
+                $pares[] = ["subs[$n][tipos][$t][cantidad]", $n < 4 ? '7' : ''];
+            }
+        }
+        $this->assertGreaterThan(1000, count($pares));
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['_empaquetado' => json_encode($pares)])
+            ->assertRedirect(route('campaigns.plan.subcampanas', $this->c))->assertSessionHasNoErrors();
+        $this->assertSame(100, Subcampana::count());
+        $this->assertSame(7 * count($tipos), (int) Subcampana::where('nombre', 'Discapacidad')->first()->tipos()->sum('cantidad'));
+        $this->assertTrue((bool) Subcampana::where('nombre', 'Nueva 99')->value('is_active'));
+        $this->assertSame(Subcampana::where('nombre', 'Poblaciones vulnerables')->value('id'), Subcampana::where('nombre', 'Discapacidad')->value('parent_id'));
+
+        // Una fila que llega sin nombre (incompleta) no se borra; solo con «Borrar»
+        $disc = Subcampana::where('nombre', 'Discapacidad')->first();
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [['id' => $disc->id]]])->assertRedirect();
+        $this->assertNotNull(Subcampana::find($disc->id));
+        $this->actingAs($this->admin)->post(route('campaigns.plan.subcampanas.guardar', $this->c), ['subs' => [['id' => $disc->id, 'nombre' => 'Discapacidad', 'borrar' => '1']]])->assertRedirect();
+        $this->assertNull(Subcampana::find($disc->id));
+        $this->actingAs($this->admin)->get(route('campaigns.plan.subcampanas', $this->c))->assertSee('data-empaquetar', false);
+    }
 }

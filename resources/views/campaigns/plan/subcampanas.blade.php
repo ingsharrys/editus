@@ -27,7 +27,7 @@
     @if ($conTipos)
         <div class="flex justify-end mb-3"><a href="{{ route('campaigns.banners.crear', $c) }}" class="h-9 inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">{{ __('Registrar banner en páginas web') }}</a></div>
     @endif
-    <form method="POST" action="{{ route('campaigns.plan.subcampanas.guardar', $c) }}">
+    <form method="POST" action="{{ route('campaigns.plan.subcampanas.guardar', $c) }}" data-empaquetar>
         @csrf
         <datalist id="dlProgramas">@foreach ($programas as $p)<option value="{{ $p->etiqueta() }}">@endforeach</datalist>
         <div id="listaSubs" class="space-y-4">

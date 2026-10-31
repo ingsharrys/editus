@@ -33,7 +33,7 @@
         @endif
     </div>
 
-    <form method="POST" action="{{ route('campaigns.plan.tipos.guardar', $c) }}">
+    <form method="POST" action="{{ route('campaigns.plan.tipos.guardar', $c) }}" data-empaquetar>
         @csrf
         <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
             <table class="min-w-full text-sm" id="tablaTipos">

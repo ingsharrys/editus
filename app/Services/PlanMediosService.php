@@ -86,7 +86,9 @@ class PlanMediosService
                 $id = (int) ($f['id'] ?? 0);
                 $sub = $id ? Subcampana::where('campaign_id', $c->id)->find($id) : null;
                 $nombre = trim((string) ($f['nombre'] ?? ''));
-                if (!empty($f['borrar']) || $nombre === '') {
+                // Sin nombre no se borra (pudo llegar incompleta): solo se borra con «Borrar» marcado
+                if (empty($f['borrar']) && $nombre === '') continue;
+                if (!empty($f['borrar'])) {
                     if ($sub) {
                         if (Subcampana::anidadas()) Subcampana::where('parent_id', $sub->id)->update(['parent_id' => null]);
                         MetaPost::where('subcampana_id', $sub->id)->update(['subcampana_id' => null]);
@@ -213,7 +215,9 @@ class PlanMediosService
                 $id = (int) ($f['id'] ?? 0);
                 $t = $id ? TipoPublicacion::where('campaign_id', $c->id)->find($id) : null;
                 $nombre = trim((string) ($f['nombre'] ?? ''));
-                if (!empty($f['borrar']) || $nombre === '') {
+                // Sin nombre no se borra (pudo llegar incompleta): solo se borra con «Borrar» marcado
+                if (empty($f['borrar']) && $nombre === '') continue;
+                if (!empty($f['borrar'])) {
                     if ($t) {
                         if (ProductosService::disponible()) \App\Models\Producto::where('tipo_id', $t->id)->update(['tipo_id' => null]);
                         $t->delete();

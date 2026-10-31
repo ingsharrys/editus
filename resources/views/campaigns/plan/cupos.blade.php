@@ -10,7 +10,7 @@
 
     <p class="text-sm text-gray-600 mb-4">{{ __('Límite de piezas por tipo en cada página durante la campaña. La primera fila es el cupo por defecto de cada página; en una página puedes poner un cupo distinto. Vacío = sin límite (o el de por defecto). Al llegar al cupo, editus no deja publicar más piezas de ese tipo en esa página.') }}</p>
 
-    <form method="POST" action="{{ route('campaigns.plan.cupos.guardar', $c) }}">
+    <form method="POST" action="{{ route('campaigns.plan.cupos.guardar', $c) }}" data-empaquetar>
         @csrf
         <div class="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
             <table class="min-w-full text-sm">
