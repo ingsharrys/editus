@@ -190,4 +190,31 @@ class MarcosService
         imagedestroy($out);
         return $png;
     }
+
+    /** Lleva el marco a 1080 px de ancho (las zonas y los tamaños de letra están en esa escala). */
+    public function aAncho1080(string $bytes): string
+    {
+        $img = @imagecreatefromstring($bytes);
+        if (!$img) throw new \RuntimeException(__('No se pudo leer el marco.'));
+        $W = imagesx($img); $H = imagesy($img);
+        if ($W === 1080) { imagedestroy($img); return $bytes; }
+        $nh = (int) round($H * 1080 / $W);
+        $out = imagecreatetruecolor(1080, $nh);
+        imagealphablending($out, false); imagesavealpha($out, true);
+        imagefill($out, 0, 0, 0x7F000000);
+        imagecopyresampled($out, $img, 0, 0, 0, 0, 1080, $nh, $W, $H);
+        imagedestroy($img);
+        ob_start(); imagepng($out, null, 9); $png = (string) ob_get_clean();
+        imagedestroy($out);
+        return $png;
+    }
+
+    /** Medidas listas que mejor corresponden a una plantilla (por su medio y su nombre). */
+    public static function presetPara(?string $medio, string $nombre): string
+    {
+        $n = mb_strtolower($nombre);
+        if ($medio === 'neiva24' || str_contains($n, 'neiva')) return 'neiva24';
+        if (str_contains($n, 'solo') || str_contains($n, 'categor')) return 'opa-etiqueta';
+        return 'opa-titulo';
+    }
 }

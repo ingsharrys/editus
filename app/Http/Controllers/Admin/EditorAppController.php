@@ -232,6 +232,7 @@ class EditorAppController extends Controller
                 : (($request->boolean('marco_desde_logo') && $plantilla->logo_path) ? (string) Storage::disk('public')->get($plantilla->logo_path) : null);
             if ($unico !== null) {
                 $png = $unico;
+                $png = $marcos->aAncho1080($png);
                 if (!$marcos->tieneTransparencia($png)) {
                     // Sin transparencia (blanco donde va la foto): se vuelve transparente ese blanco y su degradado
                     $info = @getimagesizefromstring($png) ?: [1080, 1350];
@@ -249,7 +250,12 @@ class EditorAppController extends Controller
                     throw \Illuminate\Validation\ValidationException::withMessages(['marco_blanco' => $e->getMessage()]);
                 }
             }
+            // Un marco guardado antes en otro tamaño se lleva también a 1080 px
+            if ($png === null && $plantilla->marco_path && (@getimagesizefromstring((string) Storage::disk('public')->get($plantilla->marco_path))[0] ?? 1080) !== 1080) {
+                $png = (string) Storage::disk('public')->get($plantilla->marco_path);
+            }
             if ($png !== null) {
+                $png = $marcos->aAncho1080($png);
                 if ($plantilla->marco_path) Storage::disk('public')->delete($plantilla->marco_path);
                 $ruta = 'plantillas-editor/marcos/' . \Illuminate\Support\Str::uuid() . '.png';
                 Storage::disk('public')->put($ruta, $png);

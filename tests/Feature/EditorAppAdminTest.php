@@ -147,11 +147,11 @@ class EditorAppAdminTest extends TestCase
     }
 
     /** PNG de prueba 108×135: fondo del color dado y una franja roja opaca abajo (el "marco"). */
-    private function pngMarco(array $fondo): UploadedFile
+    private function pngMarco(array $fondo, int $W = 108, int $H = 135): UploadedFile
     {
-        $im = imagecreatetruecolor(108, 135);
+        $im = imagecreatetruecolor($W, $H);
         imagefill($im, 0, 0, imagecolorallocate($im, ...$fondo));
-        imagefilledrectangle($im, 0, 110, 107, 134, imagecolorallocate($im, 171, 16, 16));
+        imagefilledrectangle($im, 0, (int) round($H * 0.815), $W - 1, $H - 1, imagecolorallocate($im, 171, 16, 16));
         ob_start(); imagepng($im); $b = ob_get_clean();
         $ruta = tempnam(sys_get_temp_dir(), 'marco') . '.png';
         file_put_contents($ruta, $b);
@@ -168,7 +168,7 @@ class EditorAppAdminTest extends TestCase
             ->assertSessionHasNoErrors()->assertSessionHas('success', fn($m) => str_contains($m, 'no tenía transparencia'));
         $sinAlfa = PlantillaEditor::where('nombre', 'Sin alfa')->first();
         $img = imagecreatefromstring(Storage::disk('public')->get($sinAlfa->marco_path));
-        $this->assertSame([127, 0], [(imagecolorat($img, 50, 40) >> 24) & 0x7F, (imagecolorat($img, 50, 120) >> 24) & 0x7F], 'el blanco queda transparente y la franja roja opaca');
+        $this->assertSame([127, 0], [(imagecolorat($img, 500, 400) >> 24) & 0x7F, (imagecolorat($img, 500, 1250) >> 24) & 0x7F], 'el blanco queda transparente y la franja roja opaca');
         $sinAlfa->delete();
         // Solo una de las dos versiones: pide la otra
         $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco_blanco' => $this->pngMarco([255, 255, 255])])->assertSessionHasErrors('marco_negro');
@@ -177,16 +177,16 @@ class EditorAppAdminTest extends TestCase
         $t = PlantillaEditor::firstWhere('nombre', 'Opa con título');
         $this->assertTrue($t->esMarco());
         $png = imagecreatefromstring(Storage::disk('public')->get($t->marco_path));
-        $this->assertSame(127, (imagecolorat($png, 50, 50) >> 24) & 0x7F, 'donde va la foto queda transparente');
-        $this->assertSame(0, (imagecolorat($png, 50, 120) >> 24) & 0x7F, 'la franja del marco queda opaca');
-        $this->assertSame([171, 16, 16], [(imagecolorat($png, 50, 120) >> 16) & 255, (imagecolorat($png, 50, 120) >> 8) & 255, imagecolorat($png, 50, 120) & 255]);
-        // Las zonas se ajustan al tamaño del marco (108 × 135)
-        $this->assertSame(['x' => 0, 'y' => 0, 'w' => 108, 'h' => 135], $t->zonas['foto']);
+        $this->assertSame([1080, 1350], [imagesx($png), imagesy($png)], 'el marco se lleva a 1080 × 1350');
+        $this->assertSame(127, (imagecolorat($png, 500, 500) >> 24) & 0x7F, 'donde va la foto queda transparente');
+        $this->assertSame(0, (imagecolorat($png, 500, 1250) >> 24) & 0x7F, 'la franja del marco queda opaca');
+        $this->assertSame([171, 16, 16], [(imagecolorat($png, 500, 1250) >> 16) & 255, (imagecolorat($png, 500, 1250) >> 8) & 255, imagecolorat($png, 500, 1250) & 255]);
+        $this->assertSame(['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1350], $t->zonas['foto']);
 
         $api = $this->withHeaders(['X-Editus-Token' => 'tok-int'])->getJson('/api/plantillas')->assertOk()->json('plantillas.0');
         $this->assertSame(['marco', 'opanoticias'], [$api['tipo'], $api['medio']]);
         $this->assertStringContainsString('plantillas-editor/marcos/', $api['marco_url']);
-        $this->assertNull($api['zonas']['titulo'], 'la zona del título (y=940) queda fuera de un marco de 135 px de alto');
+        $this->assertSame('bree', $api['zonas']['titulo']['fuente']);
         $this->actingAs($this->admin)->get('/admin/app-editor/plantillas?editar=' . $t->id)->assertOk()->assertSee('Marco de Canva')->assertSee('Opa Noticias · solo categoría');
 
         // Un diseño viejo con el PNG completo subido como logo se convierte en marco sin volver a subirlo
@@ -196,5 +196,31 @@ class EditorAppAdminTest extends TestCase
             'zonas' => json_encode(\App\Services\MarcosService::presets()['neiva24']['zonas'])])->assertSessionHasNoErrors();
         $this->assertTrue($viejo->fresh()->esMarco());
         $this->assertSame('neiva24', $viejo->fresh()->medio_slug);
+    }
+
+    public function test_un_marco_pequeno_de_canva_se_lleva_a_1080_y_conserva_las_medidas(): void
+    {
+        Storage::fake('public');
+        $zonas = \App\Services\MarcosService::presets()['opa-titulo']['zonas'];
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', ['nombre' => 'Opa con título', 'tipo' => 'marco', 'medio_slug' => 'opanoticias', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1',
+            'zonas' => json_encode($zonas), 'marco_blanco' => $this->pngMarco([255, 255, 255], 675, 844), 'marco_negro' => $this->pngMarco([0, 0, 0], 675, 844)])->assertSessionHasNoErrors();
+        $t = PlantillaEditor::firstWhere('nombre', 'Opa con título');
+        $this->assertSame([1080, 1350], array_slice(getimagesizefromstring(Storage::disk('public')->get($t->marco_path)), 0, 2));
+        $this->assertSame(['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1350], $t->zonas['foto']);
+        $this->assertSame([81, 876, 416], [$t->zonas['etiqueta']['x'], $t->zonas['etiqueta']['y'], $t->zonas['etiqueta']['w']]);
+        $this->assertSame(940, $t->zonas['titulo']['y']);
+    }
+
+    public function test_la_migracion_arregla_los_marcos_que_quedaron_pequenos(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('plantillas-editor/marcos/viejo.png', file_get_contents($this->pngMarco([0, 0, 0], 675, 844)->getRealPath()));
+        $t = PlantillaEditor::create(['nombre' => 'Opa solo categoría', 'tipo' => 'marco', 'marco_path' => 'plantillas-editor/marcos/viejo.png', 'medio_slug' => 'opanoticias',
+            'zonas' => ['foto' => ['x' => 0, 'y' => 0, 'w' => 675, 'h' => 844], 'etiqueta' => null, 'titulo' => null], 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E']);
+        (require database_path('migrations/2026_10_31_000002_marcos_a_1080.php'))->up();
+        $t->refresh();
+        $this->assertSame(1080, getimagesizefromstring(Storage::disk('public')->get($t->marco_path))[0]);
+        $this->assertSame(['x' => 0, 'y' => 0, 'w' => 1080, 'h' => 1083], $t->zonas['foto'], 'medidas de «Opa solo categoría»');
+        $this->assertSame(994, $t->zonas['etiqueta']['y']);
     }
 }
