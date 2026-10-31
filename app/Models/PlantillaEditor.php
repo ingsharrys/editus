@@ -15,7 +15,7 @@ class PlantillaEditor extends Model
     protected $table = 'plantillas_editor';
 
     protected $fillable = [
-        'nombre', 'logo_path', 'logo_texto', 'logo_tintar', 'etiqueta', 'pie', 'hashtag',
+        'nombre', 'tipo', 'marco_path', 'medio_slug', 'zonas', 'logo_path', 'logo_texto', 'logo_tintar', 'etiqueta', 'pie', 'hashtag',
         'color_titulo', 'color_logo', 'color_etiqueta', 'predeterminada', 'activa', 'orden',
     ];
 
@@ -24,7 +24,19 @@ class PlantillaEditor extends Model
         'predeterminada' => 'boolean',
         'activa'         => 'boolean',
         'orden'          => 'integer',
+        'zonas'          => 'array',
     ];
+
+    public function esMarco(): bool
+    {
+        return $this->tipo === 'marco' && (bool) $this->marco_path;
+    }
+
+    /** URL pública del marco PNG (plantillas tipo marco). */
+    public function marcoUrl(): ?string
+    {
+        return $this->marco_path ? url(Storage::disk('public')->url($this->marco_path)) : null;
+    }
 
     /** URL pública del logo subido (usa el host de la petición, no APP_URL). */
     public function logoUrl(): ?string
@@ -51,6 +63,10 @@ class PlantillaEditor extends Model
             'color_logo'     => (string) $this->color_logo,
             'color_etiqueta' => (string) $this->color_etiqueta,
             'predeterminada' => (bool) $this->predeterminada,
+            'tipo'           => $this->esMarco() ? 'marco' : 'diseno',
+            'marco_url'      => $this->esMarco() ? $this->marcoUrl() : null,
+            'medio'          => $this->medio_slug ?: null,
+            'zonas'          => $this->esMarco() ? $this->zonas : null,
         ];
     }
 }

@@ -93,7 +93,10 @@ class EditorAppController extends Controller
     {
         $plantillas = PlantillaEditor::query()->orderBy('orden')->orderBy('id')->get();
         $editar = $request->filled('editar') ? PlantillaEditor::find((int) $request->query('editar')) : null;
-        return view('admin.editor-app.plantillas', compact('plantillas', 'editar'));
+        $medios = (array) config('services.editus.medios', []);
+        $presets = \App\Services\MarcosService::presets();
+        $fuentes = \App\Services\MarcosService::FUENTES;
+        return view('admin.editor-app.plantillas', compact('plantillas', 'editar', 'medios', 'presets', 'fuentes'));
     }
 
     public function plantillaStore(Request $request): RedirectResponse
@@ -113,8 +116,8 @@ class EditorAppController extends Controller
 
     public function plantillaDestroy(PlantillaEditor $plantilla): RedirectResponse
     {
-        if ($plantilla->logo_path) {
-            Storage::disk('public')->delete($plantilla->logo_path);
+        foreach (['logo_path', 'marco_path'] as $c) {
+            if ($plantilla->$c) Storage::disk('public')->delete($plantilla->$c);
         }
         $nombre = $plantilla->nombre;
         $plantilla->delete();
@@ -176,7 +179,14 @@ class EditorAppController extends Controller
             'predeterminada' => ['nullable', 'boolean'],
             'activa' => ['nullable', 'boolean'],
             'orden' => ['nullable', 'integer', 'min:0', 'max:999'],
+            'tipo' => ['nullable', 'in:diseno,marco'],
+            'marco' => ['nullable', 'file', 'mimes:png', 'max:10240'],
+            'marco_blanco' => ['nullable', 'file', 'mimes:png,jpg,jpeg', 'max:10240'],
+            'marco_negro' => ['nullable', 'file', 'mimes:png,jpg,jpeg', 'max:10240'],
+            'medio_slug' => ['nullable', 'string', 'in:' . implode(',', array_keys((array) config('services.editus.medios', [])))],
+            'zonas' => ['nullable', 'string', 'max:5000'],
         ], [
+            'marco.mimes' => __('El marco debe ser un PNG con fondo transparente.'),
             'logo.mimes' => __('El logo debe ser PNG (con fondo transparente) o WEBP.'),
             'color_titulo.regex' => __('El color del título debe ser HEX (#RRGGBB).'),
             'color_logo.regex' => __('El color del logo debe ser HEX (#RRGGBB).'),
@@ -207,6 +217,39 @@ class EditorAppController extends Controller
                 Storage::disk('public')->delete($plantilla->logo_path);
             }
             $plantilla->logo_path = $request->file('logo')->store('plantillas-editor', 'public');
+        }
+
+        $plantilla->tipo = ($datos['tipo'] ?? 'diseno') === 'marco' ? 'marco' : 'diseno';
+        $plantilla->medio_slug = $datos['medio_slug'] ?? null;
+        if ($plantilla->tipo === 'marco') {
+            $marcos = app(\App\Services\MarcosService::class);
+            $png = null;
+            if ($request->hasFile('marco')) {
+                $png = (string) file_get_contents($request->file('marco')->getRealPath());
+                if (!$marcos->tieneTransparencia($png)) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['marco' => __('Ese PNG no tiene partes transparentes, así que taparía la foto. Si lo exportaste de Canva gratis, sube la versión con fondo blanco y la de fondo negro (abajo) y editus calcula la transparencia.')]);
+                }
+            } elseif ($request->hasFile('marco_blanco') || $request->hasFile('marco_negro')) {
+                if (!$request->hasFile('marco_blanco') || !$request->hasFile('marco_negro')) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['marco_negro' => __('Sube las dos versiones del marco: la de fondo blanco y la de fondo negro.')]);
+                }
+                try {
+                    $png = $marcos->desdeDosFondos((string) file_get_contents($request->file('marco_blanco')->getRealPath()), (string) file_get_contents($request->file('marco_negro')->getRealPath()));
+                } catch (\RuntimeException $e) {
+                    throw \Illuminate\Validation\ValidationException::withMessages(['marco_blanco' => $e->getMessage()]);
+                }
+            }
+            if ($png !== null) {
+                if ($plantilla->marco_path) Storage::disk('public')->delete($plantilla->marco_path);
+                $ruta = 'plantillas-editor/marcos/' . \Illuminate\Support\Str::uuid() . '.png';
+                Storage::disk('public')->put($ruta, $png);
+                $plantilla->marco_path = $ruta;
+            }
+            if (!$plantilla->marco_path) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['marco' => __('Sube el marco (PNG transparente, o las versiones de fondo blanco y negro).')]);
+            }
+            $info = @getimagesizefromstring((string) Storage::disk('public')->get($plantilla->marco_path)) ?: [1080, 1350];
+            $plantilla->zonas = \App\Services\MarcosService::normalizarZonas($datos['zonas'] ?? '', (int) $info[0], (int) $info[1]);
         }
 
         $plantilla->save();

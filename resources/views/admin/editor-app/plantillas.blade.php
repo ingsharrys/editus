@@ -86,7 +86,7 @@
                     <a href="{{ route('editor-app.plantillas.index') }}" class="text-xs text-indigo-600 underline">{{ __('Cancelar edición') }}</a>
                 @endif
 
-                <form method="POST" enctype="multipart/form-data" class="mt-4 space-y-4"
+                <form method="POST" enctype="multipart/form-data" class="mt-4 space-y-4" x-data="plantillaMarco()" x-init="iniciar()"
                       action="{{ $t ? route('editor-app.plantillas.update', $t) : route('editor-app.plantillas.store') }}">
                     @csrf
                     @if ($t) @method('PUT') @endif
@@ -97,6 +97,92 @@
                                class="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white focus:ring-2 focus:ring-indigo-500"
                                placeholder="{{ __('Opa Noticias · Judicial') }}">
                     </div>
+
+                    <div>
+                        <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Tipo') }}</label>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <label class="rounded-xl border px-3 py-2 cursor-pointer" :class="tipo === 'diseno' ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'">
+                                <input type="radio" name="tipo" value="diseno" x-model="tipo" class="mr-1"> {{ __('Diseño de editus') }}
+                                <span class="block text-[11px] text-gray-500">{{ __('Logo, colores y textos') }}</span></label>
+                            <label class="rounded-xl border px-3 py-2 cursor-pointer" :class="tipo === 'marco' ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'">
+                                <input type="radio" name="tipo" value="marco" x-model="tipo" class="mr-1"> {{ __('Marco de Canva') }}
+                                <span class="block text-[11px] text-gray-500">{{ __('PNG con el diseño; la foto va debajo') }}</span></label>
+                        </div>
+                    </div>
+
+                    {{-- ======= Marco de Canva ======= --}}
+                    <div x-show="tipo === 'marco'" class="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3" style="display:none">
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Medio') }}</label>
+                            <select name="medio_slug" class="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white text-sm">
+                                <option value="">{{ __('— Para cualquier medio —') }}</option>
+                                @foreach ($medios as $slug => $nombreMedio)<option value="{{ $slug }}" @selected(old('medio_slug', $t->medio_slug ?? '') === $slug)>{{ $nombreMedio }}</option>@endforeach
+                            </select>
+                            <p class="text-[11px] text-gray-500 mt-1">{{ __('Al publicar, cada medio usa su propio marco (el de menor orden si tiene varios). Se puede cambiar por medio antes de publicar.') }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Marco (PNG con fondo transparente, 1080 × 1350)') }}</label>
+                            <input type="file" name="marco" accept="image/png" class="w-full text-sm" @change="leerMarco($event.target.files[0])">
+                            @if ($t && $t->marcoUrl())<p class="text-[11px] text-emerald-700 mt-1">✓ {{ __('Ya tiene marco. Sube otro solo si lo quieres cambiar.') }}</p>@endif
+                            <details class="mt-2 text-xs text-gray-600">
+                                <summary class="cursor-pointer font-semibold text-indigo-700">{{ __('¿Canva gratis? Sube la versión de fondo blanco y la de fondo negro') }}</summary>
+                                <p class="mt-1">{{ __('Canva gratis no exporta con fondo transparente. Quita la foto y los textos de ejemplo, descarga el diseño como PNG con fondo blanco, ponle un fondo negro y descárgalo otra vez: editus calcula la transparencia comparando las dos.') }}</p>
+                                <div class="grid grid-cols-2 gap-2 mt-2">
+                                    <label>{{ __('Fondo blanco') }}<input type="file" name="marco_blanco" accept="image/png,image/jpeg" class="block w-full text-xs" @change="leerPar('blanco', $event.target.files[0])"></label>
+                                    <label>{{ __('Fondo negro') }}<input type="file" name="marco_negro" accept="image/png,image/jpeg" class="block w-full text-xs" @change="leerPar('negro', $event.target.files[0])"></label>
+                                </div>
+                            </details>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Dónde van la foto y los textos') }}</label>
+                            <select class="w-full border border-gray-300 rounded-xl px-3 py-2 bg-white text-sm" @change="aplicarPreset($event.target.value); $event.target.value = ''">
+                                <option value="">{{ __('Usar las medidas de un diseño…') }}</option>
+                                @foreach ($presets as $clave => $pr)<option value="{{ $clave }}">{{ $pr['nombre'] }}</option>@endforeach
+                            </select>
+                            <p class="text-[11px] text-gray-500 mt-1">{{ __('Arrastra los recuadros en la vista previa o ajusta los números. Medidas en píxeles del lienzo de 1080 × 1350.') }}</p>
+                        </div>
+
+                        {{-- Vista previa --}}
+                        <div class="relative mx-auto w-full max-w-[320px] aspect-[4/5] rounded-xl overflow-hidden bg-gray-900 select-none" x-ref="caja">
+                            <canvas x-ref="lienzo" width="1080" height="1350" class="absolute inset-0 h-full w-full"></canvas>
+                            <template x-for="k in ['foto', 'etiqueta', 'titulo']" :key="k">
+                                <div x-show="z[k]" class="absolute border-2 border-dashed cursor-move" :class="{'border-sky-300': k === 'foto', 'border-amber-300': k === 'etiqueta', 'border-emerald-300': k === 'titulo'}"
+                                     :style="z[k] ? `left:${z[k].x / 10.8}%;top:${z[k].y / 13.5}%;width:${z[k].w / 10.8}%;height:${z[k].h / 13.5}%` : ''" @pointerdown.prevent="arrastrar($event, k)">
+                                    <span class="absolute -top-0.5 left-0.5 text-[9px] font-bold text-white drop-shadow" x-text="nombres[k]"></span>
+                                    <span class="absolute bottom-0 right-0 h-3 w-3 bg-white/80 cursor-se-resize" @pointerdown.prevent.stop="arrastrar($event, k, true)"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <template x-for="k in ['foto', 'etiqueta', 'titulo']" :key="'c' + k">
+                            <div class="rounded-xl border border-gray-200 bg-white p-2">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-bold text-gray-800" x-text="nombres[k]"></span>
+                                    <label x-show="k !== 'foto'" class="text-[11px] text-gray-600"><input type="checkbox" :checked="!!z[k]" @change="alternar(k, $event.target.checked)" class="h-3.5 w-3.5 rounded"> {{ __('Usar') }}</label>
+                                </div>
+                                <template x-if="z[k]">
+                                    <div class="mt-1 grid grid-cols-4 gap-1 text-[11px]">
+                                        <template x-for="c in ['x', 'y', 'w', 'h']" :key="c"><label><span x-text="c.toUpperCase()"></span><input type="number" min="0" max="1350" x-model.number="z[k][c]" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                        <template x-if="k !== 'foto'">
+                                            <label class="col-span-2">{{ __('Fuente') }}<select x-model="z[k].fuente" @change="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs">@foreach ($fuentes as $fc => $fn)<option value="{{ $fc }}">{{ $fn }}</option>@endforeach</select></label>
+                                        </template>
+                                        <template x-if="k !== 'foto'"><label>{{ __('Color') }}<input type="color" x-model="z[k].color" @input="dibujar()" class="h-6 w-full rounded border-gray-200"></label></template>
+                                        <template x-if="k !== 'foto'"><label>{{ __('Alinear') }}<select x-model="z[k].alinear" @change="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"><option value="izquierda">{{ __('Izq.') }}</option><option value="centro">{{ __('Centro') }}</option></select></label></template>
+                                        <template x-if="k === 'etiqueta'"><label>{{ __('Tamaño') }}<input type="number" min="10" max="120" x-model.number="z[k].tam" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                        <template x-if="k === 'etiqueta'"><label class="col-span-3">{{ __('Caja de color (si el marco no la trae)') }} <input type="checkbox" :checked="!!z[k].fondo" @change="z[k].fondo = $event.target.checked ? '#AB1010' : null; dibujar()"> <input type="color" x-show="z[k].fondo" x-model="z[k].fondo" @input="dibujar()" class="h-5 w-10 align-middle"></label></template>
+                                        <template x-if="k === 'titulo'"><label>{{ __('Máx.') }}<input type="number" min="12" max="160" x-model.number="z[k].tam_max" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                        <template x-if="k === 'titulo'"><label>{{ __('Mín.') }}<input type="number" min="10" max="160" x-model.number="z[k].tam_min" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                        <template x-if="k === 'titulo'"><label>{{ __('Líneas') }}<input type="number" min="1" max="6" x-model.number="z[k].max_lineas" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                        <template x-if="k === 'titulo'"><label>{{ __('Interlín.') }}<input type="number" min="0.8" max="1.6" step="0.02" x-model.number="z[k].interlineado" @input="dibujar()" class="w-full rounded border-gray-200 px-1 py-0.5 text-xs"></label></template>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                        <input type="hidden" name="zonas" :value="JSON.stringify(z)">
+                    </div>
+
+                    <div x-show="tipo === 'diseno'" class="space-y-4">
 
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-1">{{ __('Logo (PNG con fondo transparente)') }}</label>
@@ -151,6 +237,8 @@
                         @endforeach
                     </div>
 
+                    </div>{{-- /diseño --}}
+
                     <div class="flex items-center gap-5 text-sm text-gray-700">
                         <label class="inline-flex items-center gap-2">
                             <input type="checkbox" name="predeterminada" value="1" class="h-4 w-4 rounded border-gray-300" {{ old('predeterminada', $t->predeterminada ?? false) ? 'checked' : '' }}>
@@ -177,4 +265,91 @@
 
         <p class="text-xs text-gray-400 mt-6">{!! __('La app las lee por <code>/api/plantillas</code>. Si subes logos, el servidor necesita el enlace <code>php artisan storage:link</code>.') !!}</p>
     </div>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bree+Serif&family=Montserrat:wght@800;900&family=Playfair+Display:wght@800&family=Inter:wght@700;900&display=swap">
+<script>
+function plantillaMarco() {
+    const PRESETS = @js(collect($presets)->map(fn($p) => $p['zonas']));
+    const FUENTES = {bree: '400 {t}px "Bree Serif"', 'montserrat-black': '900 {t}px Montserrat', 'montserrat-extrabold': '800 {t}px Montserrat', playfair: '800 {t}px "Playfair Display"', 'inter-black': '900 {t}px Inter', 'inter-bold': '700 {t}px Inter'};
+    const copia = (o) => JSON.parse(JSON.stringify(o));
+    return {
+        tipo: @js(old('tipo', $editar->tipo ?? 'diseno') === 'marco' ? 'marco' : 'diseno'),
+        z: copia(@js(old('zonas') ? json_decode(old('zonas'), true) : ($editar?->zonas ?: null)) || PRESETS['opa-titulo']),
+        nombres: {foto: @js(__('Foto')), etiqueta: @js(__('Categoría')), titulo: @js(__('Título'))},
+        marco: null, par: {blanco: null, negro: null},
+        iniciar() {
+            const url = @js($editar?->marcoUrl());
+            if (url) { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => { this.marco = im; this.dibujar(); }; im.src = url; }
+            (document.fonts?.ready || Promise.resolve()).then(() => this.dibujar());
+            this.$watch('tipo', () => this.$nextTick(() => this.dibujar()));
+        },
+        aplicarPreset(k) { if (PRESETS[k]) { this.z = copia(PRESETS[k]); this.dibujar(); } },
+        alternar(k, si) {
+            const base = PRESETS['opa-titulo'][k];
+            this.z[k] = si ? copia(base) : null; this.dibujar();
+        },
+        leerMarco(f) { if (!f) return; const im = new Image(); im.onload = () => { this.marco = im; this.dibujar(); }; im.src = URL.createObjectURL(f); },
+        leerPar(cual, f) {
+            if (!f) return;
+            const im = new Image();
+            im.onload = () => { this.par[cual] = im; if (this.par.blanco && this.par.negro) this.combinar(); };
+            im.src = URL.createObjectURL(f);
+        },
+        combinar() {
+            const {blanco, negro} = this.par; const W = blanco.width, H = blanco.height;
+            const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+            x.drawImage(blanco, 0, 0); const b = x.getImageData(0, 0, W, H);
+            x.clearRect(0, 0, W, H); x.drawImage(negro, 0, 0, W, H); const n = x.getImageData(0, 0, W, H);
+            const o = x.createImageData(W, H);
+            for (let i = 0; i < o.data.length; i += 4) {
+                const a = Math.max(0, Math.min(1, 1 - ((b.data[i] - n.data[i]) + (b.data[i + 1] - n.data[i + 1]) + (b.data[i + 2] - n.data[i + 2])) / 765));
+                o.data[i] = a ? Math.min(255, n.data[i] / a) : 0; o.data[i + 1] = a ? Math.min(255, n.data[i + 1] / a) : 0; o.data[i + 2] = a ? Math.min(255, n.data[i + 2] / a) : 0; o.data[i + 3] = Math.round(a * 255);
+            }
+            x.putImageData(o, 0, 0);
+            const im = new Image(); im.onload = () => { this.marco = im; this.dibujar(); }; im.src = c.toDataURL('image/png');
+        },
+        arrastrar(ev, k, redimensionar = false) {
+            const caja = this.$refs.caja.getBoundingClientRect(); const esc = 1080 / caja.width;
+            const z0 = {...this.z[k]}; const x0 = ev.clientX, y0 = ev.clientY;
+            const mover = (e) => {
+                const dx = Math.round((e.clientX - x0) * esc), dy = Math.round((e.clientY - y0) * esc);
+                if (redimensionar) { this.z[k].w = Math.max(10, z0.w + dx); this.z[k].h = Math.max(10, z0.h + dy); }
+                else { this.z[k].x = Math.max(0, Math.min(1080 - z0.w, z0.x + dx)); this.z[k].y = Math.max(0, Math.min(1350 - z0.h, z0.y + dy)); }
+                this.dibujar();
+            };
+            const soltar = () => { window.removeEventListener('pointermove', mover); window.removeEventListener('pointerup', soltar); };
+            window.addEventListener('pointermove', mover); window.addEventListener('pointerup', soltar);
+        },
+        dibujar() {
+            const cv = this.$refs.lienzo; if (!cv) return; const x = cv.getContext('2d');
+            x.fillStyle = '#000'; x.fillRect(0, 0, 1080, 1350);
+            const f = this.z.foto || {x: 0, y: 0, w: 1080, h: 1350};
+            const g = x.createLinearGradient(0, f.y, 0, f.y + f.h); g.addColorStop(0, '#4b6584'); g.addColorStop(1, '#8a6d5a');
+            x.fillStyle = g; x.fillRect(f.x, f.y, f.w, f.h);
+            x.fillStyle = 'rgba(230,190,160,.9)'; x.beginPath(); x.ellipse(f.x + f.w / 2, f.y + f.h * 0.38, f.w * 0.2, f.h * 0.25, 0, 0, 7); x.fill();
+            if (this.marco) x.drawImage(this.marco, 0, 0, 1080, 1350);
+            const fuente = (k, t) => (FUENTES[k] || FUENTES.bree).replace('{t}', t);
+            const e = this.z.etiqueta;
+            if (e) {
+                const txt = 'NACIONAL'; let t = e.tam || 40; const pad = Math.round(e.h * 0.35); x.letterSpacing = (e.espaciado ?? 4) + 'px';
+                x.font = fuente(e.fuente, t); while (t > 12 && x.measureText(txt).width > e.w - 2 * pad) { t--; x.font = fuente(e.fuente, t); }
+                const ancho = x.measureText(txt).width; let tx;
+                if (e.fondo) { const wc = Math.min(e.w, ancho + 2 * pad); x.fillStyle = e.fondo; x.fillRect(e.x, e.y, wc, e.h); tx = e.x + (wc - ancho) / 2; }
+                else tx = e.alinear === 'izquierda' ? e.x + pad : e.x + (e.w - ancho) / 2;
+                x.fillStyle = e.color || '#fff'; x.textBaseline = 'middle'; x.fillText(txt, tx, e.y + e.h / 2 + t * 0.04); x.letterSpacing = '0px';
+            }
+            const ti = this.z.titulo;
+            if (ti) {
+                const titulo = @js(__('Así se verá el título de tu publicación con este marco'));
+                let t = ti.tam_max || 60, lineas = [];
+                const envolver = () => { const out = []; let act = ''; titulo.split(' ').forEach(p => { const pr = act ? act + ' ' + p : p; if (x.measureText(pr).width <= ti.w) act = pr; else { if (act) out.push(act); act = p; } }); if (act) out.push(act); return out; };
+                for (; t >= (ti.tam_min || 36); t -= 2) { x.font = fuente(ti.fuente, t); lineas = envolver(); if (lineas.length <= (ti.max_lineas || 3) && lineas.length * t * (ti.interlineado || 1.05) <= ti.h + t * 0.2) break; }
+                lineas = lineas.slice(0, ti.max_lineas || 3);
+                x.fillStyle = ti.color || '#fff'; x.textBaseline = 'alphabetic';
+                let y = ti.y + t * 0.92;
+                lineas.forEach(l => { const w = x.measureText(l).width; x.fillText(l, ti.alinear === 'centro' ? ti.x + (ti.w - w) / 2 : ti.x, y); y += t * (ti.interlineado || 1.05); });
+            }
+        },
+    };
+}
+</script>
 @endsection

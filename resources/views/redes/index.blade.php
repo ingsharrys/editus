@@ -37,6 +37,7 @@
         'seCrea' => __('(se crea en este medio)'),
         'seCreaOpcion' => __('(se crea)'),
         'propuesto' => __('(propuesto)'),
+        'marco' => __('marco'),
         'estado' => ['publicado' => __('✅ Publicado'), 'parcial' => __('⚠️ Parcial'), 'fallido' => __('❌ Falló'), 'procesando' => __('⏳ Procesando')],
         'red' => ['ok' => __('Publicado'), 'no' => __('No enviado'), 'sinConectar' => __('Sin conectar'), 'omitido' => __('Omitido'), 'fallo' => __('Falló')],
     ];
@@ -221,8 +222,15 @@
                                         </div>
                                         <p x-show="mismaCategoria" class="text-xs text-gray-500"><span>{{ __('Categoría:') }}</span> <span x-text="categoriaDe(m)"></span> <span x-show="!categoriaDelMedio(m, categoriaDe(m))" x-text="T.seCrea"></span></p>
 
-                                        {{-- Logo del medio (con plantilla) --}}
-                                        <template x-if="plantilla && tipoMedio === 'foto'">
+                                        <div x-show="plantilla && tipoMedio === 'foto'" class="flex items-center gap-2 text-xs">
+                                            <span class="text-gray-500 shrink-0">{{ __('Plantilla:') }}</span>
+                                            <select class="h-8 flex-1 rounded-lg border-gray-200 text-xs" :disabled="publicando" @change="plantillaPorMedio = {...plantillaPorMedio, [m.sitio_id]: $event.target.value}; vistaPrevia = null">
+                                                <template x-for="p in opcionesPlantillaMedio(m)" :key="p.id"><option :value="p.id" x-text="p.nombre + (p.tipo === 'marco' ? ' · ' + T.marco : '')" :selected="plantillaDe(m)?.id === p.id"></option></template>
+                                            </select>
+                                        </div>
+
+                                        {{-- Logo del medio (con plantilla de diseño) --}}
+                                        <template x-if="plantilla && tipoMedio === 'foto' && plantillaDe(m)?.tipo !== 'marco'">
                                             <div class="border-t border-gray-100 pt-2">
                                                 <template x-if="editandoLogo !== m.sitio_id">
                                                     <button type="button" @click="editarLogo(m)" :disabled="publicando" class="w-full flex items-center gap-2 text-left text-xs text-gray-700">
@@ -268,7 +276,7 @@
                                 <span class="block text-xs text-gray-500" x-text="usarPlantilla ? @js(__('Logo del medio, categoría, título y pie sobre la foto')) : @js(__('Marca para agregar logo, categoría y título a la foto'))"></span></span>
                         </label>
                         <div x-show="usarPlantilla">
-                            <div class="{{ $lbl }}">{{ __('Diseño') }}</div>
+                            <div class="{{ $lbl }}">{{ __('Diseño general') }} <span class="font-normal text-gray-400">{{ __('(los medios con marco propio usan el suyo)') }}</span></div>
                             <div class="flex gap-2 overflow-x-auto pb-1">
                                 <template x-for="p in plantillas" :key="p.id">
                                     <button type="button" @click="plantillaId = p.id; vistaPrevia = null" :disabled="publicando" class="relative w-28 shrink-0 rounded-xl border-2 p-1.5 text-left" :class="plantillaId === p.id ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 bg-white'">
@@ -283,7 +291,7 @@
                             <p x-show="!plantillas.length && !cargando" class="text-xs text-gray-500">{{ __('No hay plantillas disponibles. Se usará la foto tal cual.') }}</p>
                         </div>
 
-                        <div x-show="plantilla" class="mt-4">
+                        <div x-show="plantillaDe(medioPreview())" class="mt-4">
                             <div class="{{ $lbl }}">{{ __('Vista previa') }}<span x-show="medioPreview()" x-text="' · ' + (medioPreview()?.sitio_nombre || '')"></span> {{ __('(se actualiza sola)') }}</div>
                             <div class="relative rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 aspect-[4/5] overflow-hidden flex items-center justify-center">
                                 <template x-if="vistaPrevia"><img :src="vistaPrevia" alt="" class="absolute inset-0 h-full w-full object-contain bg-gray-900"></template>
@@ -443,7 +451,7 @@ function redesWeb() {
         tipoMedio: 'foto', imagen: null, video: null, videoId: null, subiendo: null,
         titulo: '', texto: '',
         mismaCategoria: true, categoriaGlobal: '', categoriaPorMedio: {},
-        sel: {}, logos: leer('redesLogosPorMedio') || {}, editandoLogo: null, logoEdit: {},
+        sel: {}, logos: leer('redesLogosPorMedio') || {}, editandoLogo: null, logoEdit: {}, plantillaPorMedio: {},
         usarPlantilla: true, plantillaId: '', vistaPrevia: null, firmaPrevia: '', previsualizando: false, previaTimer: null,
         publicando: false, resultado: null,
         historial: [], cargandoHistorial: false,
@@ -501,6 +509,16 @@ function redesWeb() {
 
         // ---------------- Derivados ----------------
         get plantilla() { return this.usarPlantilla ? (this.plantillas.find(p => p.id === this.plantillaId) || null) : null; },
+        /** Plantilla con la que sale cada medio: la elegida para él o, si no, su propio marco (o la general). */
+        plantillaDe(m) {
+            const g = this.plantilla; if (!g || !m) return null;
+            const elegida = this.plantillaPorMedio[m.sitio_id];
+            if (elegida) { const p = this.plantillas.find(x => x.id === elegida); if (p) return p; }
+            const propias = this.plantillas.filter(p => p.medio && p.medio === m.slug);
+            if (g.medio) return g.medio === m.slug ? g : (propias[0] || this.plantillas.find(p => !p.medio && p.predeterminada) || this.plantillas.find(p => !p.medio) || null);
+            return propias[0] || g;
+        },
+        opcionesPlantillaMedio(m) { return this.plantillas.filter(p => !p.medio || p.medio === m.slug); },
         paginasDe(m) {
             const asignadas = this.paginas.filter(p => p.medio && p.medio === m.slug);
             if (asignadas.length) return asignadas;
@@ -608,8 +626,9 @@ function redesWeb() {
         // ---------------- Vista previa (la imagen exacta del servidor) ----------------
         firma() {
             const m = this.medioPreview();
-            return this.tipoMedio === 'foto' && this.plantilla && this.imagen && m
-                ? JSON.stringify({p: this.plantilla.id, t: this.titulo.trim(), e: this.categoriaDe(m), l: this.logoDe(m), i: this.imagen.length}) : '';
+            const pl = this.plantillaDe(m);
+            return this.tipoMedio === 'foto' && pl && this.imagen && m
+                ? JSON.stringify({p: pl.id, t: this.titulo.trim(), e: this.categoriaDe(m), l: this.logoDe(m), i: this.imagen.length}) : '';
         },
         programarPrevia() {
             clearTimeout(this.previaTimer);
@@ -619,10 +638,10 @@ function redesWeb() {
             this.previaTimer = setTimeout(() => this.previsualizar(f), 900);
         },
         async previsualizar(f) {
-            const m = this.medioPreview(); if (!m || !this.plantilla || !this.imagen) return;
+            const m = this.medioPreview(); const pl = this.plantillaDe(m); if (!m || !pl || !this.imagen) return;
             this.previsualizando = true;
             try {
-                const {data} = await this.api(R.previsualizar, {method: 'POST', body: JSON.stringify({imagen: this.imagen, texto: this.texto.trim(), plantilla_id: this.plantilla.id, titulo: this.titulo.trim() || T.tituloPrevia, etiqueta: this.categoriaDe(m), ...this.logoDe(m)})});
+                const {data} = await this.api(R.previsualizar, {method: 'POST', body: JSON.stringify({imagen: this.imagen, texto: this.texto.trim(), plantilla_id: pl.id, titulo: this.titulo.trim() || T.tituloPrevia, etiqueta: this.categoriaDe(m), ...this.logoDe(m)})});
                 if (f !== this.firma()) return;
                 if (data?.success && data.imagen) { this.vistaPrevia = data.imagen; this.firmaPrevia = f; }
                 else this.avisar(data?.error || T.errorConexion, 'fallo', 6000);
@@ -648,7 +667,7 @@ function redesWeb() {
                 const nombreCat = this.categoriaDe(m); const cat = this.categoriaDelMedio(m, nombreCat);
                 return {sitio_id: m.sitio_id, slug: m.slug, sitio_nombre: m.sitio_nombre, linea_editorial: m.linea_nombre,
                     categoria_id: cat ? (cat.id || 1) : null, categoria: cat?.nombre || nombreCat,
-                    logo: this.plantilla ? this.logoDe(m) : undefined, paginas: this.paginasElegidas(m)};
+                    logo: this.plantilla ? this.logoDe(m) : undefined, plantilla_id: this.plantillaDe(m)?.id || undefined, paginas: this.paginasElegidas(m)};
             });
             const cuerpo = v ? {titulo: this.titulo.trim(), texto: this.texto.trim(), video_id: this.videoId, medios: lista}
                              : {titulo: this.titulo.trim(), texto: this.texto.trim(), imagen: this.imagen, medios: lista, plantilla: this.plantilla ? {id: this.plantilla.id} : undefined};

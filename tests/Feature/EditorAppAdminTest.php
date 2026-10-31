@@ -41,7 +41,7 @@ class EditorAppAdminTest extends TestCase
             $t->text('page_access_token')->nullable(); $t->timestamp('expires_at')->nullable(); $t->boolean('is_active')->default(true); $t->timestamps();
         });
         Schema::create('plantillas_editor', function (Blueprint $t) {
-            $t->id(); $t->string('nombre', 120); $t->string('logo_path')->nullable(); $t->string('logo_texto', 60)->nullable(); $t->boolean('logo_tintar')->default(true);
+            $t->id(); $t->string('nombre', 120); $t->string('tipo', 10)->default('diseno'); $t->string('marco_path')->nullable(); $t->string('medio_slug', 100)->nullable(); $t->text('zonas')->nullable(); $t->string('logo_path')->nullable(); $t->string('logo_texto', 60)->nullable(); $t->boolean('logo_tintar')->default(true);
             $t->string('etiqueta', 40)->nullable(); $t->string('pie', 80)->nullable(); $t->string('hashtag', 60)->nullable();
             $t->string('color_titulo', 7)->default('#FFFFFF'); $t->string('color_logo', 7)->default('#FFFFFF'); $t->string('color_etiqueta', 7)->default('#C8102E');
             $t->boolean('predeterminada')->default(false); $t->boolean('activa')->default(true); $t->unsignedInteger('orden')->default(0); $t->timestamps();
@@ -143,5 +143,44 @@ class EditorAppAdminTest extends TestCase
 
         $this->actingAs($this->admin)->delete("/admin/app-editor/plantillas/{$t->id}")->assertRedirect('/admin/app-editor/plantillas');
         $this->assertNull(PlantillaEditor::find($t->id));
+    }
+
+    /** PNG de prueba 108×135: fondo del color dado y una franja roja opaca abajo (el "marco"). */
+    private function pngMarco(array $fondo): UploadedFile
+    {
+        $im = imagecreatetruecolor(108, 135);
+        imagefill($im, 0, 0, imagecolorallocate($im, ...$fondo));
+        imagefilledrectangle($im, 0, 110, 107, 134, imagecolorallocate($im, 171, 16, 16));
+        ob_start(); imagepng($im); $b = ob_get_clean();
+        $ruta = tempnam(sys_get_temp_dir(), 'marco') . '.png';
+        file_put_contents($ruta, $b);
+        return new UploadedFile($ruta, 'marco.png', 'image/png', null, true);
+    }
+
+    public function test_marco_de_canva_con_fondo_blanco_y_negro(): void
+    {
+        Storage::fake('public');
+        $base = ['nombre' => 'Opa con título', 'tipo' => 'marco', 'medio_slug' => 'opanoticias', 'color_titulo' => '#FFFFFF', 'color_logo' => '#FFFFFF', 'color_etiqueta' => '#C8102E', 'activa' => '1', 'orden' => 1,
+            'zonas' => json_encode(\App\Services\MarcosService::presets()['opa-titulo']['zonas'])];
+        // Un PNG sin transparencia se rechaza (taparía la foto)
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco' => $this->pngMarco([255, 255, 255])])->assertSessionHasErrors('marco');
+        // Solo una de las dos versiones: pide la otra
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco_blanco' => $this->pngMarco([255, 255, 255])])->assertSessionHasErrors('marco_negro');
+
+        $this->actingAs($this->admin)->post('/admin/app-editor/plantillas', $base + ['marco_blanco' => $this->pngMarco([255, 255, 255]), 'marco_negro' => $this->pngMarco([0, 0, 0])])->assertSessionHasNoErrors()->assertRedirect();
+        $t = PlantillaEditor::firstWhere('nombre', 'Opa con título');
+        $this->assertTrue($t->esMarco());
+        $png = imagecreatefromstring(Storage::disk('public')->get($t->marco_path));
+        $this->assertSame(127, (imagecolorat($png, 50, 50) >> 24) & 0x7F, 'donde va la foto queda transparente');
+        $this->assertSame(0, (imagecolorat($png, 50, 120) >> 24) & 0x7F, 'la franja del marco queda opaca');
+        $this->assertSame([171, 16, 16], [(imagecolorat($png, 50, 120) >> 16) & 255, (imagecolorat($png, 50, 120) >> 8) & 255, imagecolorat($png, 50, 120) & 255]);
+        // Las zonas se ajustan al tamaño del marco (108 × 135)
+        $this->assertSame(['x' => 0, 'y' => 0, 'w' => 108, 'h' => 135], $t->zonas['foto']);
+
+        $api = $this->withHeaders(['X-Editus-Token' => 'tok-int'])->getJson('/api/plantillas')->assertOk()->json('plantillas.0');
+        $this->assertSame(['marco', 'opanoticias'], [$api['tipo'], $api['medio']]);
+        $this->assertStringContainsString('plantillas-editor/marcos/', $api['marco_url']);
+        $this->assertNull($api['zonas']['titulo'], 'la zona del título (y=940) queda fuera de un marco de 135 px de alto');
+        $this->actingAs($this->admin)->get('/admin/app-editor/plantillas?editar=' . $t->id)->assertOk()->assertSee('Marco de Canva')->assertSee('Opa Noticias · solo categoría');
     }
 }
