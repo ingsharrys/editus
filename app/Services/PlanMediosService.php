@@ -162,8 +162,20 @@ class PlanMediosService
     public function tiposDe(Campaign $c, ?Subcampana $s): array
     {
         if ($s && self::conTipos()) {
-            $asignados = $s->tipos()->where('campaign_tipos.is_active', true)->get()->map(fn($x) => $x->etiquetaSingular())->unique()->values()->all();
-            if ($asignados) return $asignados;
+            $todos = $s->tipos()->where('campaign_tipos.is_active', true)->get();
+            // Radio y TikTok no se publican desde editus: se registran (emisoras / a mano)
+            $asignados = $todos->filter(fn($x) => $x->sePublicaEnEditus())->map(fn($x) => $x->etiquetaSingular())->unique()->values()->all();
+            if ($asignados || $todos->isNotEmpty()) return $asignados;
+        }
+        return $this->publicables($c);
+    }
+
+    /** Tipos de la campaña que se publican desde editus (sin radio ni TikTok). */
+    public function publicables(Campaign $c): array
+    {
+        if (self::conTipos() && Schema::hasColumn('campaign_tipos', 'canal')) {
+            $tipos = TipoPublicacion::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
+            if ($tipos->isNotEmpty()) return array_values(array_unique($tipos->filter(fn($x) => $x->sePublicaEnEditus())->map(fn($x) => $x->etiquetaSingular())->all()));
         }
         return $this->tipos($c);
     }

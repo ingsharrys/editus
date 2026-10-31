@@ -120,6 +120,10 @@ class ProductosController extends Controller
             'link_archivo' => ['nullable', 'url', 'max:500'],
             'observaciones' => ['nullable', 'string', 'max:5000'],
             'muestra' => ['nullable', 'image', 'max:8192'],
+            'pauta_asignada' => ['nullable', 'numeric', 'min:0', 'max:9999999999'],
+            'pauta_gastada' => ['nullable', 'numeric', 'min:0', 'max:9999999999'],
+            'pauta_desde' => ['nullable', 'date'],
+            'pauta_hasta' => ['nullable', 'date', 'after_or_equal:pauta_desde'],
         ], [
             'tipo_id.required' => __('Elige el tipo de publicación de la pieza.'),
             'link_archivo.url' => __('El link debe ser una dirección completa (https://…).'),
@@ -153,7 +157,7 @@ class ProductosController extends Controller
         } else {
             $publicacion ??= new ProductoPublicacion(['producto_id' => $producto->id, 'orden' => (int) $producto->publicaciones()->max('orden') + 1]);
             $pagina = !empty($d['meta_page_id']) ? MetaPage::find((int) $d['meta_page_id']) : null;
-            $medio = trim((string) ($d['medio'] ?? '')) ?: $pagina?->name;
+            $medio = trim((string) ($d['medio'] ?? '')) ?: $pagina?->name ?: ($producto->tipo?->canal === 'tiktok' ? 'TikTok' : null);
             if (!$medio) return back()->withErrors(['medio' => __('Escribe el medio o la página web.')])->withInput();
             $publicacion->fill(['meta_page_id' => $pagina?->id, 'medio' => $medio, 'fecha' => ($d['fecha'] ?? null) ?: null]);
         }

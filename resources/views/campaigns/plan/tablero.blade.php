@@ -30,6 +30,11 @@
     </div>
 
     {{-- Publicado por subcampaña y tipo de publicación (piezas publicadas / planeadas) --}}
+    @if (!empty($canales))
+        <h3 class="text-sm font-bold text-gray-900 mb-2">{{ __('Avance por canal') }}{{ $subId ? ' · ' . ($m['subcampanas']->firstWhere('id', $subId)?->nombre ?? '') : '' }}</h3>
+        @include('campaigns.plan._canales', ['canales' => $canales, 's' => null, 'emisoras' => $emisoras ?? collect()])
+    @endif
+
     @if ($tiposPub->isNotEmpty() && ($m['subcampanas']->isNotEmpty() || $matriz))
         @php $filasMatriz = $m['subcampanas']->map(fn($s) => [$s, $matriz[$s->id] ?? []]); if (!empty($matriz[0])) $filasMatriz->push([null, $matriz[0]]); @endphp
         <div class="rounded-2xl border border-gray-200 bg-white shadow-sm mb-6 overflow-hidden">

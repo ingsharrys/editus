@@ -11,6 +11,11 @@
     $esWeb = ($p->tipo?->clase) === 'web';
     $tiposPorSub = $subs->mapWithKeys(fn($x) => [$x->id => $x->tipos->pluck('id')->all()]);
     $progPorSub = $subs->mapWithKeys(fn($x) => [$x->id => ['programa' => $x->programa_id, 'subprograma' => $x->subprograma]]);
+    $conPautaCol = \App\Services\ProductosService::conPauta();
+    $tiposPauta = $conPautaCol ? $tipos->filter(fn($t) => $t->conPauta())->pluck('id')->all() : [];
+    $meta = $conPautaCol && $p->tipo?->meta_alcance ? (int) $p->tipo->meta_alcance : null;
+    $pctMeta = $meta ? (int) round(($tot['alcance'] ?? 0) * 100 / max(1, $meta)) : null;
+    $peso = fn($n) => '$ ' . number_format((float) $n, 0, ',', '.');
 @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
@@ -55,6 +60,26 @@
                     <div><label class="{{ $lbl }}">{{ __('Acta de aprobación No.') }}</label><input name="acta_aprobacion" maxlength="60" value="{{ old('acta_aprobacion', $p->acta_aprobacion) }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}">{{ __('Acta de publicación No.') }}</label><input name="acta_publicacion" maxlength="60" value="{{ old('acta_publicacion', $p->acta_publicacion) }}" class="{{ $inp }}"></div>
                 </div>
+                @if ($conPautaCol)
+                    <div id="cajaPauta" class="{{ in_array((int) old('tipo_id', $p->tipo_id), $tiposPauta, true) ? '' : 'hidden' }} rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                        <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+                            <span class="text-xs font-bold text-amber-900">💰 {{ __('Pauta paga de esta pieza') }}</span>
+                            @if ($meta)
+                                <span class="text-[11px] text-amber-900">{{ __('Meta de alcance') }}: <b>{{ $fmt($meta) }}</b> · {{ __('Alcance real') }}: <b>{{ $fmt($tot['alcance'] ?? 0) }}</b>
+                                    <span class="ml-1 rounded-full px-2 py-0.5 font-semibold {{ $pctMeta >= 100 ? 'bg-emerald-100 text-emerald-800' : 'bg-white text-amber-800' }}">{{ $pctMeta }}%</span></span>
+                            @endif
+                        </div>
+                        <div class="grid sm:grid-cols-4 gap-3">
+                            <div><label class="{{ $lbl }}">{{ __('Presupuesto asignado') }}</label><input type="number" step="1" min="0" name="pauta_asignada" value="{{ old('pauta_asignada', $p->pauta_asignada !== null ? (int) $p->pauta_asignada : '') }}" placeholder="$" class="{{ $inp }}"></div>
+                            <div><label class="{{ $lbl }}" title="{{ __('Lo que realmente se gastó al terminar la pauta') }}">{{ __('Gastado al final') }}</label><input type="number" step="1" min="0" name="pauta_gastada" value="{{ old('pauta_gastada', $p->pauta_gastada !== null ? (int) $p->pauta_gastada : '') }}" placeholder="$" class="{{ $inp }}"></div>
+                            <div><label class="{{ $lbl }}">{{ __('Pauta desde') }}</label><input type="date" name="pauta_desde" value="{{ old('pauta_desde', $p->pauta_desde?->toDateString()) }}" class="{{ $inp }}"></div>
+                            <div><label class="{{ $lbl }}">{{ __('Pauta hasta') }}</label><input type="date" name="pauta_hasta" value="{{ old('pauta_hasta', $p->pauta_hasta?->toDateString()) }}" class="{{ $inp }}"></div>
+                        </div>
+                        @if ($p->tipo?->canal === 'tiktok')
+                            <p class="text-[11px] text-amber-900/80 mt-2">{{ __('TikTok se publica a mano: registra abajo el enlace del video con su alcance, visualizaciones, interacciones y el pantallazo.') }}</p>
+                        @endif
+                    </div>
+                @endif
                 <div><label class="{{ $lbl }}">{{ __('Descripción en el informe') }}</label>
                     <textarea name="descripcion" rows="3" maxlength="5000" placeholder="{{ $descripcion ?: __('Vacía = la del tipo de publicación, p. ej. «Publicación de un (1) video largo en quince (15) medios digitales.»') }}" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ old('descripcion', $p->descripcion) }}</textarea>
                     <p class="text-[11px] text-gray-400 mt-1">{{ __('Para un en vivo escribe de qué trató, p. ej. «Transmisión de un (1) en vivo realizado en la Secretaría de Salud… con la participación de…».') }}</p></div>
@@ -150,10 +175,10 @@
             {{-- Registrar publicación fuera de editus --}}
             <form method="POST" action="{{ route('campaigns.productos.publicaciones.guardar', [$c, $p]) }}" enctype="multipart/form-data" class="rounded-2xl border border-gray-200 bg-white shadow-sm p-4 space-y-2">
                 @csrf
-                <h3 class="text-sm font-bold text-gray-900">{{ $esWeb ? __('Agregar página web') : __('Registrar publicación en otro medio') }}</h3>
+                <h3 class="text-sm font-bold text-gray-900">{{ $esWeb ? __('Agregar página web') : ($p->tipo?->canal === 'tiktok' ? __('Registrar publicación en TikTok') : __('Registrar publicación en otro medio')) }}</h3>
                 <div class="grid grid-cols-2 gap-2">
                     <div class="col-span-2"><label class="block text-[10px] text-gray-500">{{ __('Medio o página web') }} *</label>
-                        <input name="medio" list="dlMedios" maxlength="190" placeholder="{{ $esWeb ? __('Ej: Neiva al Día') : __('Ej: Canal 4') }}" class="{{ $chico }}">
+                        <input name="medio" list="dlMedios" maxlength="190" placeholder="{{ $esWeb ? __('Ej: Neiva al Día') : ($p->tipo?->canal === 'tiktok' ? __('Ej: TikTok @opanoticias') : __('Ej: Canal 4')) }}" class="{{ $chico }}">
                         <datalist id="dlMedios">@foreach ($paginas as $pg)<option value="{{ $pg->name }}">@endforeach @foreach (config('services.editus.medios', []) as $m)<option value="{{ $m }}">@endforeach</datalist></div>
                     <div class="col-span-2"><label class="block text-[10px] text-gray-500">URL</label><input type="url" name="url" placeholder="https://" class="{{ $chico }}"></div>
                     <div><label class="block text-[10px] text-gray-500">{{ __('Fecha') }}</label><input type="date" name="fecha" class="{{ $chico }}"></div>
@@ -202,6 +227,8 @@
     };
     subSel.addEventListener('change', filtrar);
     filtrar();
+    const pauta = @json($tiposPauta), caja = document.getElementById('cajaPauta');
+    if (caja) tipoSel.addEventListener('change', () => caja.classList.toggle('hidden', !pauta.map(String).includes(tipoSel.value)));
 })();
 </script>
 @endsection

@@ -38,6 +38,12 @@ class ProductosService
     }
 
     /** URL para ver en pantalla una imagen [disco, ruta] (muestra, captura o membrete). */
+    /** ¿Ya están las columnas de canal y pauta (migración del plan por canales)? */
+    public static function conPauta(): bool
+    {
+        return Schema::hasColumn('campaign_productos', 'pauta_asignada') && Schema::hasColumn('campaign_tipos', 'canal');
+    }
+
     public static function url(Campaign $c, ?array $ref): ?string
     {
         if (!$ref || empty($ref[1])) return null;
@@ -128,6 +134,14 @@ class ProductosService
             'link_archivo' => $txt('link_archivo', 500),
             'observaciones' => $txt('observaciones', 5000),
         ]);
+        // Pauta paga de la pieza (redes sociales): lo asignado al publicar y lo gastado al final
+        if (array_key_exists('pauta_asignada', $d) && self::conPauta()) {
+            $num = fn($k) => ($v = $d[$k] ?? null) === null || $v === '' ? null : round((float) $v, 2);
+            $p->fill([
+                'pauta_asignada' => $num('pauta_asignada'), 'pauta_gastada' => $num('pauta_gastada'),
+                'pauta_desde' => ($d['pauta_desde'] ?? null) ?: null, 'pauta_hasta' => ($d['pauta_hasta'] ?? null) ?: null,
+            ]);
+        }
         if (!$p->exists || $p->isDirty('tipo_id')) $p->numero = $this->siguienteNumero($c, $p->tipo_id);
         $cambio = $p->exists && $p->isDirty(['tipo_id', 'subcampana_id', 'programa_id', 'subprograma']);
         $p->save();
@@ -269,9 +283,16 @@ class ProductosService
     {
         $subs = Subcampana::with('tipos', 'programaContrato')->where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get();
         $piezas = Producto::where('campaign_id', $c->id)->withCount(['posts' => fn($q) => $q->where('status', 'success')])->withCount('publicaciones')->get();
-        return $subs->map(function (Subcampana $s) use ($piezas) {
+        $radio = app(EmisionesRadioService::class)->totales($c);
+        return $subs->map(function (Subcampana $s) use ($piezas, $radio) {
             $filas = [];
             foreach ($s->tipos as $t) {
+                if ($t->canal === 'radio') {
+                    // Radio: cuenta lo que reportaron y firmaron las emisoras
+                    $n = $radio[$s->id][$t->id] ?? 0;
+                    $filas[] = ['tipo' => $t, 'planeadas' => $t->pivot->cantidad, 'piezas' => $n, 'publicadas' => $n];
+                    continue;
+                }
                 $de = $piezas->where('subcampana_id', $s->id)->where('tipo_id', $t->id);
                 $filas[] = ['tipo' => $t, 'planeadas' => $t->pivot->cantidad, 'piezas' => $de->count(),
                     'publicadas' => $de->filter(fn($p) => $p->posts_count + $p->publicaciones_count > 0)->count()];
@@ -364,11 +385,65 @@ class ProductosService
             $out[$k][(int) $p->tipo_id]['piezas']++;
             $out[$k][(int) $p->tipo_id]['publicaciones'] += $pub;
         }
+        // Radio: las cuñas reportadas y firmadas por las emisoras
+        foreach (app(EmisionesRadioService::class)->totales($c) as $subId => $porTipo) foreach ($porTipo as $tipoId => $n) {
+            $out[$subId][$tipoId] = ['piezas' => $n, 'publicaciones' => $n, 'planeadas' => null, 'radio' => true];
+        }
         foreach ($plan as $s) foreach ($s->tipos as $t) {
             $out[$s->id][$t->id] ??= ['piezas' => 0, 'publicaciones' => 0, 'planeadas' => null];
             $out[$s->id][$t->id]['planeadas'] = $t->pivot->cantidad;
         }
         return $out;
+    }
+
+    /**
+     * Avance por canal de la ficha técnica (radio, medios digitales, redes con pauta) de la campaña o de una subcampaña:
+     * planeado frente a hecho, valor contratado (cantidad × valor unitario), meta de alcance por pieza frente al alcance
+     * real y la pauta asignada y gastada.
+     * @return array<string, array{grupo:string, nombre:string, tipos:array, planeadas:int, hechas:int, valor_contratado:float,
+     *   valor_ejecutado:float, alcance:int, con_meta:int, cumplen:int, pauta_asignada:float, pauta_gastada:float}>
+     */
+    public function porCanal(Campaign $c, ?int $subId = null): array
+    {
+        if (!self::conPauta()) return [];
+        $tipos = TipoPublicacion::where('campaign_id', $c->id)->whereNotNull('canal')->orderBy('orden')->orderBy('id')->get();
+        if ($tipos->isEmpty()) return [];
+        $matriz = $this->matrizSubcampanas($c);
+        if ($subId !== null) $matriz = [$subId => $matriz[$subId] ?? []];
+        $piezas = Producto::where('campaign_id', $c->id)->whereIn('tipo_id', $tipos->pluck('id'))
+            ->when($subId !== null, fn($q) => $q->where('subcampana_id', $subId))->get();
+
+        $out = [];
+        foreach (TipoPublicacion::GRUPOS as $g => $nombre) {
+            $out[$g] = ['grupo' => $g, 'nombre' => __($nombre), 'tipos' => [], 'planeadas' => 0, 'hechas' => 0, 'valor_contratado' => 0.0,
+                'valor_ejecutado' => 0.0, 'alcance' => 0, 'con_meta' => 0, 'cumplen' => 0, 'pauta_asignada' => 0.0, 'pauta_gastada' => 0.0];
+        }
+        foreach ($tipos as $t) {
+            $g = $t->grupo();
+            if (!$g) continue;
+            $plan = 0; $hechas = 0;
+            foreach ($matriz as $porTipo) {
+                $plan += (int) ($porTipo[$t->id]['planeadas'] ?? 0);
+                $hechas += (int) ($porTipo[$t->id]['piezas'] ?? 0);
+            }
+            $fila = ['tipo' => $t, 'planeadas' => $plan, 'hechas' => $hechas, 'valor' => (float) $t->valor_unitario,
+                'valor_contratado' => $plan * (float) $t->valor_unitario, 'valor_ejecutado' => min($hechas, $plan ?: $hechas) * (float) $t->valor_unitario,
+                'meta' => $t->meta_alcance ? (int) $t->meta_alcance : null, 'alcance' => 0, 'cumplen' => 0, 'con_meta' => 0,
+                'pauta_asignada' => 0.0, 'pauta_gastada' => 0.0];
+            if ($g !== 'radio') {
+                foreach ($piezas->where('tipo_id', $t->id) as $p) {
+                    $alc = (int) $this->publicaciones($p)->sum('alcance');
+                    $fila['alcance'] += $alc;
+                    if ($fila['meta']) { $fila['con_meta']++; if ($alc >= $fila['meta']) $fila['cumplen']++; }
+                    $fila['pauta_asignada'] += (float) $p->pauta_asignada;
+                    $fila['pauta_gastada'] += (float) $p->pauta_gastada;
+                }
+            }
+            if (!$plan && !$hechas && !$fila['pauta_asignada']) continue;
+            $out[$g]['tipos'][] = $fila;
+            foreach (['planeadas', 'hechas', 'valor_contratado', 'valor_ejecutado', 'alcance', 'con_meta', 'cumplen', 'pauta_asignada', 'pauta_gastada'] as $k) $out[$g][$k] += $fila[$k];
+        }
+        return array_filter($out, fn($x) => $x['tipos']);
     }
 
     // ───────────────────────── Textos del informe ─────────────────────────

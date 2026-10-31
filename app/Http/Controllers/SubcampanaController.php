@@ -42,6 +42,8 @@ class SubcampanaController extends Controller
         $matriz = $this->prod->matrizSubcampanas($campaign)[$subcampana->id] ?? [];
         $m = app(PlanMediosService::class)->metricas($campaign, $subcampana->id);
         return view('campaigns.plan.subcampana', [
+            'canales' => $this->prod->porCanal($campaign, $subcampana->id),
+            'emisoras' => app(\App\Services\EmisionesRadioService::class)->porEmisora($campaign, $subcampana->id),
             'c' => $campaign, 's' => $subcampana, 'piezas' => $piezas, 'matriz' => $matriz, 'm' => $m,
             'tipos' => $campaign->tiposPublicacion()->get(),
         ]);

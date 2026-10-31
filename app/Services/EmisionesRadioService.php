@@ -96,6 +96,24 @@ class EmisionesRadioService
         return $out;
     }
 
+    /** Emitido por emisora (para la subcampaña o toda la campaña): [['emisora', 'tipo', 'cantidad', 'reportes', 'desde', 'hasta']]. */
+    public function porEmisora(Campaign $c, ?int $subId = null): Collection
+    {
+        if (!self::disponible()) return collect();
+        return EmisionRadio::with(['participante', 'tipo'])->where('campaign_id', $c->id)
+            ->when($subId !== null, fn($q) => $q->where('subcampana_id', $subId))->get()
+            ->groupBy(fn($e) => $e->participante_id . '|' . $e->tipo_id)
+            ->map(fn($g) => [
+                'emisora' => $g->first()->participante?->medio_nombre ?: '—',
+                'participante' => $g->first()->participante,
+                'tipo' => $g->first()->tipo?->nombre ?: '—',
+                'cantidad' => (int) $g->sum('cantidad'),
+                'reportes' => $g->count(),
+                'desde' => $g->min('fecha_desde'),
+                'hasta' => $g->max(fn($x) => $x->fecha_hasta ?? $x->fecha_desde),
+            ])->sortBy('emisora')->values();
+    }
+
     /** Filas para el certificado de la emisora (agrupadas por programa, subcampaña y tipo). */
     public function paraCertificado(CampaignParticipante $p): Collection
     {

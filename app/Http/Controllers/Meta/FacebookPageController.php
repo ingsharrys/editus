@@ -122,7 +122,7 @@ class FacebookPageController extends Controller
                 $campaignPiezas[$c->id] = [
                     'productos' => [], // cada publicación es una pieza nueva (se crea sola al publicar)
                     'subs' => $c->subcampanas()->where('is_active', true)->get()->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombre, 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
-                    'tipos' => $plan->tipos($c),
+                    'tipos' => $plan->publicables($c),
                     'cupos' => $plan->cuposParaPublicar($c),
                 ];
             }

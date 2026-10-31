@@ -6,6 +6,9 @@
     $sel = $m['seleccion'];
     $puedePublicar = auth()->user()->tienePermiso('paginas.publicar');
     $tiposVista = $s->tipos->isNotEmpty() ? $s->tipos : $tipos->filter(fn($t) => isset($matriz[$t->id]));
+    $canales = $canales ?? [];
+    // Los tipos con canal salen en el avance por canal; aquí solo los demás
+    if ($canales) $tiposVista = $tiposVista->filter(fn($t) => !$t->canal)->values();
 @endphp
 <div class="max-w-6xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     @include('campaigns.plan._nav')
@@ -34,7 +37,12 @@
         @endforeach
     </div>
 
+    @if ($canales)
+        @include('campaigns.plan._canales', ['canales' => $canales, 's' => $s, 'emisoras' => $emisoras ?? collect()])
+    @endif
+
     {{-- Avance por tipo de publicación --}}
+    @if (!$canales || $tiposVista->isNotEmpty())
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm mb-6 overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
             <h3 class="text-sm font-bold text-gray-900">{{ __('Publicado por tipo de publicación') }}</h3>
@@ -56,6 +64,7 @@
             @endforelse
         </div>
     </div>
+    @endif
 
     {{-- Piezas publicadas --}}
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -70,7 +79,7 @@
                     @if ($mini)<img src="{{ $mini }}" alt="" class="h-12 w-16 object-cover rounded-md border border-gray-100">@else<div class="h-12 w-16 rounded-md bg-gray-50 border border-dashed border-gray-200"></div>@endif
                     <div class="flex-1 min-w-[12rem]">
                         <div class="text-sm font-semibold text-gray-900">{{ $p->nombre }}</div>
-                        <div class="text-[11px] text-gray-500">{{ $p->tipo?->nombre ?? __('Sin tipo') }} · {{ $x['fecha']?->format('d/m/Y') ?? '—' }} · {{ __(':n medio(s)', ['n' => $x['tot']['medios']]) }}
+                        <div class="text-[11px] text-gray-500">@if ($p->tipo?->conPauta())<span class="rounded-full bg-amber-50 text-amber-800 px-1.5 py-0.5 text-[10px] font-semibold mr-1">{{ __('Pauta') }}{{ $p->pauta_asignada ? ' $ ' . number_format((float) $p->pauta_asignada, 0, ',', '.') : '' }}</span>@endif{{ $p->tipo?->nombre ?? __('Sin tipo') }} · {{ $x['fecha']?->format('d/m/Y') ?? '—' }} · {{ __(':n medio(s)', ['n' => $x['tot']['medios']]) }}
                             @if ($p->acta_aprobacion) · {{ __('Acta') }} {{ $p->acta_aprobacion }}@endif</div>
                     </div>
                     <div class="flex gap-4 text-xs text-gray-600 tabular-nums">

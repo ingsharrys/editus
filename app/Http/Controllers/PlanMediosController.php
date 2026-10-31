@@ -30,6 +30,8 @@ class PlanMediosController extends Controller
         if ($conPiezas) app(\App\Services\ProductosService::class)->asegurarPiezas($campaign);
         return view('campaigns.plan.tablero', [
             'matriz' => $conPiezas ? app(\App\Services\ProductosService::class)->matrizSubcampanas($campaign) : [],
+            'canales' => $conPiezas ? app(\App\Services\ProductosService::class)->porCanal($campaign, $subId) : [],
+            'emisoras' => app(\App\Services\EmisionesRadioService::class)->porEmisora($campaign, $subId),
             'tiposPub' => $conPiezas ? $campaign->tiposPublicacion()->get() : collect(),
             'c' => $campaign, 'm' => $this->plan->metricas($campaign, $subId), 'subId' => $subId,
             'avance' => $this->plan->avance($campaign, $subId ?: null), 'tipos' => $this->plan->tipos($campaign),
