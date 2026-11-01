@@ -16,6 +16,12 @@
         'escribeTitulo' => __('Escribe el título'),
         'escribeTexto' => __('Escribe el texto de la nota'),
         'eligeMedio' => __('Elige al menos un medio'),
+        'tituloDe' => __('Escribe el título de la nota para :m'),
+        'textoDe' => __('Escribe el texto de la nota para :m'),
+        'categoriaDe' => __('Elige la categoría de :m'),
+        'eligeCategoria' => __('Elige la categoría'),
+        'sinCategoria' => __('— Sin categoría (elígela) —'),
+        'copiado' => __('Copiado de :m: ajústalo para este medio'),
         'videoSinRedes' => __('El video se publica primero en Facebook / Instagram: marca un medio con página asignada'),
         'sinRespuesta' => __('El servidor no respondió. Si la imagen es muy grande, prueba con una más liviana.'),
         'errorConexion' => __('Error de conexión'),
@@ -151,20 +157,6 @@
                         </div>
                     </div>
 
-                    {{-- Contenido --}}
-                    <div class="{{ $card }}">
-                        <h3 class="{{ $h3 }}">{{ __('Contenido') }}</h3>
-                        <div class="flex items-end justify-between"><label class="{{ $lbl }}">{{ __('Título') }} *</label><span class="text-[11px] text-gray-400" x-text="titulo.length + '/150'"></span></div>
-                        <input type="text" x-model="titulo" maxlength="150" :disabled="publicando" placeholder="{{ __('Título de la nota (también va en la imagen)') }}" class="{{ $inp }} h-10 mb-3">
-                        <div class="flex items-end justify-between"><label class="{{ $lbl }}">{{ __('Texto de la nota') }} *</label><span class="text-[11px] text-gray-400" x-text="texto.length + ' / 6000'"></span></div>
-                        <textarea x-model="texto" maxlength="6000" rows="8" :disabled="publicando" placeholder="{{ __('Cuerpo completo de la nota. Va a la web y, completo, a Instagram. Puedes usar #hashtags.') }}" class="{{ $inp }}"></textarea>
-                        <div x-show="resumen()" class="mt-3 rounded-xl bg-sky-50 p-3">
-                            <div class="text-[11px] font-bold uppercase text-sky-800 mb-1">📘 {{ __('Así saldrá en Facebook') }}</div>
-                            <div class="text-sm text-gray-900" x-text="resumen()"></div>
-                            <div class="text-xs font-semibold text-sky-800 mt-1">{{ __('Ver más: enlace corto a la nota') }}</div>
-                        </div>
-                    </div>
-
                     {{-- Categoría --}}
                     <div class="{{ $card }}">
                         <h3 class="{{ $h3 }}">🏷️ {{ __('Categoría') }}</h3>
@@ -173,7 +165,8 @@
                             <span class="text-sm"><span class="font-semibold text-gray-900" x-text="mismaCategoria ? @js(__('La misma categoría para todos los medios')) : @js(__('Una categoría por medio'))"></span>
                                 <span class="block text-xs text-gray-500" x-text="mismaCategoria ? @js(__('Si un medio no la tiene, se crea automáticamente')) : @js(__('Elige la categoría en cada medio, más abajo'))"></span></span>
                         </label>
-                        <select x-show="mismaCategoria" x-model="categoriaGlobal" @change="vistaPrevia = null" :disabled="publicando" class="{{ $inp }} h-10">
+                        <select x-show="mismaCategoria" x-model="categoriaGlobal" @change="vistaPrevia = null" :disabled="publicando" class="{{ $inp }} h-10" :class="!categoriaGlobal ? 'border-amber-300 bg-amber-50 text-amber-900' : ''">
+                            <option value="" :selected="!categoriaGlobal" x-text="T.sinCategoria"></option>
                             <template x-for="o in opcionesCategoriaGlobal()" :key="o"><option :value="o" x-text="o" :selected="o === categoriaGlobal"></option></template>
                         </select>
                         <p class="mt-2 text-[11px] text-gray-500" x-text="tipoMedio === 'video' ? @js(__('La categoría de la nota de video en la web (por defecto se usa "Videos").')) : @js(__('La categoría va en la web y, con plantilla, en la etiqueta roja de la imagen.'))"></p>
@@ -202,6 +195,28 @@
                                             <span class="block text-xs text-gray-500" x-text="m.linea_nombre + ' · ' + resumenRedes(m)"></span></span>
                                     </label>
                                     <div x-show="sel[m.sitio_id]?.marcada" class="mt-2 pl-6 space-y-2">
+                                        {{-- Contenido de este medio --}}
+                                        <template x-if="contenido[m.sitio_id]">
+                                            <div class="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
+                                                <div class="flex items-center justify-between gap-2">
+                                                    <span class="text-xs font-bold text-gray-800">✍️ {{ __('Contenido para') }} <span x-text="m.sitio_nombre"></span></span>
+                                                    <button type="button" x-show="otroConContenido(m)" @click="copiarContenido(m)" :disabled="publicando" class="text-[11px] font-semibold text-indigo-700 hover:underline" x-text="'↧ ' + @js(__('Copiar de')) + ' ' + (otroConContenido(m)?.sitio_nombre || '')"></button>
+                                                </div>
+                                                <div>
+                                                    <div class="flex items-end justify-between"><label class="{{ $lbl }}">{{ __('Título') }} *</label><span class="text-[11px] text-gray-400" x-text="contenido[m.sitio_id].titulo.length + '/150'"></span></div>
+                                                    <input type="text" x-model="contenido[m.sitio_id].titulo" maxlength="150" :disabled="publicando" @focus="medioPrevId = m.sitio_id" placeholder="{{ __('Título de la nota en este medio (también va en la imagen)') }}" class="{{ $inp }} h-10">
+                                                </div>
+                                                <div>
+                                                    <div class="flex items-end justify-between"><label class="{{ $lbl }}">{{ __('Texto de la nota') }} *</label><span class="text-[11px] text-gray-400" x-text="contenido[m.sitio_id].texto.length + ' / 6000'"></span></div>
+                                                    <textarea x-model="contenido[m.sitio_id].texto" maxlength="6000" rows="6" :disabled="publicando" @focus="medioPrevId = m.sitio_id" placeholder="{{ __('Cuerpo completo de la nota para este medio. Va a su web y, completo, a su Instagram. Puedes usar #hashtags.') }}" class="{{ $inp }}"></textarea>
+                                                </div>
+                                                <div x-show="resumen(m)" class="rounded-lg bg-sky-50 p-2.5">
+                                                    <div class="text-[10px] font-bold uppercase text-sky-800 mb-0.5">📘 {{ __('Así saldrá en Facebook') }}</div>
+                                                    <div class="text-xs text-gray-900" x-text="resumen(m)"></div>
+                                                    <div class="text-[11px] font-semibold text-sky-800 mt-0.5">{{ __('Ver más: enlace corto a la nota') }}</div>
+                                                </div>
+                                            </div>
+                                        </template>
                                         <div x-show="paginasDe(m).length" class="flex flex-wrap gap-2 text-xs font-semibold">
                                             <span class="rounded-full bg-gray-100 text-gray-600 px-2.5 py-1">🌐 {{ __('Web') }}</span>
                                             <button type="button" @click="setSel(m.sitio_id, {facebook: !sel[m.sitio_id].facebook})" :disabled="publicando" class="rounded-full px-2.5 py-1" :class="sel[m.sitio_id]?.facebook ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-500'"><span x-text="sel[m.sitio_id]?.facebook ? '✓ ' : ''"></span>📘 Facebook</button>
@@ -216,11 +231,12 @@
                                         </div>
                                         <div x-show="!mismaCategoria">
                                             <label class="{{ $lbl }}">{{ __('Categoría en') }} <span x-text="m.sitio_nombre"></span></label>
-                                            <select class="{{ $inp }} h-9" :disabled="publicando" @change="categoriaPorMedio[m.sitio_id] = $event.target.value; vistaPrevia = null">
+                                            <select class="{{ $inp }} h-9" :class="!categoriaDe(m) ? 'border-amber-300 bg-amber-50 text-amber-900' : ''" :disabled="publicando" @change="categoriaPorMedio = {...categoriaPorMedio, [m.sitio_id]: $event.target.value}; vistaPrevia = null">
+                                                <option value="" :selected="!categoriaDe(m)" x-text="T.sinCategoria"></option>
                                                 <template x-for="o in opcionesCategoriaMedio(m)" :key="o.v"><option :value="o.v" x-text="o.t" :selected="o.v === categoriaDe(m)"></option></template>
                                             </select>
                                         </div>
-                                        <p x-show="mismaCategoria" class="text-xs text-gray-500"><span>{{ __('Categoría:') }}</span> <span x-text="categoriaDe(m)"></span> <span x-show="!categoriaDelMedio(m, categoriaDe(m))" x-text="T.seCrea"></span></p>
+                                        <p x-show="mismaCategoria" class="text-xs" :class="categoriaDe(m) ? 'text-gray-500' : 'text-amber-700 font-semibold'"><span>{{ __('Categoría:') }}</span> <span x-text="categoriaDe(m) || T.eligeCategoria"></span> <span x-show="categoriaDe(m) && !categoriaDelMedio(m, categoriaDe(m))" x-text="T.seCrea"></span></p>
 
                                         <div x-show="plantilla && tipoMedio === 'foto'" class="flex items-center gap-2 text-xs">
                                             <span class="text-gray-500 shrink-0">{{ __('Plantilla:') }}</span>
@@ -367,8 +383,8 @@
                             <input type="text" x-model="vTitulo" maxlength="150" :disabled="vPublicando" class="{{ $inp }} h-10"></div>
                         <div><label class="{{ $lbl }}">{{ __('Texto') }}</label>
                             <textarea x-model="vTexto" rows="6" maxlength="6000" :disabled="vPublicando" class="{{ $inp }}" placeholder="{{ __('Texto de la nota (viene de la descripción del video; puedes editarlo)') }}"></textarea></div>
-                        <div><label class="{{ $lbl }}">{{ __('Categoría') }}</label>
-                            <select x-model="vCategoria" :disabled="vPublicando" class="{{ $inp }} h-10"><template x-for="o in opcionesCategoriaVideo()" :key="o"><option :value="o" x-text="o" :selected="o === vCategoria"></option></template></select></div>
+                        <div><label class="{{ $lbl }}">{{ __('Categoría') }} *</label>
+                            <select x-model="vCategoria" :disabled="vPublicando" class="{{ $inp }} h-10" :class="!vCategoria ? 'border-amber-300 bg-amber-50 text-amber-900' : ''"><option value="" :selected="!vCategoria" x-text="T.sinCategoria"></option><template x-for="o in opcionesCategoriaVideo()" :key="o"><option :value="o" x-text="o" :selected="o === vCategoria"></option></template></select></div>
                         <div>
                             <div class="{{ $lbl }}">{{ __('Medios') }} *</div>
                             <div class="grid sm:grid-cols-2 gap-2">
@@ -454,13 +470,13 @@ function redesWeb() {
         vista: 'nueva', aviso: {texto: '', tono: 'ok'}, avisoTimer: null,
         cargando: false, errores: {}, medios: [], paginas: [], plantillas: [], categoriaDefecto: 'Opas',
         tipoMedio: 'foto', imagen: null, video: null, videoId: null, subiendo: null,
-        titulo: '', texto: '',
+        contenido: {},   // título y texto de cada medio: {sitio_id: {titulo, texto}}
         mismaCategoria: true, categoriaGlobal: '', categoriaPorMedio: {},
         sel: {}, logos: leer('redesLogosPorMedio') || {}, editandoLogo: null, logoEdit: {}, plantillaPorMedio: {}, medioPrevId: null,
         usarPlantilla: true, plantillaId: '', vistaPrevia: null, firmaPrevia: '', previsualizando: false, previaTimer: null,
         publicando: false, resultado: null,
         historial: [], cargandoHistorial: false,
-        vPaginas: [], vCargando: false, vError: '', vAviso: '', vFiltro: '', vElegido: null, vTitulo: '', vTexto: '', vCategoria: 'Videos', vCategoriaVideos: 'Videos', vMedios: {}, vPublicando: false, vResultado: null,
+        vPaginas: [], vCargando: false, vError: '', vAviso: '', vFiltro: '', vElegido: null, vTitulo: '', vTexto: '', vCategoria: '', vCategoriaVideos: 'Videos', vMedios: {}, vPublicando: false, vResultado: null,
 
         iniciar() {
             if (this.autor && !AUTORES[this.autor]) this.autor = '';
@@ -470,11 +486,10 @@ function redesWeb() {
             this.$watch('usarPlantilla', () => this.recordar());
             this.$watch('plantillaId', () => this.recordar());
             this.$watch('mismaCategoria', () => this.recordar());
-            this.$watch('categoriaGlobal', () => this.recordar());
             this.$watch(() => this.firma(), () => this.programarPrevia());
             if (this.autor) this.cargarCatalogos(aj);
         },
-        recordar() { guardar('redesAjustesWeb', {usarPlantilla: this.usarPlantilla, plantillaId: this.plantillaId, mismaCategoria: this.mismaCategoria, categoriaGlobal: this.categoriaGlobal}); },
+        recordar() { guardar('redesAjustesWeb', {usarPlantilla: this.usarPlantilla, plantillaId: this.plantillaId, mismaCategoria: this.mismaCategoria}); },
         avisar(texto, tono = 'ok', ms = 4000) { this.aviso = {texto, tono}; clearTimeout(this.avisoTimer); this.avisoTimer = setTimeout(() => this.aviso = {texto: '', tono}, ms); },
         nombreAutor() { return AUTORES[this.autor] || '—'; },
         cambiarAutor() {
@@ -502,10 +517,13 @@ function redesWeb() {
                 this.medios = data.medios || []; this.paginas = data.paginas || []; this.plantillas = data.plantillas || [];
                 this.categoriaDefecto = data.categoria || 'Opas'; this.errores = data.errores || {};
                 const s = {...this.sel};
-                this.medios.forEach(m => { if (!s[m.sitio_id]) s[m.sitio_id] = {marcada: true, facebook: true, instagram: true, excluidas: []}; });
+                // Ningún medio marcado de entrada: al marcar uno se habilitan su título y su texto
+                this.medios.forEach(m => { if (!s[m.sitio_id]) s[m.sitio_id] = {marcada: false, facebook: true, instagram: true, excluidas: []}; });
                 this.sel = s;
+                const c = {...this.contenido};
+                this.medios.forEach(m => { if (!c[m.sitio_id]) c[m.sitio_id] = {titulo: '', texto: ''}; });
+                this.contenido = c;
                 aj = aj || leer('redesAjustesWeb') || {};
-                if (!this.categoriaGlobal) this.categoriaGlobal = aj.categoriaGlobal || this.categoriaDefecto;
                 const deseada = this.plantillaId || aj.plantillaId || '';
                 this.plantillaId = (deseada && this.plantillas.some(p => p.id === deseada)) ? deseada : ((this.plantillas.find(p => p.predeterminada) || this.plantillas[0])?.id || '');
             } catch (e) { this.errores = {general: T.errorConexion}; }
@@ -532,17 +550,36 @@ function redesWeb() {
         },
         resumenRedes(m) { const pags = this.paginasDe(m); return pags.length ? '📘 ' + pags.map(p => p.nombre).join(', ') + (pags.some(p => p.instagram) ? ' · 📸 Instagram' : '') : T.soloWeb; },
         categoriaDelMedio(m, nombre) { const k = clave(nombre); return (m.categorias || []).find(c => clave(c.nombre) === k); },
-        categoriaDe(m) { return (this.mismaCategoria ? this.categoriaGlobal : (this.categoriaPorMedio[m.sitio_id] || this.categoriaGlobal)) || this.categoriaDefecto; },
+        /** Categoría del medio: la general o la suya. Sin valor por defecto: hay que elegirla. */
+        categoriaDe(m) { return (this.mismaCategoria ? this.categoriaGlobal : (this.categoriaPorMedio[m.sitio_id] || '')) || ''; },
+        cont(m) { return this.contenido[m?.sitio_id] || {titulo: '', texto: ''}; },
+        /** Otro medio marcado que ya tiene contenido (para copiarlo y ajustarlo). */
+        otroConContenido(m) { return this.mediosMarcados().find(x => x.sitio_id !== m.sitio_id && (this.cont(x).titulo.trim() || this.cont(x).texto.trim())) || null; },
+        copiarContenido(m) {
+            const o = this.otroConContenido(m); if (!o) return;
+            this.contenido = {...this.contenido, [m.sitio_id]: {titulo: this.cont(o).titulo, texto: this.cont(o).texto}};
+            this.medioPrevId = m.sitio_id; this.avisar(T.copiado.replace(':m', o.sitio_nombre), 'ok', 3000);
+        },
+        /** Primer medio marcado al que le falta algo (título, texto o categoría). */
+        faltante() {
+            for (const m of this.mediosMarcados()) {
+                const c = this.cont(m);
+                if (!c.titulo.trim()) return T.tituloDe.replace(':m', m.sitio_nombre);
+                if (!c.texto.trim()) return T.textoDe.replace(':m', m.sitio_nombre);
+                if (!this.categoriaDe(m)) return T.categoriaDe.replace(':m', m.sitio_nombre);
+            }
+            return '';
+        },
         opcionesCategoriaGlobal() {
             const vistas = new Map();
             this.medios.forEach(s => (s.categorias || []).forEach(c => { const k = clave(c.nombre); if (k && !vistas.has(k)) vistas.set(k, c.nombre); }));
-            [this.categoriaDefecto, this.categoriaGlobal].forEach(x => { if (x && !vistas.has(clave(x))) vistas.set(clave(x), x); });
+            [this.categoriaGlobal].forEach(x => { if (x && !vistas.has(clave(x))) vistas.set(clave(x), x); });
             return Array.from(vistas.values()).sort((a, b) => a.localeCompare(b));
         },
         opcionesCategoriaMedio(m) {
             const ops = (m.categorias || []).map(c => ({v: c.nombre, t: c.nombre}));
             const act = this.categoriaDe(m);
-            return ops.some(o => clave(o.v) === clave(act)) ? ops : [{v: act, t: act + ' ' + T.seCreaOpcion}, ...ops];
+            return !act || ops.some(o => clave(o.v) === clave(act)) ? ops : [{v: act, t: act + ' ' + T.seCreaOpcion}, ...ops];
         },
         logoDe(m) {
             return this.logos[m.slug] || {
@@ -567,8 +604,8 @@ function redesWeb() {
             if (g && g.medio) { const delDiseno = marcados.find(m => m.slug === g.medio); if (delDiseno) return delDiseno; }
             return marcados[0] || this.medios[0] || null;
         },
-        resumen() {
-            const limpio = (this.texto || '').replace(/\s+/g, ' ').trim();
+        resumen(m) {
+            const limpio = (this.cont(m).texto || '').replace(/\s+/g, ' ').trim();
             let r = limpio;
             if (limpio.length > 280) {
                 const corte = limpio.slice(0, 280); const frase = corte.match(/^(.{80,}[.!?])\s/s);
@@ -578,7 +615,7 @@ function redesWeb() {
         },
         puedePublicar() {
             const v = this.tipoMedio === 'video';
-            return !this.publicando && this.subiendo === null && this.titulo.trim() && this.texto.trim() && (v ? !!this.videoId : !!this.imagen) && this.mediosMarcados().length > 0 && (!v || this.totalRedes() > 0);
+            return !this.publicando && this.subiendo === null && (v ? !!this.videoId : !!this.imagen) && this.mediosMarcados().length > 0 && !this.faltante() && (!v || this.totalRedes() > 0);
         },
 
         // ---------------- Selección ----------------
@@ -641,7 +678,7 @@ function redesWeb() {
             const m = this.medioPreview();
             const pl = this.plantillaDe(m);
             return this.tipoMedio === 'foto' && pl && this.imagen && m
-                ? JSON.stringify({p: pl.id, t: this.titulo.trim(), e: this.categoriaDe(m), l: this.logoDe(m), i: this.imagen.length}) : '';
+                ? JSON.stringify({p: pl.id, t: this.cont(m).titulo.trim(), e: this.categoriaDe(m), l: this.logoDe(m), i: this.imagen.length}) : '';
         },
         programarPrevia() {
             clearTimeout(this.previaTimer);
@@ -654,7 +691,7 @@ function redesWeb() {
             const m = this.medioPreview(); const pl = this.plantillaDe(m); if (!m || !pl || !this.imagen) return;
             this.previsualizando = true;
             try {
-                const {data} = await this.api(R.previsualizar, {method: 'POST', body: JSON.stringify({imagen: this.imagen, texto: this.texto.trim(), plantilla_id: pl.id, titulo: this.titulo.trim() || T.tituloPrevia, etiqueta: this.categoriaDe(m), ...this.logoDe(m)})});
+                const {data} = await this.api(R.previsualizar, {method: 'POST', body: JSON.stringify({imagen: this.imagen, texto: this.cont(m).texto.trim(), plantilla_id: pl.id, titulo: this.cont(m).titulo.trim() || T.tituloPrevia, etiqueta: this.categoriaDe(m) || T.eligeCategoria, ...this.logoDe(m)})});
                 if (f !== this.firma()) return;
                 if (data?.success && data.imagen) { this.vistaPrevia = data.imagen; this.firmaPrevia = f; }
                 else this.avisar(data?.error || T.errorConexion, 'fallo', 6000);
@@ -670,20 +707,21 @@ function redesWeb() {
                 if (this.subiendo !== null) return this.avisar(T.esperaVideo, 'atencion');
                 if (v && !this.videoId) return this.avisar(T.eligeVideo, 'atencion');
                 if (!v && !this.imagen) return this.avisar(T.eligeFoto, 'atencion');
-                if (!this.titulo.trim()) return this.avisar(T.escribeTitulo, 'atencion');
-                if (!this.texto.trim()) return this.avisar(T.escribeTexto, 'atencion');
                 if (!this.mediosMarcados().length) return this.avisar(T.eligeMedio, 'atencion');
+                if (this.faltante()) return this.avisar(this.faltante(), 'atencion', 5000);
                 if (v && !this.totalRedes()) return this.avisar(T.videoSinRedes, 'atencion', 6000);
                 return;
             }
             const lista = this.mediosMarcados().map(m => {
                 const nombreCat = this.categoriaDe(m); const cat = this.categoriaDelMedio(m, nombreCat);
                 return {sitio_id: m.sitio_id, slug: m.slug, sitio_nombre: m.sitio_nombre, linea_editorial: m.linea_nombre,
+                    titulo: this.cont(m).titulo.trim(), texto: this.cont(m).texto.trim(),
                     categoria_id: cat ? (cat.id || 1) : null, categoria: cat?.nombre || nombreCat,
                     logo: this.plantilla ? this.logoDe(m) : undefined, plantilla_id: this.plantillaDe(m)?.id || undefined, paginas: this.paginasElegidas(m)};
             });
-            const cuerpo = v ? {titulo: this.titulo.trim(), texto: this.texto.trim(), video_id: this.videoId, medios: lista}
-                             : {titulo: this.titulo.trim(), texto: this.texto.trim(), imagen: this.imagen, medios: lista, plantilla: this.plantilla ? {id: this.plantilla.id} : undefined};
+            // Cada medio lleva su título y su texto (el backend usa los de cada uno)
+            const cuerpo = v ? {video_id: this.videoId, medios: lista}
+                             : {imagen: this.imagen, medios: lista, plantilla: this.plantilla ? {id: this.plantilla.id} : undefined};
             this.publicando = true; this.resultado = null;
             try {
                 const {data} = await this.api(R.publicar, {method: 'POST', body: JSON.stringify(cuerpo)});
@@ -695,7 +733,8 @@ function redesWeb() {
                     const todoOk = webs === res.web.length && res.paginas.every(p => (!p.facebook || p.facebook.ok) && (!p.instagram || p.instagram.ok));
                     this.resultado = {success: true, titulo: todoOk ? T.publicado : T.conObservaciones, nota: data.titulo, imagen: data.imagen_url || this.vistaPrevia || this.imagen,
                         detalle: 'Web: ' + webs + '/' + res.web.length + ' · Redes: ' + redes + '/' + res.paginas.length + (data.plantilla?.nombre ? ' · ' + data.plantilla.nombre : ''), resultados: res};
-                    this.titulo = ''; this.texto = ''; this.imagen = null; this.quitarVideo(); this.vistaPrevia = null; this.firmaPrevia = ''; this.historial = [];
+                    const vacio = {}; this.medios.forEach(m => vacio[m.sitio_id] = {titulo: '', texto: ''}); this.contenido = vacio;
+                    this.imagen = null; this.quitarVideo(); this.vistaPrevia = null; this.firmaPrevia = ''; this.historial = [];
                 } else {
                     this.resultado = {success: false, titulo: T.noSePudo, nota: '', detalle: '', error: data.error, resultados: res};
                     this.avisar(data.error || T.noSePudo, 'fallo', 6000);
@@ -712,7 +751,7 @@ function redesWeb() {
                 const {data, status} = await this.api(R.videos);
                 if (!data?.success) throw new Error(data?.error || ('HTTP ' + status));
                 this.vPaginas = data.paginas || [];
-                if (data.categoria) { this.vCategoriaVideos = data.categoria; this.vCategoria = data.categoria; }
+                if (data.categoria) this.vCategoriaVideos = data.categoria;
                 this.vAviso = [data.error, ...this.vPaginas.filter(p => p.error).map(p => p.nombre + ': ' + p.error)].filter(Boolean).join(' · ');
             } catch (e) { this.vError = e.message || T.errorConexion; }
             finally { this.vCargando = false; }
@@ -720,7 +759,7 @@ function redesWeb() {
         elegirVideoRed(p, v) {
             const desc = (v.descripcion || v.titulo || '').trim();
             this.vElegido = {pagina: p, video: v}; this.vResultado = null;
-            this.vTitulo = (v.titulo || '').trim() || this.tituloSugerido(desc); this.vTexto = desc; this.vCategoria = this.vCategoriaVideos;
+            this.vTitulo = (v.titulo || '').trim() || this.tituloSugerido(desc); this.vTexto = desc; this.vCategoria = '';
             const m = {}; this.medios.forEach(s => m[s.sitio_id] = !!p.medio && s.slug === p.medio);
             if (!Object.values(m).some(Boolean) && this.medios.length === 1) m[this.medios[0].sitio_id] = true;
             this.vMedios = m;
@@ -735,7 +774,7 @@ function redesWeb() {
         opcionesCategoriaVideo() {
             const vistas = new Map();
             this.medios.forEach(s => (s.categorias || []).forEach(c => { const k = clave(c.nombre); if (k && !vistas.has(k)) vistas.set(k, c.nombre); }));
-            [this.vCategoriaVideos, this.categoriaDefecto, this.vCategoria].forEach(x => { if (x && !vistas.has(clave(x))) vistas.set(clave(x), x); });
+            [this.vCategoriaVideos, this.vCategoria].forEach(x => { if (x && !vistas.has(clave(x))) vistas.set(clave(x), x); });
             return Array.from(vistas.values()).sort((a, b) => a.localeCompare(b));
         },
         async publicarVideoRed() {
@@ -743,6 +782,7 @@ function redesWeb() {
             if (!this.vTitulo.trim()) return this.avisar(T.escribeTitulo, 'atencion');
             const marcados = this.medios.filter(m => this.vMedios[m.sitio_id]);
             if (!marcados.length) return this.avisar(T.eligeMedio, 'atencion');
+            if (!this.vCategoria) return this.avisar(T.eligeCategoria, 'atencion');
             const lista = marcados.map(m => { const cat = this.categoriaDelMedio(m, this.vCategoria); return {sitio_id: m.sitio_id, slug: m.slug, sitio_nombre: m.sitio_nombre, linea_editorial: m.linea_nombre, categoria_id: cat ? (cat.id || 1) : null, categoria: cat?.nombre || this.vCategoria}; });
             this.vPublicando = true; this.vResultado = null;
             try {

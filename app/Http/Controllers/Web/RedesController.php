@@ -66,6 +66,7 @@ class RedesController extends Controller
 
     public function publicar(Request $request): JsonResponse
     {
+        if ($error = $this->faltaContenido($request, true)) return $error;
         @set_time_limit(360);
         return $this->pasar($request, 'POST', 'publicar', 330);
     }
@@ -87,8 +88,36 @@ class RedesController extends Controller
 
     public function publicarVideo(Request $request): JsonResponse
     {
+        if ($error = $this->faltaContenido($request, false)) return $error;
         @set_time_limit(360);
         return $this->pasar($request, 'POST', 'publicar-video', 330);
+    }
+
+    /**
+     * Cada medio marcado necesita su categoría (no hay una por defecto) y, en una publicación nueva,
+     * su título y su texto (los suyos o, si no, los generales).
+     */
+    private function faltaContenido(Request $request, bool $conTexto): ?JsonResponse
+    {
+        $medios = $request->json('medios');
+        if (!is_array($medios) || !$medios) {
+            return response()->json(['success' => false, 'error' => __('Elige al menos un medio.')], 422);
+        }
+        $tituloGeneral = trim((string) $request->json('titulo', ''));
+        $textoGeneral = trim((string) $request->json('texto', ''));
+        foreach ($medios as $m) {
+            $nombre = (string) ($m['sitio_nombre'] ?? $m['slug'] ?? '');
+            if (trim((string) ($m['categoria'] ?? '')) === '') {
+                return response()->json(['success' => false, 'error' => __('Elige la categoría de :medio.', ['medio' => $nombre])], 422);
+            }
+            if ($conTexto && trim((string) ($m['titulo'] ?? '')) === '' && $tituloGeneral === '') {
+                return response()->json(['success' => false, 'error' => __('Escribe el título de la nota para :medio.', ['medio' => $nombre])], 422);
+            }
+            if ($conTexto && trim((string) ($m['texto'] ?? '')) === '' && $textoGeneral === '') {
+                return response()->json(['success' => false, 'error' => __('Escribe el texto de la nota para :medio.', ['medio' => $nombre])], 422);
+            }
+        }
+        return null;
     }
 
     /** Reenvía la petición al backend en nombre del periodista elegido. */

@@ -214,6 +214,9 @@ class PublicacionesController extends Controller
             'paginas.*.facebook' => ['nullable', 'boolean'],
             'paginas.*.instagram' => ['nullable', 'boolean'],
             'paginas.*.enlace' => ['nullable', 'url'],
+            // Texto propio de la página (cada medio puede llevar el suyo); si falta, el general
+            'paginas.*.texto' => ['nullable', 'string', 'max:5000'],
+            'paginas.*.texto_instagram' => ['nullable', 'string', 'max:2200'],
             'referencia' => ['nullable', 'string', 'max:100'],
             'usuario' => ['nullable', 'string', 'max:60'],
             'campaign_id' => ['nullable', 'integer'],
@@ -256,11 +259,11 @@ class PublicacionesController extends Controller
                 continue;
             }
             $enlace = trim((string) ($item['enlace'] ?? ''));
-            $mensaje = trim($datos['texto']);
+            $mensaje = trim((string) ($item['texto'] ?? '')) ?: trim($datos['texto']);
             if ($enlace !== '' && !str_contains($mensaje, $enlace)) {
                 $mensaje .= "\n\n" . $enlace;
             }
-            $captionIg = trim((string) ($datos['texto_instagram'] ?? ''));
+            $captionIg = trim((string) ($item['texto_instagram'] ?? '')) ?: trim((string) ($datos['texto_instagram'] ?? ''));
 
             $res = $publisher->publicarVideo($page, $videoUrl, $mensaje, $facebook, $instagram, $enlace ?: null, $batch, $captionIg !== '' ? $captionIg : null, $datos['imagen_url'] ?? null);
             $r['facebook'] = $res['facebook'];

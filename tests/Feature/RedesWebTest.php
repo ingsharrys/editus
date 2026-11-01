@@ -14,7 +14,7 @@ use Tests\TestCase;
 /** Redes en la web de editus: lo mismo que la sección Redes de la app, por medio del backend de esnoticia. */
 class RedesWebTest extends TestCase
 {
-    private User $admin;
+    protected User $admin;
     private const B = 'backend.prueba.test/public/api/';
 
     protected function setUp(): void
@@ -33,7 +33,7 @@ class RedesWebTest extends TestCase
         Cache::flush();
     }
 
-    private function falsos(array $mas = []): void
+    protected function falsos(array $mas = []): void
     {
         Http::fake($mas + [
             self::B . 'editus/usuarios' => Http::response(['success' => true, 'usuarios' => [
@@ -76,9 +76,26 @@ class RedesWebTest extends TestCase
         $this->assertSame('Opa Noticias', $c['plantillas'][0]['nombre']);
         Http::assertSent(fn(PeticionHttp $p) => str_contains($p->url(), 'redes/paginas') && $p->header('X-Editus-Token') === ['tok-int'] && $p->header('X-Editus-Usuario') === ['7']);
 
-        $this->actingAs($this->admin)->postJson(route('redes.publicar'), ['titulo' => 'Hola', 'texto' => 'Texto', 'imagen' => 'data:image/jpeg;base64,AAA', 'medios' => [['slug' => 'opanoticias']], 'campaign_id' => 4], ['X-Autor' => '7'])
-            ->assertOk()->assertJsonPath('resultados.web.0.url', 'https://opanoticias.com/n');
-        Http::assertSent(fn(PeticionHttp $p) => str_ends_with($p->url(), 'redes/publicar') && $p['titulo'] === 'Hola' && !isset($p['campaign_id']) && $p->header('X-Editus-Usuario') === ['7']);
+        // Sin categoría (no hay una por defecto) o sin título / texto de un medio no se publica
+        $this->actingAs($this->admin)->postJson(route('redes.publicar'), ['imagen' => 'data:image/jpeg;base64,AAA', 'medios' => [['slug' => 'opanoticias', 'sitio_nombre' => 'Opanoticias', 'titulo' => 'Hola', 'texto' => 'Texto']]], ['X-Autor' => '7'])
+            ->assertStatus(422)->assertJsonPath('error', 'Elige la categoría de Opanoticias.');
+        $this->actingAs($this->admin)->postJson(route('redes.publicar'), ['imagen' => 'data:image/jpeg;base64,AAA', 'medios' => [
+            ['slug' => 'opanoticias', 'sitio_nombre' => 'Opanoticias', 'categoria' => 'Opas', 'titulo' => 'Hola', 'texto' => 'Texto'],
+            ['slug' => 'neiva24', 'sitio_nombre' => 'Neiva 24', 'categoria' => 'Neiva', 'titulo' => 'Otro título', 'texto' => ''],
+        ]], ['X-Autor' => '7'])->assertStatus(422)->assertJsonPath('error', 'Escribe el texto de la nota para Neiva 24.');
+        Http::assertNotSent(fn(PeticionHttp $p) => str_ends_with($p->url(), 'redes/publicar'));
+
+        // Cada medio con su título y su texto: pasan tal cual al backend
+        $this->actingAs($this->admin)->postJson(route('redes.publicar'), ['imagen' => 'data:image/jpeg;base64,AAA', 'campaign_id' => 4, 'medios' => [
+            ['slug' => 'opanoticias', 'sitio_nombre' => 'Opanoticias', 'categoria' => 'Opas', 'titulo' => 'Hola', 'texto' => 'Texto'],
+            ['slug' => 'neiva24', 'sitio_nombre' => 'Neiva 24', 'categoria' => 'Neiva', 'titulo' => 'Otro título', 'texto' => 'Otro texto'],
+        ]], ['X-Autor' => '7'])->assertOk()->assertJsonPath('resultados.web.0.url', 'https://opanoticias.com/n');
+        Http::assertSent(fn(PeticionHttp $p) => str_ends_with($p->url(), 'redes/publicar') && $p['medios'][1]['titulo'] === 'Otro título' && $p['medios'][1]['texto'] === 'Otro texto'
+            && !isset($p['campaign_id']) && $p->header('X-Editus-Usuario') === ['7']);
+
+        // Video ya en redes: también exige la categoría
+        $this->actingAs($this->admin)->postJson(route('redes.publicar-video'), ['titulo' => 'V', 'video' => ['permalink' => 'https://facebook.com/x'], 'medios' => [['slug' => 'opanoticias', 'sitio_nombre' => 'Opanoticias']]], ['X-Autor' => '7'])
+            ->assertStatus(422)->assertJsonPath('error', 'Elige la categoría de Opanoticias.');
 
         $this->actingAs($this->admin)->getJson(route('redes.historial'), ['X-Autor' => '8'])->assertOk()->assertJsonPath('posts.0.titulo', 'Antes');
     }
