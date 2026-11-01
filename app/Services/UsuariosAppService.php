@@ -36,6 +36,8 @@ class UsuariosAppService
                     'username' => (string) ($u['username'] ?? ''),
                     'email' => (string) ($u['email'] ?? ''),
                     'role' => (string) ($u['role'] ?? ''),
+                    // Nombre con el que firma en las webs de los medios (periodista); si no tiene, el usuario
+                    'nombre' => trim((string) ($u['nombre'] ?? '')) ?: (string) ($u['username'] ?? ''),
                 ], (array) $r->json('usuarios', [])));
             } catch (\Throwable $e) {
                 Log::warning('[usuarios app] no se pudo consultar el backend', ['err' => $e->getMessage()]);

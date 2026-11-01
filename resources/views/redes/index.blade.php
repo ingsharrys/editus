@@ -59,7 +59,7 @@
                 <select x-model="autor" @change="cambiarAutor()" class="{{ $inp }} h-10">
                     <option value="">{{ __('— Elige el periodista —') }}</option>
                     @foreach ($autores as $a)
-                        <option value="{{ $a['id'] }}">{{ $a['username'] }}{{ $a['email'] ? ' · ' . $a['email'] : '' }}</option>
+                        <option value="{{ $a['id'] }}">{{ ($a['nombre'] ?? '') !== '' && ($a['nombre'] ?? '') !== $a['username'] ? $a['nombre'] . ' (' . $a['username'] . ')' : $a['username'] }}{{ $a['email'] ? ' · ' . $a['email'] : '' }}</option>
                     @endforeach
                 </select>
             </div>
