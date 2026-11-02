@@ -42,6 +42,7 @@ Route::middleware('editus.token')->group(function () {
     // Transmisiones en vivo (LiveKit propio → Facebook Live)
     Route::post('/en-vivo/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'iniciar'])->name('api.envivo.iniciar');
     Route::get('/en-vivo/activas', [\App\Http\Controllers\Api\EnVivoController::class, 'activas'])->name('api.envivo.activas');
+    Route::get('/en-vivo/campanas', [\App\Http\Controllers\Api\EnVivoController::class, 'campanas'])->name('api.envivo.campanas');
     Route::post('/en-vivo/{transmision}/plantilla', [\App\Http\Controllers\Api\EnVivoController::class, 'plantilla'])->name('api.envivo.plantilla');
     Route::post('/en-vivo/{transmision}/terminar', [\App\Http\Controllers\Api\EnVivoController::class, 'terminar'])->name('api.envivo.terminar');
     Route::get('/en-vivo/{transmision}/estado', [\App\Http\Controllers\Api\EnVivoController::class, 'estado'])->name('api.envivo.estado');

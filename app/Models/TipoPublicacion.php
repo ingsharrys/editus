@@ -50,6 +50,12 @@ class TipoPublicacion extends Model
         return !in_array($this->canal, ['radio', 'tiktok'], true);
     }
 
+    /** ¿Es un tipo de en vivo? (se hace desde el estudio en vivo, no desde «Publicar»). */
+    public function esEnVivo(): bool
+    {
+        return $this->clase === 'envivo' || str_contains(mb_strtolower($this->etiquetaSingular() . ' ' . $this->nombre), 'vivo');
+    }
+
     public function conPauta(): bool
     {
         return in_array($this->canal, ['facebook', 'instagram', 'tiktok'], true);

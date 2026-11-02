@@ -124,6 +124,8 @@ class FacebookPageController extends Controller
                     'subs' => $plan->subcampanasParaPublicar($c)->map(fn($x) => ['id' => $x->id, 'nombre' => $x->nombreCompleto(), 'tipos' => $plan->tiposDe($c, $x)])->values()->all(),
                     'tipos' => $plan->publicables($c),
                     'cupos' => $plan->cuposParaPublicar($c),
+                    // Los en vivo se hacen desde el estudio en vivo (no se publican como imagen o video)
+                    'vivos' => \App\Services\EnVivoCampanaService::disponible() ? app(\App\Services\EnVivoCampanaService::class)->tiposEnVivo($c) : [],
                 ];
             }
         }

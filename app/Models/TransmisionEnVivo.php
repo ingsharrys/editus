@@ -12,6 +12,7 @@ class TransmisionEnVivo extends Model
         'meta_page_id', 'usuario_app', 'user_id', 'titulo', 'descripcion', 'room', 'fb_live_id', 'fb_video_id', 'fb_permalink',
         'stream_url', 'destinos', 'egress_id', 'estado', 'plantilla', 'escena', 'invitaciones', 'error', 'iniciada_en', 'terminada_en',
         'programada_en', 'anunciada_en', 'avisada_en', 'miniatura', 'notas', 'marca_id',
+        'campaign_id', 'subcampana_id', 'tipo_pieza', // en vivo de una campaña con plan de medios (suma al informe)
     ];
 
     protected $casts = [
@@ -76,6 +77,7 @@ class TransmisionEnVivo extends Model
             'terminada_en' => $this->terminada_en?->toIso8601String(),
             'notas' => $this->notas,
             'marca_id' => $this->marca_id,
+            'campana' => $this->campaign_id ? \App\Services\EnVivoCampanaService::etiqueta($this) : null,
         ];
     }
 }

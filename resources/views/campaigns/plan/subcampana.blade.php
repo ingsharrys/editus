@@ -31,6 +31,9 @@
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
                     {{ __('Publicar en :nombre', ['nombre' => $s->nombre]) }}</a>
             @endif
+            @if (!empty($vivosSub) && $s->is_active && $c->is_active)
+                <a href="{{ route('en-vivo.web', ['campana' => $c->id, 'subcampana' => $s->id, 'tipo' => $vivosSub[0], 'paginas' => app(\App\Services\CampanasService::class)->paginasDe($c)->pluck('id')->implode(',')]) }}" class="h-10 inline-flex items-center gap-1.5 rounded-xl bg-rose-600 text-white px-4 text-sm font-semibold shadow-sm hover:bg-rose-700">● {{ __('Hacer en vivo') }}</a>
+            @endif
             @unless ($esGrupo)<a href="{{ route('campaigns.banners.crear', [$c, 'subcampana' => $s->id]) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ __('Registrar banner en páginas web') }}</a>@endunless
             <a href="{{ route('campaigns.informes', [$c, 'subcampana' => $s->id]) }}" class="h-10 inline-flex items-center rounded-xl border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">{{ __('Informe') }}</a>
         </div>

@@ -57,6 +57,9 @@ class SubcampanaController extends Controller
             'emisoras' => app(\App\Services\EmisionesRadioService::class)->porEmisora($campaign, $subcampana->id),
             'c' => $campaign, 's' => $subcampana, 'piezas' => $piezas, 'matriz' => $matriz, 'm' => $m,
             'tipos' => $campaign->tiposPublicacion()->get(),
+            // Tipos de en vivo de la subcampaña: se hacen desde el estudio y suman al informe
+            'vivosSub' => \App\Services\EnVivoCampanaService::disponible() && !$subcampana->esGrupo() && request()->user()?->tienePermiso('en_vivo')
+                ? app(\App\Services\EnVivoCampanaService::class)->tiposDe($campaign, $subcampana) : [],
         ]);
     }
 

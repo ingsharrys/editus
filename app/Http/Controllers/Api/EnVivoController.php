@@ -55,6 +55,10 @@ class EnVivoController extends Controller
             'usuario' => ['nullable', 'string', 'max:60'],
             'usuario_nombre' => ['nullable', 'string', 'max:100'],
             'plantilla' => ['nullable', 'array'],
+            // En vivo de una campaña con plan de medios (suma al informe)
+            'campaign_id' => ['nullable', 'integer'],
+            'subcampana_id' => ['nullable', 'integer'],
+            'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         if (!$this->livekit->configurado()) {
             return response()->json(['success' => false, 'error' => 'LiveKit no está configurado en editus (LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET). Ver infra/en-vivo/README.md'], 422);
@@ -79,9 +83,11 @@ class EnVivoController extends Controller
         if (!$page) {
             return response()->json(['success' => false, 'error' => 'No hay páginas conectadas en editus'], 422);
         }
+        [$campana, $errorCampana] = app(\App\Services\EnVivoCampanaService::class)->validar($datos, $pages);
+        if ($errorCampana) return response()->json(['success' => false, 'error' => $errorCampana], 422);
         $plantilla = self::normalizarPlantilla($datos['plantilla'] ?? [], $datos['titulo']);
         $room = 'envivo-' . $page->page_id . '-' . Str::lower(Str::random(6));
-        $t = TransmisionEnVivo::create([
+        $t = TransmisionEnVivo::create($campana + [
             'meta_page_id' => $page->id,
             'usuario_app' => $datos['usuario'] ?? null,
             'titulo' => $datos['titulo'],
@@ -170,6 +176,8 @@ class EnVivoController extends Controller
             // 3) Egress: la escena compuesta → RTMP de todas las páginas a la vez
             $egressId = $this->livekit->iniciarEgressRtmp($room, $this->escenaUrl(), array_map(fn($d) => $d['stream_url'], $ok));
             $t->fill(['egress_id' => $egressId, 'estado' => 'en_vivo', 'iniciada_en' => now()])->save();
+            // En vivo de una campaña: queda como pieza del informe desde que sale al aire
+            app(\App\Services\EnVivoCampanaService::class)->registrar($t);
         } catch (\Throwable $e) {
             Log::warning('[EN VIVO] no se pudo salir al aire', ['room' => $room, 'err' => $e->getMessage()]);
             // Se cierran los lives que alcanzaron a crearse (menos los programados, que conservan su anuncio); la sala sigue viva para reintentar
@@ -235,6 +243,12 @@ class EnVivoController extends Controller
             return $aire;
         }
         return response()->json(['success' => true, 'transmision' => $t->fresh()->paraApi(), 'livekit' => $datos['livekit']]);
+    }
+
+    /** GET /api/en-vivo/campanas: campañas con en vivos en su plan de medios (subcampañas, tipos, páginas y cupos). */
+    public function campanas(): JsonResponse
+    {
+        return response()->json(['success' => true, 'campanas' => app(\App\Services\EnVivoCampanaService::class)->opciones()]);
     }
 
     public static function escenaInicial(): array
@@ -527,6 +541,8 @@ class EnVivoController extends Controller
         }
         $principal = collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok' && ($d['red'] ?? 'facebook') === 'facebook') ?: collect($destinos)->first(fn($d) => ($d['estado'] ?? '') === 'ok');
         $transmision->fill(['destinos' => $destinos, 'fb_video_id' => $principal['fb_video_id'] ?? $transmision->fb_video_id, 'fb_permalink' => $principal['permalink'] ?? $transmision->fb_permalink])->save();
+        // Con el id definitivo del video de cada página (para las métricas del informe)
+        app(\App\Services\EnVivoCampanaService::class)->registrar($transmision);
         return response()->json(['success' => true, 'transmision' => $transmision->fresh()->paraApi()]);
     }
 

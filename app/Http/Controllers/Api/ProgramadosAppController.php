@@ -61,16 +61,20 @@ class ProgramadosAppController extends Controller
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'string', 'max:40'], 'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         try {
             $cuando = $this->hora($d['programada_en']);
             [$paginas, $canales] = $this->destinos($d);
+            [$campana, $errorCampana] = app(\App\Services\EnVivoCampanaService::class)->validar($d, collect($paginas));
+            if ($errorCampana) return $this->error($errorCampana);
             MetaPageTokenResolver::preferirUsuarioApp($d['usuario']);
             $miniatura = !empty($d['miniatura']) ? app(MiniaturaService::class)->guardarBase64($d['miniatura']) : null;
             $t = $programados->programar(null, [
                 'titulo' => $d['titulo'], 'descripcion' => $d['descripcion'] ?? null, 'programada_en' => $cuando, 'miniatura' => $miniatura, 'usuario_app' => $d['usuario'],
                 'anuncio_facebook' => (bool) ($d['anuncio_facebook'] ?? true),
             ], $paginas, $canales, EnVivoController::normalizarPlantilla((array) ($d['plantilla'] ?? []), $d['titulo']));
+            if ($campana) $t->forceFill($campana)->save();
         } catch (\Throwable $e) {
             return $this->error($e->getMessage());
         }

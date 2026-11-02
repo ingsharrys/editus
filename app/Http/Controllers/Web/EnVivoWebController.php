@@ -37,7 +37,7 @@ class EnVivoWebController extends Controller
         $mias = TransmisionEnVivo::with('page')->when($conUsuario && !$user->isAdmin(), fn($q) => $q->where('user_id', $user->id))->orderByDesc('id');
         return view('en-vivo.estudio', [
             'paginas' => $this->paginasPermitidas()->map(fn(MetaPage $p) => [
-                'page_id' => (string) $p->page_id, 'nombre' => (string) $p->name, 'foto' => $p->picture_url ?: $p->pictureUrl('small'),
+                'id' => (int) $p->id, 'page_id' => (string) $p->page_id, 'nombre' => (string) $p->name, 'foto' => $p->picture_url ?: $p->pictureUrl('small'),
             ])->values(),
             'canales' => $cuentas->canalesDe(null)->map(fn($c) => ['id' => $c->id, 'titulo' => (string) $c->titulo])->values(),
             'recursos' => Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->orderBy('orden')->orderBy('id')->get()->map(fn($r) => $r->paraApi())->values() : collect(),
@@ -50,6 +50,7 @@ class EnVivoWebController extends Controller
             'configurado' => $livekit->configurado(),
             'limites' => app(\App\Services\PlanService::class)->limites($user),
             'esCliente' => !app(\App\Services\PlanService::class)->sinLimites($user),
+            'campanasVivo' => app(\App\Services\PlanService::class)->sinLimites($user) ? app(\App\Services\EnVivoCampanaService::class)->opciones() : [],
         ]);
     }
 
@@ -60,6 +61,7 @@ class EnVivoWebController extends Controller
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'marca_id' => ['nullable', 'integer'],
+            'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $permitidas = $this->paginasPermitidas()->pluck('page_id')->map(fn($v) => (string) $v)->flip();
@@ -90,6 +92,7 @@ class EnVivoWebController extends Controller
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
             'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'], 'marca_id' => ['nullable', 'integer'],
+            'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));
         $user = Auth::user();
@@ -105,12 +108,15 @@ class EnVivoWebController extends Controller
         $canales = collect((array) ($datos['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
         if ($canales->contains(null)) return response()->json(['success' => false, 'error' => __('Alguno de los canales de YouTube no está disponible.')], 422);
         if ($paginas->isEmpty() && $canales->isEmpty()) return response()->json(['success' => false, 'error' => __('Elige al menos una página de Facebook o un canal de YouTube.')], 422);
+        [$campana, $errorCampana] = app(\App\Services\EnVivoCampanaService::class)->validar($datos, $paginas);
+        if ($errorCampana) return response()->json(['success' => false, 'error' => $errorCampana], 422);
         $plantilla = EnVivoController::normalizarPlantilla(self::plantillaDelPlan((array) ($datos['plantilla'] ?? [])), $datos['titulo']);
         $this->preferir();
         try {
             $miniatura = !empty($datos['miniatura']) ? app(\App\Services\MiniaturaService::class)->guardarBase64($datos['miniatura']) : null;
             $t = $programados->programar($user->id, ['miniatura' => $miniatura, 'programada_en' => $cuando] + $datos, $paginas, $canales, $plantilla);
             if (!empty($datos['marca_id']) && Schema::hasColumn('transmisiones_en_vivo', 'marca_id')) $t->forceFill(['marca_id' => (int) $datos['marca_id']])->save();
+            if ($campana) $t->forceFill($campana)->save();
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }

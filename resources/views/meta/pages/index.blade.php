@@ -380,6 +380,12 @@
                                 <select name="tipo_pieza" id="piezaTipo" class="w-full h-9 rounded-lg border-gray-200 text-sm"></select></div>
                         </div>
                         <p id="piezaCupos" class="hidden mt-2 text-xs"></p>
+                        {{-- Tipo «En vivo»: se hace desde el estudio en vivo y suma igual a la subcampaña y al informe --}}
+                        <div id="piezaVivo" class="hidden mt-3 rounded-lg border border-rose-200 bg-white p-3" data-estudio="{{ route('en-vivo.web') }}">
+                            <p class="text-sm font-semibold text-rose-700">{{ __('Este tipo es un en vivo') }}</p>
+                            <p class="text-xs text-gray-600 mt-0.5">{{ __('Los en vivo se transmiten desde el estudio. Ábrelo con esta campaña, subcampaña y páginas ya elegidas: al salir al aire queda como pieza de la subcampaña y suma al informe.') }}</p>
+                            <a id="piezaVivoBtn" href="{{ route('en-vivo.web') }}" class="mt-2 inline-flex items-center gap-2 h-9 rounded-lg bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700">● {{ __('Hacer el en vivo') }}</a>
+                        </div>
                     </div>
                     </div>
                     <p class="mt-1 text-[11px] text-gray-500">
@@ -928,6 +934,7 @@
                     'eligeTipo' => __('Elige el tipo de pieza de esta publicación.'),
                     'cupoLleno' => __('Cupo completo (no se puede publicar):'),
                     'cupoUsado' => __('Cupo usado:'),
+                    'esVivo' => __('Este tipo es un en vivo: hazlo desde el estudio con el botón «Hacer el en vivo».'),
                     'mensajeObligatorio' => __('El mensaje es obligatorio.'),
                     'alMenosRed' => __('Selecciona al menos una red (Facebook o Instagram).'),
                     'igSoloTexto' => __('Instagram no permite publicaciones de solo texto. Agrega una foto o video, o marca también Facebook.'),
@@ -1361,7 +1368,22 @@
                         return tipoSel.value;
                     };
                     const nombrePagina = cb => cb.dataset.name || ('#' + cb.value);
+                    const vivoCaja = document.getElementById('piezaVivo');
+                    const esVivo = () => { const conf = mapa[sel.value]; const t = tipoActual(); return !!(conf && t && (conf.vivos || []).some(v => v.toLowerCase() === t.toLowerCase())); };
+                    const pintarVivo = () => {
+                        if (!vivoCaja) return;
+                        const si = esVivo();
+                        vivoCaja.classList.toggle('hidden', !si);
+                        if (publishBtn) publishBtn.classList.toggle('opacity-40', si);
+                        if (!si) return;
+                        const q = new URLSearchParams({ campana: sel.value, tipo: tipoActual() });
+                        if (subSel.value) q.set('subcampana', subSel.value);
+                        const pags = checkboxes().filter(cb => cb.checked).map(cb => cb.value);
+                        if (pags.length) q.set('paginas', pags.join(','));
+                        document.getElementById('piezaVivoBtn').href = vivoCaja.dataset.estudio + '?' + q.toString();
+                    };
                     const cupos = () => {
+                        pintarVivo();
                         const conf = mapa[sel.value];
                         const t = tipoActual();
                         if (!conf || !t) { hint.classList.add('hidden'); return; }
@@ -1417,6 +1439,7 @@
                         if (m === 'producto' && !prodSel.value) { alert(T.eligePieza); prodSel.focus(); return false; }
                         if (m === 'sub' && !subSel.value) { alert(T.eligeSub); subSel.focus(); return false; }
                         if (m !== 'producto' && !tipoSel.value) { alert(T.eligeTipo); tipoSel.focus(); return false; }
+                        if (esVivo()) { alert(T.esVivo); vivoCaja && vivoCaja.scrollIntoView({ behavior: 'smooth', block: 'center' }); return false; }
                         return true;
                     };
                 })();

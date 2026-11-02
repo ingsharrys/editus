@@ -91,7 +91,7 @@
                     <div class="grid sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1" id="lista-paginas">
                         @forelse ($paginas as $p)
                             <label class="flex items-center gap-3 rounded-xl border border-gray-200 p-2.5 cursor-pointer hover:border-gray-300 has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40" data-nombre="{{ mb_strtolower($p['nombre']) }}">
-                                <input type="checkbox" name="page_ids[]" value="{{ $p['page_id'] }}" class="h-4 w-4 rounded border-gray-300 text-indigo-600">
+                                <input type="checkbox" name="page_ids[]" value="{{ $p['page_id'] }}" data-meta="{{ $p['id'] ?? '' }}" data-nombre-pagina="{{ $p['nombre'] }}" class="h-4 w-4 rounded border-gray-300 text-indigo-600">
                                 <img src="{{ $p['foto'] }}" alt="" class="h-8 w-8 rounded-full bg-gray-100 shrink-0">
                                 <span class="text-sm font-medium text-gray-800 truncate">{{ $p['nombre'] }}</span>
                             </label>
@@ -113,6 +113,25 @@
                                 </label>
                             @endforeach
                         </div>
+                    </div>
+                @endif
+
+                @if (!empty($campanasVivo))
+                    {{-- En vivo de una campaña con plan de medios: queda como pieza de la subcampaña y suma al informe --}}
+                    <div id="ev-campana" class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                        <label class="block text-[11px] font-semibold uppercase tracking-wide text-emerald-900">{{ __('Campaña (plan de medios)') }}</label>
+                        <select name="campaign_id" id="ev-campana-sel" class="w-full sm:max-w-md h-10 rounded-lg border-gray-200 text-sm shadow-sm">
+                            <option value="">{{ __('Ninguna: en vivo sin campaña') }}</option>
+                            @foreach ($campanasVivo as $cv)<option value="{{ $cv['id'] }}">{{ $cv['nombre'] }}</option>@endforeach
+                        </select>
+                        <div id="ev-campana-detalle" class="hidden grid sm:grid-cols-2 gap-2">
+                            <div id="ev-sub-caja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña') }} <span class="text-red-500">*</span></label>
+                                <select name="subcampana_id" id="ev-sub" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                            <div id="ev-tipo-caja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de en vivo') }} <span class="text-red-500">*</span></label>
+                                <select name="tipo_pieza" id="ev-tipo" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                        </div>
+                        <p id="ev-campana-cupos" class="hidden text-xs"></p>
+                        <p class="text-[11px] text-emerald-900/80">{{ __('Al salir al aire, el en vivo queda como pieza de esta subcampaña, con el video de cada página de Facebook, y suma al informe y a los cupos.') }}</p>
                     </div>
                 @endif
 
@@ -394,6 +413,14 @@
       page_ids: f.getAll('page_ids[]'), youtube_canal_ids: f.getAll('youtube_canal_ids[]').map(Number), plantilla: {},
     };
     if (!datos.page_ids.length && !datos.youtube_canal_ids.length) return error(@js(__('Elige al menos una página de Facebook o un canal de YouTube.')));
+    const campana = campanaElegida();
+    if (campana) {
+      const sub = g('ev-sub').value, tipo = g('ev-tipo').value;
+      if (campana.subs.length && !sub) return error(@js(__('Elige la subcampaña del en vivo.')));
+      if (!tipo) return error(@js(__('Elige el tipo de en vivo.')));
+      if (!datos.page_ids.length) return error(@js(__('Para que sume al informe, elige al menos una página de Facebook de la campaña.')));
+      Object.assign(datos, { campaign_id: campana.id, subcampana_id: sub ? Number(sub) : null, tipo_pieza: tipo });
+    }
     if (f.get('cuando') === 'programar') {
       const b = g('btn-preparar'); b.disabled = true; b.textContent = @js(__('Programando…'));
       try {
@@ -416,6 +443,57 @@
     } catch (e) { error(e.message); }
     b.disabled = false; b.textContent = @js(__('Abrir el estudio'));
   });
+
+  // ------------------------------------------------ campaña con plan de medios (en vivos que suman al informe)
+  const CAMPANAS_VIVO = @json($campanasVivo ?? []);
+  const cajasPagina = () => Array.from(document.querySelectorAll('#lista-paginas input[name="page_ids[]"]'));
+  function campanaElegida() { const s = g('ev-campana-sel'); return s && s.value ? CAMPANAS_VIVO.find(c => String(c.id) === s.value) || null : null; }
+  function llenarSel(el, items, vacio, previo) {
+    el.innerHTML = '';
+    if (vacio) { const o = document.createElement('option'); o.value = ''; o.textContent = vacio; el.appendChild(o); }
+    items.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if (previo != null && String(previo) === String(v)) o.selected = true; el.appendChild(o); });
+  }
+  function tiposCampana(c) { const s = c.subs.find(x => String(x.id) === g('ev-sub').value); return c.subs.length ? (s ? s.tipos : []) : c.tipos; }
+  function pintarCuposCampana() {
+    const c = campanaElegida(), p = g('ev-campana-cupos');
+    if (!p) return;
+    const tipo = c ? g('ev-tipo').value : '';
+    if (!c || !tipo) { p.classList.add('hidden'); return; }
+    const k = tipo.toLowerCase(), llenas = [], quedan = [];
+    cajasPagina().filter(cb => cb.checked).forEach(cb => { const x = (c.cupos[cb.value] || {})[k]; if (x) (x[0] >= x[1] ? llenas : quedan).push(cb.dataset.nombrePagina + ' ' + x[0] + '/' + x[1]); });
+    p.innerHTML = '';
+    if (llenas.length) { const s = document.createElement('span'); s.className = 'block text-rose-700 font-semibold'; s.textContent = @js(__('Ya completaron su cupo:')) + ' ' + llenas.join(', '); p.appendChild(s); }
+    if (quedan.length) { const s = document.createElement('span'); s.className = 'block text-emerald-800'; s.textContent = @js(__('Cupo usado')) + ' (' + tipo + '): ' + quedan.join(', '); p.appendChild(s); }
+    p.classList.toggle('hidden', !llenas.length && !quedan.length);
+  }
+  function aplicarCampana(previo) {
+    const c = campanaElegida();
+    g('ev-campana-detalle').classList.toggle('hidden', !c);
+    if (!c) { pintarCuposCampana(); return; }
+    // Las páginas de la campaña quedan marcadas (se pueden desmarcar)
+    if (!previo || !previo.paginas) cajasPagina().forEach(cb => { cb.checked = c.paginas.includes(cb.value); });
+    g('ev-sub-caja').classList.toggle('hidden', !c.subs.length);
+    llenarSel(g('ev-sub'), c.subs.map(s => [s.id, s.nombre]), @js(__('— Elige la subcampaña —')), previo ? previo.sub : null);
+    const tipos = tiposCampana(c);
+    llenarSel(g('ev-tipo'), tipos.map(t => [t, t]), tipos.length === 1 ? null : @js(__('— Elige el tipo —')), previo ? previo.tipo : null);
+    pintarCuposCampana();
+  }
+  if (g('ev-campana-sel')) {
+    g('ev-campana-sel').addEventListener('change', () => aplicarCampana(null));
+    g('ev-sub').addEventListener('change', () => { const c = campanaElegida(); if (!c) return; const t = tiposCampana(c); llenarSel(g('ev-tipo'), t.map(x => [x, x]), t.length === 1 ? null : @js(__('— Elige el tipo —')), g('ev-tipo').value); pintarCuposCampana(); });
+    g('ev-tipo').addEventListener('change', pintarCuposCampana);
+    cajasPagina().forEach(cb => cb.addEventListener('change', pintarCuposCampana));
+    // Viene desde la campaña (Publicar → En vivo): campaña, subcampaña, tipo y páginas ya elegidos
+    const q = new URLSearchParams(location.search);
+    if (q.get('campana') && CAMPANAS_VIVO.some(c => String(c.id) === q.get('campana'))) {
+      g('ev-campana-sel').value = q.get('campana');
+      const metas = (q.get('paginas') || '').split(',').filter(Boolean);
+      if (metas.length) cajasPagina().forEach(cb => { cb.checked = metas.includes(cb.dataset.meta) || metas.includes(cb.value); });
+      aplicarCampana({ sub: q.get('subcampana'), tipo: q.get('tipo'), paginas: metas.length > 0 });
+      const ti = document.querySelector('#form-nueva [name="titulo"]');
+      if (ti && !ti.value && q.get('titulo')) ti.value = q.get('titulo');
+    }
+  }
 
   // ------------------------------------------------ programados
   document.querySelectorAll('input[name="cuando"]').forEach(r => r.addEventListener('change', () => {
@@ -1156,7 +1234,7 @@
   }
   function pintarTransmision() {
     if (!T) return;
-    g('ev-titulo').textContent = T.titulo;
+    g('ev-titulo').textContent = T.titulo + (T.campana ? '  ·  ' + T.campana : '');
     const enVivo = T.estado === 'en_vivo';
     const e = g('ev-estado'); e.textContent = enVivo ? @js(__('● EN VIVO')) : (T.estado === 'sala' ? @js(__('SALA DE ESPERA')) : String(ESTADOS_TX[T.estado] || T.estado).toUpperCase());
     e.className = 'hidden sm:inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold tracking-wide ' + (enVivo ? 'bg-rose-600 text-white' : 'bg-gray-100 text-gray-700');
