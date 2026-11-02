@@ -187,6 +187,7 @@
                 <div id="ev-destinos" class="hidden sm:flex gap-1.5 mt-0.5 overflow-hidden"></div>
             </div>
             <div id="ev-espectadores" class="hidden text-right leading-tight"><div class="text-[10px] uppercase tracking-wide text-gray-400">{{ __('Espectadores') }}</div><div class="text-base font-bold" id="ev-espectadores-n">0</div></div>
+            <span id="ev-calidad" class="hidden"></span>
             <span id="ev-estado" class="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-gray-100 text-gray-700 px-3 py-1 text-xs font-bold tracking-wide">{{ __('SALA DE ESPERA') }}</span>
             <span id="ev-reloj" class="hidden font-mono text-sm font-bold text-rose-600">00:00</span>
             <button id="btn-aire" class="h-10 shrink-0 rounded-xl bg-[#1d4ed8] text-white px-3 sm:px-5 text-sm font-bold shadow-sm hover:bg-blue-700 disabled:opacity-50">{{ __('Salir al aire') }}</button>
@@ -479,11 +480,40 @@
     clearInterval(sondeo); sondeo = setInterval(sondear, 5000); sondear();
   }
 
+  // ------------------------------------------------ calidad que se adapta a la señal
+  // La cámara envía a la vez 1080p, 720p y 360p (simulcast, 30 fps). Con buena señal sale la de 1080p;
+  // si el internet no alcanza, el navegador deja de enviar la capa alta y el servidor usa la de 720p
+  // (o la de 360p) sin cortar la transmisión. Ante todo se mantiene la fluidez (cuadros por segundo).
+  function publicarAdaptable(maxBitrate) {
+    const P = LivekitClient.VideoPreset;
+    return { simulcast: true, videoSimulcastLayers: [new P(640, 360, 600000, 30), new P(1280, 720, 1700000, 30)], videoEncoding: { maxBitrate, maxFramerate: 30 } };
+  }
+  // Muestra la resolución que de verdad está saliendo (verde 1080p, ámbar 720p, rojo 360p)
+  function medirCalidad(sala, el) {
+    if (!el) return;
+    const medir = async () => {
+      if (!sala || sala.state !== 'connected') { el.classList.add('hidden'); return; }
+      const pub = sala.localParticipant.getTrackPublication(LivekitClient.Track.Source.Camera);
+      if (!pub || !pub.track || pub.isMuted || !pub.track.getSenderStats) { el.classList.add('hidden'); return; }
+      try {
+        const st = (await pub.track.getSenderStats()) || [];
+        const act = st.filter(x => (x.framesPerSecond || 0) > 0 && x.frameHeight);
+        const alto = Math.max(0, ...(act.length ? act : st).map(x => Number(x.frameHeight) || 0));
+        if (!alto) { el.classList.add('hidden'); return; }
+        const txt = alto >= 1000 ? '1080p' : alto >= 700 ? '720p' : alto >= 340 ? '360p' : alto + 'p';
+        el.textContent = txt + (alto < 1000 ? ' · ' + @js(__('señal baja')) : '');
+        el.title = @js(__('Calidad con la que sale tu cámara. Sube o baja sola según tu internet.'));
+        el.className = 'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold ' + (alto >= 1000 ? 'bg-emerald-100 text-emerald-800' : alto >= 700 ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800');
+      } catch (e) { /* sin estadísticas */ }
+    };
+    medir(); setInterval(medir, 3000);
+  }
+
   // ------------------------------------------------ conexión con la sala (este navegador = cámara principal)
   async function conectar(lk) {
     const { Room, RoomEvent } = LivekitClient;
     try {
-      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3500000, maxFramerate: 30 }, simulcast: false } });
+      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: publicarAdaptable(3500000) });
       const repintar = () => { pintarBastidores(); if (pestana === 'personas') pintarPanel(); };
       ['TrackSubscribed', 'TrackUnsubscribed', 'TrackMuted', 'TrackUnmuted', 'ParticipantConnected', 'ParticipantDisconnected', 'LocalTrackPublished', 'LocalTrackUnpublished'].forEach(ev => room.on(RoomEvent[ev], repintar));
       room.on(RoomEvent.TrackSubscribed, (track, pub, p) => { if (track.kind === 'audio') sonarInvitado(track, p); });
@@ -497,6 +527,7 @@
       try { await room.localParticipant.enableCameraAndMicrophone(); }
       catch (e) { fallo(new Error(tx(@js(__('No se pudo abrir la cámara o el micrófono: :error. Revisa los permisos del navegador.')), { error: e.message }))); }
       pintarControles(); pintarBastidores();
+      medirCalidad(room, g('ev-calidad'));
     } catch (e) { fallo(new Error(tx(@js(__('No se pudo conectar con el estudio: :error')), { error: e.message }))); }
   }
   let hablando = new Set();

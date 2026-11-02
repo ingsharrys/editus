@@ -246,7 +246,7 @@
       if (local) local.getTracks().forEach(t => t.stop());
       // Entra con la misma cámara de la vista previa (frontal o trasera)
       const captura = eleccion.deviceId ? { deviceId: eleccion.deviceId } : { facingMode: frontal ? 'user' : 'environment' };
-      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { ...captura, resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 }, simulcast: false } });
+      room = new Room({ adaptiveStream: true, dynacast: true, videoCaptureDefaults: { ...captura, resolution: { width: 1920, height: 1080, frameRate: 30 } }, publishDefaults: { simulcast: true, videoSimulcastLayers: [new LivekitClient.VideoPreset(640, 360, 600000, 30), new LivekitClient.VideoPreset(1280, 720, 1700000, 30)], videoEncoding: { maxBitrate: 3000000, maxFramerate: 30 } } });
       room.on(RoomEvent.Disconnected, () => { verVista('camara'); document.getElementById('pestanas').classList.add('oculto'); document.getElementById('monitor').removeAttribute('src'); document.getElementById('audios').innerHTML = ''; estado.textContent = TX.desconectado; estado.classList.remove('aire'); mostrar(TX.teDesconectaron); document.getElementById('paso2').classList.add('oculto'); document.getElementById('paso1').classList.remove('oculto'); btn.disabled = false; btn.textContent = TX.enviarCamara; room = null; previsualizar(); });
       room.on(RoomEvent.RoomMetadataChanged, alAire);
       // Audio de los demás (director e invitados) para escucharlos en directo
