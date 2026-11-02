@@ -96,15 +96,24 @@ class EnVivoDiagnostico extends Command
 
             // ---- 4. Clave y secreto ----
             if ($lk->configurado()) {
+                $claveMala = false;
                 $this->seccion('4. Clave y secreto de LiveKit');
                 try {
                     $salas = $lk->listarSalas();
                     $this->bien('editus entra al servidor con su clave (salas abiertas: ' . count($salas) . ')');
                 } catch (\Throwable $e) {
                     $this->mal(mb_substr($e->getMessage(), 0, 200));
-                    $this->acciones[] = str_contains($e->getMessage(), '401')
-                        ? 'LIVEKIT_API_KEY / LIVEKIT_API_SECRET no son las del VPS nuevo: cópialas de /opt/livekit/claves.txt al .env de editus y corre php artisan config:clear'
-                        : 'LiveKit no aceptó la llamada: revisa en el VPS  cd /opt/livekit && docker compose logs livekit';
+                    if (str_contains($e->getMessage(), '401')) {
+                        $claveMala = true;
+                        $ip = implode(', ', gethostbynamel(parse_url($lk->apiUrl(), PHP_URL_HOST) ?: '') ?: ['?']);
+                        $this->acciones[] = "El LiveKit que responde en $ip no reconoce la clave de editus (huella " . substr(hash('sha256', (string) config('services.livekit.api_key')), 0, 8) . "). "
+                            . "En el VPS nuevo corre:  curl -4 -s ifconfig.me; echo  (debe ser $ip; si no, el DNS apunta a otro servidor)  y  "
+                            . "grep -A1 '^keys:' /opt/livekit/livekit.yaml | tail -1 | awk -F': ' '{gsub(/ /,\"\",\$1); printf \"%s\", \$1}' | sha256sum | cut -c1-8  "
+                            . "(debe dar la misma huella). Si no coincide, copia la clave y el secreto de esa línea (CLAVE: SECRETO) al .env de editus y corre php artisan config:clear; "
+                            . "si coincide, reinicia LiveKit: cd /opt/livekit && docker compose restart livekit";
+                    } else {
+                        $this->acciones[] = 'LiveKit no aceptó la llamada: revisa en el VPS  cd /opt/livekit && docker compose logs livekit';
+                    }
                 }
 
                 // ---- 5. Egress (lo que manda la señal a Facebook) ----
@@ -113,8 +122,12 @@ class EnVivoDiagnostico extends Command
                     $activos = $lk->listarEgress();
                     $this->bien('El egress responde (activos: ' . count($activos) . ')');
                 } catch (\Throwable $e) {
-                    $this->mal(mb_substr($e->getMessage(), 0, 200));
-                    $this->acciones[] = 'El egress no está corriendo en el VPS nuevo: cd /opt/livekit && docker compose up -d  y revisa  docker compose logs egress';
+                    if (!empty($claveMala) && str_contains($e->getMessage(), '401')) {
+                        $this->line('  <fg=yellow>…</> No se puede revisar hasta que la clave funcione (es el mismo error de la clave).');
+                    } else {
+                        $this->mal(mb_substr($e->getMessage(), 0, 200));
+                        $this->acciones[] = 'El egress no está corriendo en el VPS nuevo: cd /opt/livekit && docker compose up -d  y revisa  docker compose logs egress';
+                    }
                 }
             }
         }

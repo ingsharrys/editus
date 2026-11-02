@@ -29,7 +29,7 @@ class EnVivoDiagnosticoTest extends TestCase
         $this->artisan('envivo:diagnostico')
             ->expectsOutputToContain('EMISOR_URL vacío')
             ->expectsOutputToContain('Responde (HTTP 200')
-            ->expectsOutputToContain('no son las del VPS nuevo')
+            ->expectsOutputToContain('no reconoce la clave de editus')
             ->assertExitCode(1);
     }
 
