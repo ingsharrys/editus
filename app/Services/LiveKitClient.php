@@ -206,6 +206,23 @@ class LiveKitClient
 
     // ------------------------------------------------------------------
 
+    /** Para el diagnóstico: salas abiertas (prueba la clave y el secreto contra el servidor). */
+    public function listarSalas(): array
+    {
+        return $this->twirp('livekit.RoomService', 'ListRooms', [])['rooms'] ?? [];
+    }
+
+    /** Para el diagnóstico: egress activos (prueba que el servicio de egress responda). */
+    public function listarEgress(): array
+    {
+        return $this->twirp('livekit.Egress', 'ListEgress', ['active' => true])['items'] ?? [];
+    }
+
+    public function apiUrl(): string
+    {
+        return $this->apiUrl;
+    }
+
     private function twirp(string $servicio, string $metodo, array $cuerpo, string $room = ''): array
     {
         if (!$this->configurado()) {
