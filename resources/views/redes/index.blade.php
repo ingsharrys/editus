@@ -169,6 +169,15 @@
                             <option value="" :selected="!categoriaGlobal" x-text="T.sinCategoria"></option>
                             <template x-for="o in opcionesCategoriaGlobal()" :key="o"><option :value="o" x-text="o" :selected="o === categoriaGlobal"></option></template>
                         </select>
+                            <div x-show="mismaCategoria && categoriaGlobal" class="mt-3">
+                                <div class="text-[11px] font-semibold text-gray-500 mb-1">{{ __('Más categorías (opcional): la nota sale también en esas secciones') }}</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <template x-for="o in extrasDisponibles(null)" :key="o">
+                                        <button type="button" @click="alternarExtra(null, o)" :disabled="publicando" class="rounded-full border px-2.5 py-1 text-xs font-semibold transition"
+                                                :class="tieneExtra(null, o) ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'" x-text="(tieneExtra(null, o) ? '✓ ' : '+ ') + o"></button>
+                                    </template>
+                                </div>
+                            </div>
                         <p class="mt-2 text-[11px] text-gray-500" x-text="tipoMedio === 'video' ? @js(__('La categoría de la nota de video en la web (por defecto se usa "Videos").')) : @js(__('La categoría va en la web y, con plantilla, en la etiqueta roja de la imagen.'))"></p>
                     </div>
 
@@ -235,8 +244,17 @@
                                                 <option value="" :selected="!categoriaDe(m)" x-text="T.sinCategoria"></option>
                                                 <template x-for="o in opcionesCategoriaMedio(m)" :key="o.v"><option :value="o.v" x-text="o.t" :selected="o.v === categoriaDe(m)"></option></template>
                                             </select>
+                            <div x-show="categoriaDe(m)" class="mt-2">
+                                <div class="text-[11px] font-semibold text-gray-500 mb-1">{{ __('Más categorías (opcional): la nota sale también en esas secciones') }}</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                    <template x-for="o in extrasDisponibles(m)" :key="o">
+                                        <button type="button" @click="alternarExtra(m, o)" :disabled="publicando" class="rounded-full border px-2.5 py-1 text-xs font-semibold transition"
+                                                :class="tieneExtra(m, o) ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'" x-text="(tieneExtra(m, o) ? '✓ ' : '+ ') + o"></button>
+                                    </template>
+                                </div>
+                            </div>
                                         </div>
-                                        <p x-show="mismaCategoria" class="text-xs" :class="categoriaDe(m) ? 'text-gray-500' : 'text-amber-700 font-semibold'"><span>{{ __('Categoría:') }}</span> <span x-text="categoriaDe(m) || T.eligeCategoria"></span> <span x-show="categoriaDe(m) && !categoriaDelMedio(m, categoriaDe(m))" x-text="T.seCrea"></span></p>
+                                        <p x-show="mismaCategoria" class="text-xs" :class="categoriaDe(m) ? 'text-gray-500' : 'text-amber-700 font-semibold'"><span>{{ __('Categoría:') }}</span> <span x-text="categoriaDe(m) || T.eligeCategoria"></span> <span x-show="categoriaDe(m) && !categoriaDelMedio(m, categoriaDe(m))" x-text="T.seCrea"></span><span x-show="extrasDe(m).length" class="text-indigo-700" x-text="' + ' + extrasDe(m).join(', ')"></span></p>
 
                                         <div x-show="plantilla && tipoMedio === 'foto'" class="flex items-center gap-2 text-xs">
                                             <span class="text-gray-500 shrink-0">{{ __('Plantilla:') }}</span>
@@ -472,6 +490,7 @@ function redesWeb() {
         tipoMedio: 'foto', imagen: null, video: null, videoId: null, subiendo: null,
         contenido: {},   // título y texto de cada medio: {sitio_id: {titulo, texto}}
         mismaCategoria: true, categoriaGlobal: '', categoriaPorMedio: {},
+        extrasGlobal: [], extrasPorMedio: {},   // categorías adicionales (además de la principal)
         sel: {}, logos: leer('redesLogosPorMedio') || {}, editandoLogo: null, logoEdit: {}, plantillaPorMedio: {}, medioPrevId: null,
         usarPlantilla: true, plantillaId: '', vistaPrevia: null, firmaPrevia: '', previsualizando: false, previaTimer: null,
         publicando: false, resultado: null,
@@ -553,6 +572,27 @@ function redesWeb() {
         /** Categoría del medio: la general o la suya. Sin valor por defecto: hay que elegirla. */
         categoriaDe(m) { return (this.mismaCategoria ? this.categoriaGlobal : (this.categoriaPorMedio[m.sitio_id] || '')) || ''; },
         cont(m) { return this.contenido[m?.sitio_id] || {titulo: '', texto: ''}; },
+        // ---- Categorías adicionales (m = null: las de todos los medios) ----
+        principalDe(m) { return m ? this.categoriaDe(m) : this.categoriaGlobal; },
+        extrasDe(m) {
+            const lista = (this.mismaCategoria || !m) ? this.extrasGlobal : (this.extrasPorMedio[m.sitio_id] || []);
+            const p = clave(this.principalDe(m));
+            return lista.filter(x => clave(x) !== p);
+        },
+        extrasDisponibles(m) {
+            const p = clave(this.principalDe(m));
+            // Las del medio y las de los demás medios (si el medio no la tiene, se crea)
+            const ops = m ? [...this.opcionesCategoriaMedio(m).map(o => o.v), ...this.opcionesCategoriaGlobal()] : this.opcionesCategoriaGlobal();
+            const vistas = new Set();
+            return ops.filter(o => { const k = clave(o); if (!k || k === p || vistas.has(k)) return false; vistas.add(k); return true; });
+        },
+        tieneExtra(m, o) { return this.extrasDe(m).some(x => clave(x) === clave(o)); },
+        alternarExtra(m, o) {
+            const act = this.extrasDe(m);
+            const nueva = this.tieneExtra(m, o) ? act.filter(x => clave(x) !== clave(o)) : [...act, o];
+            if (!m || this.mismaCategoria) this.extrasGlobal = nueva;
+            else this.extrasPorMedio = {...this.extrasPorMedio, [m.sitio_id]: nueva};
+        },
         /** Otro medio marcado que ya tiene contenido (para copiarlo y ajustarlo). */
         otroConContenido(m) { return this.mediosMarcados().find(x => x.sitio_id !== m.sitio_id && (this.cont(x).titulo.trim() || this.cont(x).texto.trim())) || null; },
         copiarContenido(m) {
@@ -717,6 +757,7 @@ function redesWeb() {
                 return {sitio_id: m.sitio_id, slug: m.slug, sitio_nombre: m.sitio_nombre, linea_editorial: m.linea_nombre,
                     titulo: this.cont(m).titulo.trim(), texto: this.cont(m).texto.trim(),
                     categoria_id: cat ? (cat.id || 1) : null, categoria: cat?.nombre || nombreCat,
+                    categorias: this.extrasDe(m).map(x => this.categoriaDelMedio(m, x)?.nombre || x),
                     logo: this.plantilla ? this.logoDe(m) : undefined, plantilla_id: this.plantillaDe(m)?.id || undefined, paginas: this.paginasElegidas(m)};
             });
             // Cada medio lleva su título y su texto (el backend usa los de cada uno)
@@ -734,6 +775,7 @@ function redesWeb() {
                     this.resultado = {success: true, titulo: todoOk ? T.publicado : T.conObservaciones, nota: data.titulo, imagen: data.imagen_url || this.vistaPrevia || this.imagen,
                         detalle: 'Web: ' + webs + '/' + res.web.length + ' · Redes: ' + redes + '/' + res.paginas.length + (data.plantilla?.nombre ? ' · ' + data.plantilla.nombre : ''), resultados: res};
                     const vacio = {}; this.medios.forEach(m => vacio[m.sitio_id] = {titulo: '', texto: ''}); this.contenido = vacio;
+                    this.extrasGlobal = []; this.extrasPorMedio = {};
                     this.imagen = null; this.quitarVideo(); this.vistaPrevia = null; this.firmaPrevia = ''; this.historial = [];
                 } else {
                     this.resultado = {success: false, titulo: T.noSePudo, nota: '', detalle: '', error: data.error, resultados: res};
