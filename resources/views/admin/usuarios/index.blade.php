@@ -2,7 +2,8 @@
 
 @section('content')
 @php
-    $nuevo = ['id' => null, 'name' => '', 'email' => '', 'role_id' => optional($asignables->firstWhere('slug', 'user') ?? $asignables->first())->id, 'cargo' => '', 'telefono' => '', 'activo' => true];
+    $nuevo = ['id' => null, 'name' => '', 'email' => '', 'role_id' => optional($asignables->firstWhere('slug', 'user') ?? $asignables->first())->id, 'cargo' => '', 'telefono' => '', 'activo' => true, 'esnoticia_usuario_id' => ''];
+    $nombresPeriodistas = collect($periodistas ?? [])->mapWithKeys(fn($a) => [(int) $a['id'] => $a['nombre']]);
 @endphp
 <div class="max-w-7xl mx-auto px-2 sm:px-4 py-6 lg:py-8" x-data="usuarios()">
     <div class="mt-8 lg:mt-10 mb-6 flex flex-wrap items-end justify-between gap-4">
@@ -38,7 +39,7 @@
         @forelse ($usuarios as $usr)
             @php
                 $puede = $acceso->puedeGestionar($actor, $usr);
-                $datos = ['id' => $usr->id, 'name' => $usr->name, 'email' => $usr->email, 'role_id' => $usr->role_id, 'cargo' => $usr->cargo, 'telefono' => $usr->telefono, 'activo' => $usr->estaActivo(), 'yo' => $usr->id === $actor->id];
+                $datos = ['id' => $usr->id, 'name' => $usr->name, 'email' => $usr->email, 'role_id' => $usr->role_id, 'cargo' => $usr->cargo, 'telefono' => $usr->telefono, 'activo' => $usr->estaActivo(), 'yo' => $usr->id === $actor->id, 'esnoticia_usuario_id' => (string) ($usr->firmaEsnoticia() ?? '')];
             @endphp
             <div class="grid grid-cols-1 md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_minmax(0,1fr)_8rem_16.5rem] gap-2 md:gap-3 px-4 py-3 border-b border-gray-100 last:border-0 md:items-center {{ $usr->estaActivo() ? '' : 'bg-gray-50' }}">
                 <div class="flex items-center gap-3 min-w-0">
@@ -47,6 +48,7 @@
                     <div class="min-w-0">
                         <div class="font-semibold text-gray-900 truncate">{{ $usr->name }} @if ($usr->id === $actor->id)<span class="text-[10px] font-semibold text-indigo-700">({{ __('tú') }})</span>@endif</div>
                         <div class="text-xs text-gray-500 truncate">{{ $usr->email }}{{ $usr->cargo ? ' · ' . $usr->cargo : '' }}</div>
+                        @if ($usr->firmaEsnoticia())<div class="text-[11px] font-semibold text-emerald-700 truncate">✍️ {{ __('Firma en Redes: :n', ['n' => $nombresPeriodistas[$usr->firmaEsnoticia()] ?? '#' . $usr->firmaEsnoticia()]) }}</div>@endif
                     </div>
                 </div>
                 <div class="text-sm"><span class="inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold {{ $usr->isAdmin() ? 'bg-purple-50 text-purple-700' : 'bg-indigo-50 text-indigo-700' }}">{{ $usr->role->name ?? __('Sin rol') }}</span>
@@ -95,6 +97,17 @@
                     <template x-if="f.yo === true"><input type="hidden" name="role_id" :value="f.role_id"></template>
                     <p class="text-[11px] text-gray-500 mt-1" x-show="f.yo === true">{{ __('No puedes cambiar tu propio rol.') }}</p>
                 </div>
+                @if (!empty($conFirma))
+                    <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3">
+                        <label class="block text-[11px] font-semibold uppercase tracking-wide text-emerald-900 mb-1">{{ __('Periodista de esnoticia (firma en Redes)') }}</label>
+                        <select name="esnoticia_usuario_id" x-model="f.esnoticia_usuario_id" class="w-full h-10 rounded-lg border-gray-200 text-sm">
+                            <option value="">{{ __('Ninguno: elige el periodista al publicar') }}</option>
+                            @foreach ($periodistas as $a)<option value="{{ $a['id'] }}">{{ $a['nombre'] }}{{ $a['nombre'] !== $a['username'] ? ' (' . $a['username'] . ')' : '' }}{{ $a['email'] ? ' · ' . $a['email'] : '' }}</option>@endforeach
+                        </select>
+                        <p class="text-[11px] text-emerald-900/80 mt-1">{{ __('Si lo eliges, este usuario publica en Redes siempre con la firma de ese periodista y no puede cambiarla. Para que solo use Redes, dale el rol «Periodista (solo Redes)».') }}</p>
+                        @if (empty($periodistas))<p class="text-[11px] text-amber-700 mt-1">{{ __('No se pudo leer la lista de periodistas de esnoticia (revisa ESNOTICIA_URL y EDITUS_INGEST_TOKEN).') }}</p>@endif
+                    </div>
+                @endif
                 <div>
                     <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1" x-text="f.id ? @js(__('Nueva contraseña (opcional)')) : @js(__('Contraseña'))"></label>
                     <input type="text" name="password" x-model="f.password" minlength="8" maxlength="100" autocomplete="new-password" :placeholder="f.id ? @js(__('Déjala vacía para no cambiarla')) : @js(__('Vacía = se genera una temporal'))" class="w-full h-10 rounded-lg border-gray-200 text-sm">
@@ -114,7 +127,7 @@
 function usuarios() {
   return {
     visible: false, f: {},
-    abrir(datos) { this.f = Object.assign({ password: '', yo: false }, datos, { role_id: datos.role_id ? String(datos.role_id) : '' }); this.visible = true; },
+    abrir(datos) { this.f = Object.assign({ password: '', yo: false, esnoticia_usuario_id: '' }, datos, { role_id: datos.role_id ? String(datos.role_id) : '' }); this.visible = true; },
     generar() {
       const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789', a = new Uint32Array(12);
       crypto.getRandomValues(a); return Array.from(a, n => c[n % c.length]).join('');

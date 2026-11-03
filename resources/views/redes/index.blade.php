@@ -62,12 +62,18 @@
         @if ($configurado)
             <div class="w-full sm:w-72">
                 <label class="{{ $lbl }}">{{ __('Firma la nota (periodista)') }} *</label>
+                @if (!empty($autorFijo))
+                    <div class="h-10 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm font-semibold text-emerald-900" title="{{ __('Tu usuario está asociado a este periodista de esnoticia: todo lo que publiques sale con su firma.') }}">
+                        ✍️ <span class="truncate">{{ $nombreFijo ?? __('Periodista #:id', ['id' => $autorFijo]) }}</span>
+                    </div>
+                @else
                 <select x-model="autor" @change="cambiarAutor()" class="{{ $inp }} h-10">
                     <option value="">{{ __('— Elige el periodista —') }}</option>
                     @foreach ($autores as $a)
                         <option value="{{ $a['id'] }}">{{ ($a['nombre'] ?? '') !== '' && ($a['nombre'] ?? '') !== $a['username'] ? $a['nombre'] . ' (' . $a['username'] . ')' : $a['username'] }}{{ $a['email'] ? ' · ' . $a['email'] : '' }}</option>
                     @endforeach
                 </select>
+                @endif
             </div>
         @endif
     </div>
@@ -474,6 +480,7 @@ function redesWeb() {
         catalogos: @js(route('redes.catalogos')), previsualizar: @js(route('redes.previsualizar')), publicar: @js(route('redes.publicar')),
         historial: @js(route('redes.historial')), autorizar: @js(route('redes.video.autorizar')), videos: @js(route('redes.videos')), publicarVideo: @js(route('redes.publicar-video')),
     };
+    const AUTOR_FIJO = @js(!empty($autorFijo));   // usuario asociado a un periodista: no elige la firma
     const AUTORES = @js(collect($autores)->mapWithKeys(fn($a) => [(string) $a['id'] => $a['username']]));
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
     const leer = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
@@ -484,7 +491,7 @@ function redesWeb() {
 
     return {
         T,
-        autor: String(leer('redesAutorWeb') || @js($autorSugerido ? (string) $autorSugerido : '')),
+        autor: String(@js(!empty($autorFijo) ? (string) $autorFijo : '') || leer('redesAutorWeb') || @js($autorSugerido ? (string) $autorSugerido : '')),
         vista: 'nueva', aviso: {texto: '', tono: 'ok'}, avisoTimer: null,
         cargando: false, errores: {}, medios: [], paginas: [], plantillas: [], categoriaDefecto: 'Opas',
         tipoMedio: 'foto', imagen: null, video: null, videoId: null, subiendo: null,
@@ -498,7 +505,7 @@ function redesWeb() {
         vPaginas: [], vCargando: false, vError: '', vAviso: '', vFiltro: '', vElegido: null, vTitulo: '', vTexto: '', vCategoria: '', vCategoriaVideos: 'Videos', vMedios: {}, vPublicando: false, vResultado: null,
 
         iniciar() {
-            if (this.autor && !AUTORES[this.autor]) this.autor = '';
+            if (this.autor && !AUTORES[this.autor] && !AUTOR_FIJO) this.autor = '';
             const aj = leer('redesAjustesWeb') || {};
             this.usarPlantilla = aj.usarPlantilla !== false;
             this.mismaCategoria = aj.mismaCategoria !== false;
@@ -510,7 +517,7 @@ function redesWeb() {
         },
         recordar() { guardar('redesAjustesWeb', {usarPlantilla: this.usarPlantilla, plantillaId: this.plantillaId, mismaCategoria: this.mismaCategoria}); },
         avisar(texto, tono = 'ok', ms = 4000) { this.aviso = {texto, tono}; clearTimeout(this.avisoTimer); this.avisoTimer = setTimeout(() => this.aviso = {texto: '', tono}, ms); },
-        nombreAutor() { return AUTORES[this.autor] || '—'; },
+        nombreAutor() { return AUTORES[this.autor] || @js($nombreFijo ?? '—'); },
         cambiarAutor() {
             guardar('redesAutorWeb', this.autor);
             this.historial = []; this.vPaginas = [];

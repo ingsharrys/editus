@@ -325,7 +325,7 @@ class PublicacionesController extends Controller
     {
         $d = $request->validate(['desde' => ['required', 'date_format:Y-m-d'], 'hasta' => ['required', 'date_format:Y-m-d']]);
         $sistema = Schema::hasColumn('campaigns', 'is_system') ? \App\Models\Campaign::where('is_system', true)->pluck('id')->all() : [];
-        $posts = \App\Models\MetaPost::with(['page:id,name,page_id', 'user:id,name,email'])
+        $posts = \App\Models\MetaPost::with(['page:id,name,page_id', 'user'])
             ->where('status', 'success')
             ->whereBetween('published_at', [$d['desde'] . ' 00:00:00', $d['hasta'] . ' 23:59:59'])
             ->when($sistema, fn($q) => $q->where(fn($w) => $w->whereNull('campaign_id')->orWhereNotIn('campaign_id', $sistema)))
@@ -342,7 +342,7 @@ class PublicacionesController extends Controller
                 'texto' => \Illuminate\Support\Str::limit(trim((string) $p->message), 140, '…'),
                 'imagen_url' => $foto,
                 'fecha' => $p->published_at?->format('Y-m-d H:i:s'),
-                'usuario' => ['nombre' => (string) ($p->user?->name ?? ''), 'email' => (string) ($p->user?->email ?? '')],
+                'usuario' => ['nombre' => (string) ($p->user?->name ?? ''), 'email' => (string) ($p->user?->email ?? ''), 'esnoticia_id' => $p->user?->firmaEsnoticia()],
                 'alcance' => $p->alcance, 'visualizaciones' => $p->visualizaciones, 'interacciones' => $p->interacciones,
                 'actualizado_en' => $p->last_insights_at ? \Illuminate\Support\Carbon::parse($p->last_insights_at)->format('Y-m-d H:i:s') : null,
             ];

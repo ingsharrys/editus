@@ -126,6 +126,16 @@ class User extends Authenticatable
         return $rol->listaPermisos();
     }
 
+    /**
+     * Periodista de esnoticia asociado (id del usuario en el backend): en Redes publica siempre con su
+     * firma y no puede elegir otra. null = elige el periodista al publicar (como siempre).
+     */
+    public function firmaEsnoticia(): ?int
+    {
+        $id = (int) ($this->attributes['esnoticia_usuario_id'] ?? 0);
+        return $id > 0 ? $id : null;
+    }
+
     public function estaActivo(): bool
     {
         return ($this->activo ?? true) !== false;

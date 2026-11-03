@@ -45,6 +45,9 @@ class UsuariosController extends Controller
                 'semana' => User::where('ultimo_acceso', '>=', now()->subDays(7))->count(),
             ],
             'acceso' => $this->acceso, 'actor' => $actor,
+            // Periodistas de esnoticia para asociar (firma fija en Redes)
+            'conFirma' => self::conFirma(),
+            'periodistas' => self::conFirma() ? collect(app(\App\Services\UsuariosAppService::class)->listar())->sortBy(fn($a) => mb_strtolower($a['nombre']))->values()->all() : [],
         ]);
     }
 
@@ -58,7 +61,7 @@ class UsuariosController extends Controller
         $u->forceFill([
             'name' => $d['name'], 'email' => strtolower($d['email']), 'password' => Hash::make($clave), 'role_id' => $rol->id,
             'cargo' => $d['cargo'] ?? null, 'telefono' => $d['telefono'] ?? null, 'activo' => (bool) ($d['activo'] ?? true), 'email_verified_at' => now(),
-        ])->save();
+        ] + $this->firma($d))->save();
         $msg = __('Usuario :nombre creado.', ['nombre' => $u->name]);
         if (empty($d['password'])) $msg .= ' ' . __('Contraseña temporal: :clave (cópiala y compártela; podrá cambiarla en su perfil).', ['clave' => $clave]);
         return redirect()->route('usuarios.index')->with('success', $msg)->with('clave_temporal', empty($d['password']) ? $clave : null);
@@ -75,7 +78,7 @@ class UsuariosController extends Controller
             abort_unless($this->acceso->puedeAsignar($actor, $rol), 403, __('No puedes asignar ese rol.'));
             if ($usuario->isAdmin() && !$rol->esAdmin() && $this->acceso->adminsActivos() <= 1) return back()->withErrors(['role_id' => __('Debe quedar al menos un administrador.')]);
         }
-        $usuario->forceFill(['name' => $d['name'], 'email' => strtolower($d['email']), 'role_id' => $rol->id, 'cargo' => $d['cargo'] ?? null, 'telefono' => $d['telefono'] ?? null]);
+        $usuario->forceFill(['name' => $d['name'], 'email' => strtolower($d['email']), 'role_id' => $rol->id, 'cargo' => $d['cargo'] ?? null, 'telefono' => $d['telefono'] ?? null] + $this->firma($d));
         if (!empty($d['password'])) $usuario->password = Hash::make($d['password']);
         $usuario->save();
         return redirect()->route('usuarios.index', $request->only('q', 'rol', 'estado'))->with('success', __('Usuario :nombre actualizado.', ['nombre' => $usuario->name]));
@@ -104,7 +107,32 @@ class UsuariosController extends Controller
         return back()->with('success', __('Usuario :nombre borrado.', ['nombre' => $nombre]));
     }
 
+    public static function conFirma(): bool
+    {
+        return \Illuminate\Support\Facades\Schema::hasColumn('users', 'esnoticia_usuario_id');
+    }
+
+    /** Campo de la firma fija (periodista de esnoticia) para guardar. */
+    private function firma(array $d): array
+    {
+        if (!self::conFirma()) return [];
+        return ['esnoticia_usuario_id' => !empty($d['esnoticia_usuario_id']) ? (int) $d['esnoticia_usuario_id'] : null];
+    }
+
     private function validar(Request $request, ?User $u = null): array
+    {
+        $d = $this->validarCampos($request, $u);
+        // El periodista debe existir en esnoticia (si se puede consultar la lista)
+        if (!empty($d['esnoticia_usuario_id'])) {
+            $lista = app(\App\Services\UsuariosAppService::class)->listar();
+            if ($lista && !collect($lista)->contains(fn($a) => (int) $a['id'] === (int) $d['esnoticia_usuario_id'])) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['esnoticia_usuario_id' => __('Ese periodista no existe o está inactivo en esnoticia.')]);
+            }
+        }
+        return $d;
+    }
+
+    private function validarCampos(Request $request, ?User $u = null): array
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -114,6 +142,7 @@ class UsuariosController extends Controller
             'telefono' => ['nullable', 'string', 'max:40'],
             'password' => ['nullable', 'string', 'min:8', 'max:100'],
             'activo' => ['nullable', 'boolean'],
+            'esnoticia_usuario_id' => ['nullable', 'integer', 'min:1'],
         ], ['email.unique' => __('Ya existe un usuario con ese correo.'), 'password.min' => __('La contraseña debe tener al menos 8 caracteres.')]);
     }
 }

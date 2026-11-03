@@ -21,10 +21,14 @@ class RedesController extends Controller
     {
         $configurado = $this->redes->configurado();
         $autores = $configurado ? $this->redes->autores() : [];
+        // Usuario asociado a un periodista de esnoticia: publica siempre con su firma
+        $fijo = $request->user()->firmaEsnoticia();
         return view('redes.index', [
             'configurado' => $configurado,
             'autores' => $autores,
-            'autorSugerido' => $configurado ? $this->redes->autorSugerido($request->user()) : null,
+            'autorSugerido' => $fijo ?: ($configurado ? $this->redes->autorSugerido($request->user()) : null),
+            'autorFijo' => $fijo,
+            'nombreFijo' => $fijo ? (collect($autores)->firstWhere('id', $fijo)['nombre'] ?? null) : null,
         ]);
     }
 
@@ -133,6 +137,8 @@ class RedesController extends Controller
     private function autor(Request $request): ?int
     {
         if (!$this->redes->configurado()) return null;
+        // Firma fija: se ignora lo que mande el navegador
+        if ($fijo = $request->user()?->firmaEsnoticia()) return $fijo;
         return $this->redes->autorValido($request->header('X-Autor', $request->input('autor')));
     }
 
