@@ -325,7 +325,7 @@ class PublicacionesController extends Controller
     {
         $d = $request->validate(['desde' => ['required', 'date_format:Y-m-d'], 'hasta' => ['required', 'date_format:Y-m-d']]);
         $sistema = Schema::hasColumn('campaigns', 'is_system') ? \App\Models\Campaign::where('is_system', true)->pluck('id')->all() : [];
-        $posts = \App\Models\MetaPost::with(['page:id,name,page_id', 'user'])
+        $posts = \App\Models\MetaPost::with(['page', 'user'])
             ->where('status', 'success')
             ->whereBetween('published_at', [$d['desde'] . ' 00:00:00', $d['hasta'] . ' 23:59:59'])
             ->when($sistema, fn($q) => $q->where(fn($w) => $w->whereNull('campaign_id')->orWhereNotIn('campaign_id', $sistema)))
@@ -339,6 +339,9 @@ class PublicacionesController extends Controller
                 'tipo' => in_array($p->type, ['video', 'reel'], true) ? 'video' : 'foto',
                 'fb_post_id' => (string) $p->fb_post_id, 'permalink' => $p->fb_permalink_url,
                 'pagina' => (string) ($p->page?->name ?? ''), 'page_id' => (string) ($p->page?->page_id ?? ''),
+                // Medio de la página (para el detalle por medio de las estadísticas)
+                'medio_slug' => (string) ($p->page?->medio_slug ?? ''),
+                'medio' => ($slug = (string) ($p->page?->medio_slug ?? '')) !== '' ? ((array) config('services.editus.medios', []))[$slug] ?? null : null,
                 'texto' => \Illuminate\Support\Str::limit(trim((string) $p->message), 140, '…'),
                 'imagen_url' => $foto,
                 'fecha' => $p->published_at?->format('Y-m-d H:i:s'),

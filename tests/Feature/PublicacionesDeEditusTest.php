@@ -16,10 +16,10 @@ class PublicacionesDeEditusTest extends TestCase
 
     public function test_lista_lo_publicado_en_editus_sin_lo_del_backend(): void
     {
-        config(['services.editus.ingest_token' => 'tok-integracion']);
+        config(['services.editus.ingest_token' => 'tok-integracion', 'services.editus.medios' => ['opanoticias' => 'Opanoticias']]);
         $this->crearEsquemaPlanMedios();
         $u = User::factory()->create(['name' => 'Jorge Camilo', 'email' => 'Puentesl.Jorge@prueba.co', 'role_id' => Role::where('slug', 'admin')->value('id')]);
-        $pg = MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias']);
+        $pg = MetaPage::create(['page_id' => '111', 'name' => 'Opa Noticias', 'medio_slug' => 'opanoticias']);
         $sistema = Campaign::where('is_system', true)->first() ?? Campaign::create(['name' => 'Esnoticia', 'slug' => 'esnoticia', 'is_system' => true, 'is_active' => true]);
         $salud = Campaign::create(['name' => 'Salud 2026', 'slug' => 'salud-2026', 'is_active' => true]);
         $base = ['meta_page_id' => $pg->id, 'user_id' => $u->id, 'network' => 'facebook', 'message' => 'Jornada de vacunación', 'status' => 'success', 'published_at' => '2026-11-02 10:00:00'];
@@ -36,5 +36,6 @@ class PublicacionesDeEditusTest extends TestCase
         $this->assertSame(['foto', 'facebook', 'Opa Noticias', 'Puentesl.Jorge@prueba.co', 500, 800, 40],
             [$p['tipo'], $p['red'], $p['pagina'], $p['usuario']['email'], $p['alcance'], $p['visualizaciones'], $p['interacciones']]);
         $this->assertSame('video', $r->json('publicaciones.1.tipo'));
+        $this->assertSame(['opanoticias', 'Opanoticias'], [$p['medio_slug'], $p['medio']]);
     }
 }
