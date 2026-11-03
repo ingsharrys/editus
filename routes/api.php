@@ -38,6 +38,8 @@ Route::middleware('editus.token')->group(function () {
         ->name('api.publicaciones.video.descripcion');
     Route::post('/publicaciones/metricas', [\App\Http\Controllers\Api\PublicacionesController::class, 'metricas'])
         ->name('api.publicaciones.metricas');
+    Route::get('/publicaciones/editus', [\App\Http\Controllers\Api\PublicacionesController::class, 'deEditus'])
+        ->name('api.publicaciones.editus');
 
     // Transmisiones en vivo (LiveKit propio → Facebook Live)
     Route::post('/en-vivo/iniciar', [\App\Http\Controllers\Api\EnVivoController::class, 'iniciar'])->name('api.envivo.iniciar');

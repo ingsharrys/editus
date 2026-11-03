@@ -315,6 +315,40 @@ class PublicacionesController extends Controller
      * POST /api/publicaciones/metricas: métricas en vivo de Meta para una
      * lista de publicaciones {red, post_id, page_id, media_id?, tipo?}.
      */
+    /**
+     * GET /api/publicaciones/editus?desde=AAAA-MM-DD&hasta=AAAA-MM-DD — lo que se publicó en Facebook e Instagram
+     * desde la web de editus («Publicar», en vivos de campaña), para las estadísticas de la app del editor.
+     * No incluye lo que llega desde el backend (sección Redes de la app y de editus), que el backend ya cuenta:
+     * eso queda en la campaña de sistema Esnoticia.
+     */
+    public function deEditus(Request $request): JsonResponse
+    {
+        $d = $request->validate(['desde' => ['required', 'date_format:Y-m-d'], 'hasta' => ['required', 'date_format:Y-m-d']]);
+        $sistema = Schema::hasColumn('campaigns', 'is_system') ? \App\Models\Campaign::where('is_system', true)->pluck('id')->all() : [];
+        $posts = \App\Models\MetaPost::with(['page:id,name,page_id', 'user:id,name,email'])
+            ->where('status', 'success')
+            ->whereBetween('published_at', [$d['desde'] . ' 00:00:00', $d['hasta'] . ' 23:59:59'])
+            ->when($sistema, fn($q) => $q->where(fn($w) => $w->whereNull('campaign_id')->orWhereNotIn('campaign_id', $sistema)))
+            ->orderBy('published_at')->limit(5000)->get();
+        return response()->json(['success' => true, 'publicaciones' => $posts->map(function ($p) {
+            $media = is_array($p->local_media) ? $p->local_media : (json_decode((string) $p->local_media, true) ?: []);
+            $foto = collect((array) ($media['photo_urls'] ?? []))->first(fn($u) => is_string($u) && str_starts_with($u, 'http'));
+            return [
+                'id' => $p->id, 'lote' => (string) ($p->batch_uuid ?: 'post-' . $p->id),
+                'red' => $p->network === 'instagram' ? 'instagram' : 'facebook',
+                'tipo' => in_array($p->type, ['video', 'reel'], true) ? 'video' : 'foto',
+                'fb_post_id' => (string) $p->fb_post_id, 'permalink' => $p->fb_permalink_url,
+                'pagina' => (string) ($p->page?->name ?? ''), 'page_id' => (string) ($p->page?->page_id ?? ''),
+                'texto' => \Illuminate\Support\Str::limit(trim((string) $p->message), 140, '…'),
+                'imagen_url' => $foto,
+                'fecha' => $p->published_at?->format('Y-m-d H:i:s'),
+                'usuario' => ['nombre' => (string) ($p->user?->name ?? ''), 'email' => (string) ($p->user?->email ?? '')],
+                'alcance' => $p->alcance, 'visualizaciones' => $p->visualizaciones, 'interacciones' => $p->interacciones,
+                'actualizado_en' => $p->last_insights_at ? \Illuminate\Support\Carbon::parse($p->last_insights_at)->format('Y-m-d H:i:s') : null,
+            ];
+        })->values()]);
+    }
+
     public function metricas(Request $request, MetaMetricasService $servicio): JsonResponse
     {
         $datos = $request->validate([
