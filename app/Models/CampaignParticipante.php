@@ -33,6 +33,18 @@ class CampaignParticipante extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** Medio del listado de la campaña que eligió al inscribirse. */
+    public function medio()
+    {
+        return $this->hasOne(MedioCampana::class, 'participante_id');
+    }
+
+    /** Contrato firmado y vigente (el último). */
+    public function contrato()
+    {
+        return $this->hasOne(Contrato::class, 'participante_id')->whereNull('anulado_at')->latest('id');
+    }
+
     public function firmado(): bool
     {
         return $this->firmado_at !== null && $this->firma_path;

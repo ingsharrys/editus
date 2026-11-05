@@ -41,6 +41,7 @@ class CertificadoController extends Controller
     public function formulario(Request $request, Campaign $campaign)
     {
         $p = $this->participanteDe($request, $campaign);
+        if ($ir = $this->primeroElContrato($p)) return $ir;
         $paginas = $request->user()->metaPages()->orderBy('name')->get();
         return view('certificados.formulario', [
             'c' => $campaign,
@@ -56,6 +57,7 @@ class CertificadoController extends Controller
     public function guardar(Request $request, Campaign $campaign)
     {
         $p = $this->participanteDe($request, $campaign);
+        if ($ir = $this->primeroElContrato($p)) return $ir;
         $suyas = $request->user()->metaPages()->pluck('meta_pages.id')->map(fn($v) => (int) $v)->all();
         $d = $request->validate([
             'medio_nombre' => ['required', 'string', 'max:190'],
@@ -126,6 +128,13 @@ class CertificadoController extends Controller
         $participante->load('campaign');
         abort_unless($participante->firmado(), 404, __('El certificado aún no está firmado.'));
         return $this->cert->pdf($participante)->download($this->cert->nombreArchivo($participante));
+    }
+
+    /** Campañas con listado de medios: no se vincula el medio sin el contrato firmado. */
+    private function primeroElContrato(CampaignParticipante $p)
+    {
+        if (!app(\App\Services\ContratosService::class)->requiereContrato($p)) return null;
+        return redirect()->route('contratos.formulario', $p->campaign_id)->with('aviso', __('Primero firma el contrato; después vinculas tu medio.'));
     }
 
     /** Participación del usuario en la campaña (solo quien entró con el enlace de inscripción la tiene). */

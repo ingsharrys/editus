@@ -24,7 +24,9 @@
             ['campaigns.plan.cupos', __('Cupos por página'), 'campaigns.plan.cupos*'],
             ['campaigns.piezas', __('Mover publicaciones'), 'campaigns.piezas*'],
             ['campaigns.informes', __('Informes'), 'campaigns.informes*'],
+            ['campaigns.contratos', __('Medios y contratos'), 'campaigns.contratos*'],
         ];
+        if (!\App\Services\ContratosService::disponible()) $pestanas = array_values(array_filter($pestanas, fn($x) => $x[0] !== 'campaigns.contratos'));
         // Productos, programas e informes existen después de migrar
         if (!\App\Services\ProductosService::disponible()) $pestanas = array_values(array_filter($pestanas, fn($x) => !in_array($x[0], ['campaigns.informes', 'campaigns.plan.tipos'], true)));
     @endphp

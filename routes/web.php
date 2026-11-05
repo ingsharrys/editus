@@ -266,6 +266,18 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/campanas/{campaign}/informes/membrete', [$I, 'membrete'])->name('campaigns.informes.membrete');
         Route::get('/campanas/{campaign}/informes/control.xlsx', [$I, 'excel'])->name('campaigns.informes.excel');
         Route::get('/campanas/{campaign}/informes/{formato}', [$I, 'generar'])->whereIn('formato', ['word', 'pdf', 'vista'])->name('campaigns.informes.generar');
+        // Medios de la campaña y sus contratos (tipos de contrato, listado de medios, numeración)
+        $KA = \App\Http\Controllers\ContratosAdminController::class;
+        Route::get('/campanas/{campaign}/contratos', [$KA, 'index'])->name('campaigns.contratos');
+        Route::post('/campanas/{campaign}/contratos/config', [$KA, 'config'])->name('campaigns.contratos.config');
+        Route::post('/campanas/{campaign}/contratos/tipos', [$KA, 'guardarTipo'])->name('campaigns.contratos.tipos.guardar');
+        Route::get('/campanas/{campaign}/contratos/tipos/{tipo}/vista', [$KA, 'vistaTipo'])->whereNumber('tipo')->name('campaigns.contratos.tipos.vista');
+        Route::delete('/campanas/{campaign}/contratos/tipos/{tipo}', [$KA, 'borrarTipo'])->whereNumber('tipo')->name('campaigns.contratos.tipos.borrar');
+        Route::post('/campanas/{campaign}/contratos/medios', [$KA, 'guardarMedio'])->name('campaigns.contratos.medios.guardar');
+        Route::post('/campanas/{campaign}/contratos/medios/bloque', [$KA, 'mediosEnBloque'])->name('campaigns.contratos.medios.bloque');
+        Route::post('/campanas/{campaign}/contratos/medios/{medio}/liberar', [$KA, 'liberarMedio'])->whereNumber('medio')->name('campaigns.contratos.medios.liberar');
+        Route::delete('/campanas/{campaign}/contratos/medios/{medio}', [$KA, 'borrarMedio'])->whereNumber('medio')->name('campaigns.contratos.medios.borrar');
+        Route::post('/campanas/{campaign}/contratos/{contrato}/anular', [$KA, 'anular'])->whereNumber('contrato')->name('campaigns.contratos.anular');
     });
     // Certificado del medio inscrito (lo llena y firma el medio; el administrador también lo ve)
     Route::get('/certificado/{campaign}', [\App\Http\Controllers\CertificadoController::class, 'formulario'])->name('certificados.formulario');
@@ -276,6 +288,18 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/certificados/{participante}/emisiones', [\App\Http\Controllers\EmisionesRadioController::class, 'guardar'])->middleware('throttle:30,1')->name('emisiones.guardar');
     Route::delete('/emisiones-radio/{emision}', [\App\Http\Controllers\EmisionesRadioController::class, 'borrar'])->name('emisiones.borrar');
     Route::get('/emisiones-radio/{emision}/soporte', [\App\Http\Controllers\EmisionesRadioController::class, 'soporte'])->name('emisiones.soporte');
+    // El medio reporta pantallazos de TikTok (con el alcance) y capturas de sus banners
+    Route::post('/certificados/{participante}/reportes/{clase}', [\App\Http\Controllers\ReportesMedioController::class, 'guardar'])->whereIn('clase', ['tiktok', 'banner'])->middleware('throttle:30,1')->name('reportes-medio.guardar');
+    Route::delete('/reportes-medio/{producto}', [\App\Http\Controllers\ReportesMedioController::class, 'borrar'])->name('reportes-medio.borrar');
+    Route::get('/reportes-medio/captura/{publicacion}', [\App\Http\Controllers\ReportesMedioController::class, 'captura'])->name('reportes-medio.captura');
+    // Contrato del medio: se firma antes de vincular el medio (certificado y páginas)
+    $K = \App\Http\Controllers\ContratoController::class;
+    Route::get('/contrato/{campaign}', [$K, 'formulario'])->name('contratos.formulario');
+    Route::post('/contrato/{campaign}/medio', [$K, 'elegir'])->middleware('throttle:20,1')->name('contratos.elegir');
+    Route::post('/contrato/{campaign}', [$K, 'firmar'])->middleware('throttle:10,1')->name('contratos.firmar');
+    Route::get('/contratos/{contrato}/pdf', [$K, 'pdf'])->name('contratos.pdf');
+    Route::post('/contratos/{contrato}/reenviar', [$K, 'reenviar'])->middleware('throttle:6,1')->name('contratos.reenviar');
+    Route::get('/contratos/{contrato}/archivo/{cual}', [$K, 'archivo'])->whereIn('cual', ['rut', 'certificado-bancario', 'logo', 'membrete'])->name('contratos.archivo');
 
     // Posts de Meta (vista general)
     Route::get('/meta/posts', [MetaPostController::class, 'index'])->middleware('permiso:publicaciones|mis_publicaciones')->name('meta.posts.index');

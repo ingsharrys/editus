@@ -10,13 +10,14 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * 1) Quien abrió un enlace de inscripción y luego entró o se registró queda inscrito en ESA campaña.
- * 2) Mientras un medio inscrito no firme su certificado (si la campaña lo pide obligatorio),
+ * 2) Si la campaña tiene listado de medios, el medio primero firma su contrato.
+ * 3) Mientras un medio inscrito no firme su certificado (si la campaña lo pide obligatorio),
  *    cada pantalla lo lleva al formulario del certificado.
  */
 class InscripcionCampana
 {
     /** Rutas que se pueden usar con el certificado pendiente (salir, conectar Facebook, idioma…). */
-    private const LIBRES = ['certificados.*', 'inscripcion.*', 'logout', 'idioma', 'moneda', 'facebook.*', 'privacy', 'terms', 'data-deletion', 'verification.*', 'password.*'];
+    private const LIBRES = ['certificados.*', 'contratos.*', 'emisiones.*', 'inscripcion.*', 'logout', 'idioma', 'moneda', 'facebook.*', 'privacy', 'terms', 'data-deletion', 'verification.*', 'password.*'];
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -34,6 +35,13 @@ class InscripcionCampana
             }
         }
 
+        // Campañas con listado de medios: primero el contrato
+        $contratos = app(\App\Services\ContratosService::class);
+        if ($request->isMethod('GET') && !$request->expectsJson() && !$request->routeIs(...self::LIBRES)
+            && !$user->tienePermiso('campanas') && ($p = $contratos->pendiente($user))) {
+            return redirect()->route('contratos.formulario', $p->campaign_id)
+                ->with('aviso', __('Antes de continuar, firma el contrato de la campaña «:nombre».', ['nombre' => $p->campaign->name]));
+        }
         if ($request->isMethod('GET') && !$request->expectsJson() && !$request->routeIs(...self::LIBRES)
             && !$user->tienePermiso('campanas') && ($p = $cert->pendiente($user))) {
             return redirect()->route('certificados.formulario', $p->campaign_id)

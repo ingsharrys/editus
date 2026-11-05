@@ -25,6 +25,14 @@
         <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ __('Este medio todavía no ha firmado el certificado.') }}</div>
     @endunless
 
+    @php $contratoMedio = \App\Services\ContratosService::disponible() ? app(\App\Services\ContratosService::class)->contratoDe($participante) : null; @endphp
+    @if ($contratoMedio)
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50/60 px-5 py-3 mb-5 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span class="text-emerald-900">📄 {{ __('Contrato No. :n firmado el :f', ['n' => $contratoMedio->codigo, 'f' => $contratoMedio->firmado_at->format('d/m/Y')]) }}</span>
+            <a href="{{ route('contratos.pdf', $contratoMedio) }}" class="h-9 inline-flex items-center rounded-lg bg-white border border-emerald-200 px-3 text-xs font-semibold text-emerald-800">{{ __('Descargar contrato') }}</a>
+        </div>
+    @endif
+
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm px-6 sm:px-14 py-10 sm:py-14">
         @include('certificados._hoja')
     </div>
@@ -119,6 +127,8 @@
         </script>
         @endif
     @endif
+
+    @include('certificados._reportes_medio')
 
     @if ($participante->firmado())
         <p class="mt-3 text-[11px] text-gray-400">

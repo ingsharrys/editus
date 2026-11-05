@@ -26,6 +26,7 @@ class Campaign extends Model
         'piezas',
         'plan_medios',
         'informe',
+        'contratos',
     ];
 
     protected $casts = [
@@ -38,6 +39,7 @@ class Campaign extends Model
         'certificado' => 'array',
         'piezas' => 'array',
         'plan_medios' => 'boolean',
+        'contratos' => 'array',
         'informe' => 'array',
     ];
 
@@ -75,6 +77,23 @@ class Campaign extends Model
     public function participantes()
     {
         return $this->hasMany(CampaignParticipante::class);
+    }
+
+    /** Modelos de contrato de la campaña. */
+    public function contratoTipos()
+    {
+        return $this->hasMany(ContratoTipo::class)->orderBy('orden')->orderBy('id');
+    }
+
+    /** Listado de medios de comunicación de la campaña (cada uno con su tipo de contrato). */
+    public function medios()
+    {
+        return $this->hasMany(MedioCampana::class)->orderBy('orden')->orderBy('nombre');
+    }
+
+    public function contratos()
+    {
+        return $this->hasMany(Contrato::class);
     }
 
     /** Enlace de inscripción que se envía a los medios (null si aún no tiene token). */
