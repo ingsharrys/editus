@@ -271,6 +271,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/campanas/{campaign}/contratos', [$KA, 'index'])->name('campaigns.contratos');
         Route::post('/campanas/{campaign}/contratos/config', [$KA, 'config'])->name('campaigns.contratos.config');
         Route::post('/campanas/{campaign}/contratos/tipos', [$KA, 'guardarTipo'])->name('campaigns.contratos.tipos.guardar');
+        Route::post('/campanas/{campaign}/contratos/modelos', [$KA, 'cargarModelos'])->name('campaigns.contratos.modelos');
         Route::get('/campanas/{campaign}/contratos/tipos/{tipo}/vista', [$KA, 'vistaTipo'])->whereNumber('tipo')->name('campaigns.contratos.tipos.vista');
         Route::delete('/campanas/{campaign}/contratos/tipos/{tipo}', [$KA, 'borrarTipo'])->whereNumber('tipo')->name('campaigns.contratos.tipos.borrar');
         Route::post('/campanas/{campaign}/contratos/medios', [$KA, 'guardarMedio'])->name('campaigns.contratos.medios.guardar');

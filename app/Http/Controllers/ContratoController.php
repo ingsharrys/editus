@@ -60,6 +60,7 @@ class ContratoController extends Controller
         if ($this->contratos->contratoDe($p)) return redirect()->route('contratos.formulario', $campaign);
         $medio = $this->contratos->medioDe($p);
         if (!$medio || !$medio->tipo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Primero elige tu medio del listado.')]);
+        if ($medio->faltaValor()) return redirect()->route('contratos.formulario', $campaign)->withErrors(['valor' => __('Tu contrato todavía no tiene valor. Escribe al administrador de la campaña.')]);
         $archivo = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'];
         // Cada canal del medio (los marca el administrador) pide su dato: dirección, usuario, frecuencia…
         $porCanal = $mensajesCanal = [];
@@ -69,6 +70,7 @@ class ContratoController extends Controller
         }
         $d = $request->validate($porCanal + [
             'medio_nombre' => ['required', 'string', 'max:190'],
+            'razon_social' => ['required', 'string', 'max:190'],
             'nit' => ['nullable', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
             'representante' => ['required', 'string', 'max:190'],
             'documento_tipo' => ['required', Rule::in(CampaignParticipante::DOCUMENTOS)],
@@ -77,6 +79,12 @@ class ContratoController extends Controller
             'telefono' => ['nullable', 'string', 'max:40'],
             'direccion' => ['nullable', 'string', 'max:190'],
             'ciudad' => ['required', 'string', 'max:120'],
+            // Cuenta donde se le paga (va en el contrato)
+            'banco' => ['required', 'string', 'max:120'],
+            'tipo_cuenta' => ['required', Rule::in(ContratosService::TIPOS_CUENTA)],
+            'numero_cuenta' => ['required', 'string', 'max:40', 'regex:/^[0-9\- ]+$/'],
+            'titular_cuenta' => ['required', 'string', 'max:190'],
+            'documento_titular' => ['required', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
             'logo' => ['required', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],
             'membrete' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:4096'],
             'rut' => array_merge(['required'], $archivo),
@@ -89,6 +97,8 @@ class ContratoController extends Controller
             'certificado_bancario.required' => __('Adjunta el certificado bancario.'),
             'acepto.accepted' => __('Debes leer y aceptar el contrato.'),
             'firma.required' => __('Dibuja tu firma en el recuadro.'),
+            'razon_social.required' => __('Escribe la razón social del medio (o tu nombre completo, si eres persona natural).'),
+            'numero_cuenta.regex' => __('El número de cuenta solo lleva números.'),
         ] + $mensajesCanal);
         $png = $this->firmaPng($d['firma']);
         if (!$png) return back()->withInput()->withErrors(['firma' => __('No se pudo leer la firma. Vuelve a dibujarla.')]);

@@ -12,7 +12,9 @@
 <style>
     .contrato-texto p { margin: 0 0 .75em; text-align: justify; }
     .contrato-texto h2, .contrato-texto h3, .contrato-texto h4 { font-weight: 700; margin: 1em 0 .5em; color: #111827; }
-    .contrato-texto ul { list-style: disc; padding-left: 1.4em; } .contrato-texto ol { list-style: decimal; padding-left: 1.4em; }
+    .contrato-texto ul { list-style: disc; padding-left: 1.4em; } .contrato-texto ol { list-style: decimal; padding-left: 1.4em; margin: 0 0 .75em; }
+    .contrato-texto ol[type="A"] { list-style-type: upper-alpha; } .contrato-texto ol[type="a"] { list-style-type: lower-alpha; }
+    .contrato-texto li p { margin: 0 0 .35em; } .contrato-texto blockquote { margin: 0 0 .75em 1.4em; }
     .contrato-texto table { width: 100%; border-collapse: collapse; } .contrato-texto td, .contrato-texto th { border: 1px solid #d1d5db; padding: .3em .5em; }
     .contrato-texto .var { background: #eef2ff; border-radius: .25rem; padding: 0 .2em; font-weight: 600; }
 </style>

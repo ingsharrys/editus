@@ -33,6 +33,7 @@ class ContratosMediosTest extends TestCase
         $this->crearEsquemaPlanMedios();
         (require database_path('migrations/2026_11_05_000001_contratos_de_medios.php'))->up();
         (require database_path('migrations/2026_11_06_000001_canales_de_los_medios.php'))->up();
+        (require database_path('migrations/2026_11_06_000002_modelos_de_contrato.php'))->up();
         Storage::fake('local');
         Mail::fake();
         $this->admin = User::factory()->create(['role_id' => Role::where('slug', 'admin')->value('id')]);
@@ -84,7 +85,8 @@ class ContratosMediosTest extends TestCase
     private function datosFirma(array $extra = []): array
     {
         return $extra + [
-            'medio_nombre' => 'Canal 6 Alfasurt Pitalito', 'nit' => '800.123.456-7',
+            'medio_nombre' => 'Canal 6 Alfasurt Pitalito', 'razon_social' => 'Canal 6 Alfasurt S.A.S.', 'nit' => '800.123.456-7',
+            'banco' => 'Bancolombia', 'tipo_cuenta' => 'Ahorros', 'numero_cuenta' => '123-456789-01', 'titular_cuenta' => 'Canal 6 Alfasurt S.A.S.', 'documento_titular' => '800.123.456-7',
             'canal' => ['web' => 'www.canal6.co', 'facebook' => 'facebook.com/canal6', 'instagram' => '@canal6', 'tiktok' => '@canal6', 'radio' => 'Canal 6 · 96.3 FM'],
             'representante' => 'Alba Luz Erazo', 'documento_tipo' => 'C.C.', 'documento' => '36123456', 'correo' => 'alba@canal6.co',
             'telefono' => '3001234567', 'ciudad' => 'Pitalito (Huila)', 'acepto' => '1', 'firma' => $this->firmaPng(),
@@ -254,6 +256,69 @@ class ContratosMediosTest extends TestCase
         $this->actingAs($u)->get(route('contratos.pdf', $k1))->assertOk();
         $this->assertStringContainsString('Contrato CPS-2026-007 - Canal 6 Alfasurt Pitalito.pdf', $this->actingAs($u)->get(route('contratos.pdf', $k1))->headers->get('Content-Disposition'));
         $this->assertStringContainsString('rut-CPS-2026-007.pdf', $this->actingAs($u)->get(route('contratos.archivo', [$k1, 'rut']))->assertOk()->headers->get('Content-Disposition'));
+    }
+
+    public function test_los_modelos_del_pic_2026_quedan_listos_y_basta_con_elegirlos(): void
+    {
+        // Al abrir «Medios y contratos» los tres modelos ya están, con sus canales y las partes (arrendador / arrendatario)
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk()
+            ->assertSee('Modelo 1 · Publicaciones en el medio digital')->assertSee('Modelo 3 · Publicaciones, Instagram, TikTok, banners y radio');
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk(); // no se cargan dos veces
+        $tipos = ContratoTipo::where('campaign_id', $this->c->id)->orderBy('orden')->get()->keyBy('clave');
+        $this->assertSame(['pic-2026-1', 'pic-2026-2', 'pic-2026-3'], $tipos->keys()->all());
+        $m1 = $tipos['pic-2026-1']; $m2 = $tipos['pic-2026-2']; $m3 = $tipos['pic-2026-3'];
+        $this->assertSame(['facebook'], array_keys($m1->canalesPorDefecto()));
+        $this->assertSame(['web', 'facebook', 'instagram', 'tiktok', 'radio'], array_keys($m3->canalesPorDefecto()));
+        $this->assertSame(['EL ARRENDADOR', 'EL ARRENDATARIO'], [$m3->rolMedio(), $m3->rolContratante()]);
+        $this->assertTrue($m3->usaValor());
+        $this->assertStringNotContainsString('___', $m3->cuerpo);
+        $cfg = app(ContratosService::class)->config($this->c->fresh());
+        $this->assertSame(['DIME MEDIA S.A.S.', '901.908.077-3', 'JUAN CARLOS CHARRY GONZALEZ'], [$cfg['contratante'], $cfg['contratante_nit'], $cfg['contratante_representante']]);
+        Storage::disk('local')->assertExists($cfg['contratante_membrete']);
+        $this->actingAs($this->admin)->get(route('campaigns.contratos.tipos.vista', [$this->c, $m3->id]))->assertOk()
+            ->assertSee('Medio de Ejemplo S.A.S.')->assertSee('DOS MILLONES QUINIENTOS MIL')->assertSee('cédula de ciudadanía');
+
+        // Basta con elegir el modelo: el medio queda con sus canales; el valor se escribe como sea
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['nombre' => 'Opanoticias', 'tipo_id' => $m3->id, 'valor' => '$ 2.500.000'])->assertRedirect();
+        $opa = MedioCampana::where('nombre', 'Opanoticias')->firstOrFail();
+        $this->assertSame([['web', 'facebook', 'instagram', 'tiktok', 'radio'], 2500000, '$ 2.500.000'], [array_keys($opa->canales()), $opa->valor, $opa->valorTexto()]);
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.bloque', $this->c), [
+            'lista' => "Neiva 24; contacto@neiva24.com; 1.800.000\nLa Voz del Huila", 'tipo_id' => $m2->id,
+        ])->assertSessionHas('success', 'Se agregaron 2 medios.');
+        $this->assertSame([['web', 'facebook'], 1800000, 'contacto@neiva24.com'], [array_keys(MedioCampana::where('nombre', 'Neiva 24')->first()->canales()), MedioCampana::where('nombre', 'Neiva 24')->value('valor'), MedioCampana::where('nombre', 'Neiva 24')->value('correo')]);
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['nombre' => 'Sin nada'])->assertSessionHasErrors('canales');
+
+        // Un medio sin valor no puede firmar (el contrato lo pide)
+        $voz = $this->inscribir('Pedro Pitalito');
+        $this->actingAs($voz)->post(route('contratos.elegir', $this->c), ['medio_id' => MedioCampana::where('nombre', 'La Voz del Huila')->value('id')]);
+        $this->actingAs($voz)->get(route('contratos.formulario', $this->c))->assertOk()->assertSee('todavía no ha puesto el valor de tu contrato');
+        $this->actingAs($voz)->post(route('contratos.firmar', $this->c), $this->datosFirma())->assertSessionHasErrors('valor');
+        $this->assertSame(0, Contrato::count());
+
+        // Opanoticias firma el modelo 3: número, partes, valor en letras, cuenta y canales quedan en el contrato
+        $u = $this->inscribir('Alba Luz Erazo');
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $opa->id]);
+        $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertOk()->assertSee('Valor del contrato: $ 2.500.000')
+            ->assertSee('Razón social')->assertSee('Número de cuenta')->assertSee('Nombre y frecuencia de la emisora');
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $this->datosFirma(['medio_nombre' => 'Opanoticias', 'razon_social' => 'Opa Noticias S.A.S.',
+            'canal' => ['web' => 'www.opanoticias.com', 'facebook' => 'facebook.com/opanoticias', 'instagram' => '@opanoticias', 'tiktok' => '@opanoticias', 'radio' => 'Opa Radio 98.5 FM']]))
+            ->assertRedirect(route('certificados.formulario', $this->c));
+        $k = Contrato::firstOrFail();
+        foreach (['No. 001 DE 2026', 'Entre los suscritos a saber: <strong>Opa Noticias S.A.S.</strong>, representado legalmente por <strong>Alba Luz Erazo</strong>',
+                  'identificado con cédula de ciudadanía No. <strong>36.123.456</strong>', 'su medio digital denominado <strong>Opanoticias</strong>',
+                  'la suma de <strong>$ 2.500.000</strong> (<strong>DOS MILLONES QUINIENTOS MIL</strong> pesos M/cte.)',
+                  'Banco: <strong>Bancolombia</strong>', 'Tipo de cuenta: <strong>Ahorros</strong>', 'Número de cuenta: <strong>123-456789-01</strong>',
+                  'Hasta 20 publicaciones por mes en TikTok, publicadas directamente por EL ARRENDADOR'] as $texto) {
+            $this->assertStringContainsString($texto, $k->cuerpo, $texto);
+        }
+        $this->assertSame(['EL ARRENDADOR', 'EL ARRENDATARIO', 2500000], [$k->dato('rol_medio'), $k->dato('rol_contratante'), $k->datos['valor']]);
+        $this->assertStringStartsWith('%PDF', Storage::disk('local')->get($k->pdf_path));
+
+        // Si borran un modelo (sin medios), se puede volver a cargar
+        $m1->delete();
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertSee('Cargar los modelos del PIC 2026');
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.modelos', $this->c))->assertSessionHas('success', 'Se cargó 1 modelo de contrato.');
+        $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->whereNotNull('clave')->count());
     }
 
     public function test_sin_listado_de_medios_el_certificado_sigue_como_antes(): void

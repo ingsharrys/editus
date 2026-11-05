@@ -29,9 +29,9 @@ class MedioCampana extends Model
         'impreso' => ['nombre' => 'Impreso', 'texto' => 'medio impreso', 'pide' => 'Nombre del periódico o revista', 'ejemplo' => 'Diario del Huila', 'pauta' => false],
     ];
 
-    protected $fillable = ['campaign_id', 'nombre', 'clase', 'canales', 'tipo_id', 'correo', 'notas', 'participante_id', 'activo', 'orden'];
+    protected $fillable = ['campaign_id', 'nombre', 'clase', 'canales', 'tipo_id', 'valor', 'correo', 'notas', 'participante_id', 'activo', 'orden'];
 
-    protected $casts = ['activo' => 'boolean', 'orden' => 'integer', 'canales' => 'array'];
+    protected $casts = ['activo' => 'boolean', 'orden' => 'integer', 'canales' => 'array', 'valor' => 'integer'];
 
     public function campaign()
     {
@@ -57,6 +57,26 @@ class MedioCampana extends Model
     public function canales(): array
     {
         return self::ordenar((array) ($this->canales ?? []));
+    }
+
+    /** «$ 2.500.000» (vacío si no tiene valor) */
+    public function valorTexto(): string
+    {
+        return $this->valor ? '$ ' . number_format((int) $this->valor, 0, ',', '.') : '';
+    }
+
+    /** ¿Le falta el valor para poder firmar? (cuando el texto de su contrato lo usa) */
+    public function faltaValor(): bool
+    {
+        return !$this->valor && $this->tipo && $this->tipo->usaValor();
+    }
+
+    /** «2.500.000», «$ 2.500.000» o «2500000,50» → 2500000 (null si no hay número). */
+    public static function leerValor(?string $texto): ?int
+    {
+        $t = preg_replace('/,\d{1,2}\s*$/', '', trim((string) $texto)); // sin centavos
+        $digitos = preg_replace('/\D/', '', (string) $t);
+        return $digitos === '' ? null : (int) $digitos;
     }
 
     public function tieneCanal(string $canal): bool

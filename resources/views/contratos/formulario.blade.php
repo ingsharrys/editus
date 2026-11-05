@@ -50,7 +50,8 @@
         <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 mb-5 flex flex-wrap items-center justify-between gap-3">
             <div class="text-sm"><span class="font-semibold text-gray-900">{{ $medio->nombre }}</span>
                 @if ($medio->canales())<span class="block text-xs text-gray-700">{{ __('Canales: :c', ['c' => $medio->canalesTexto()]) }}</span>@endif
-                <span class="block text-xs text-gray-600">{{ __('Contrato: :t · número :n (se asigna al firmar)', ['t' => $medio->tipo?->nombre ?? '—', 'n' => $siguiente]) }}</span></div>
+                <span class="block text-xs text-gray-600">{{ __('Contrato: :t · número :n (se asigna al firmar)', ['t' => $medio->tipo?->nombre ?? '—', 'n' => $siguiente]) }}</span>
+                @if ($medio->valor)<span class="block text-xs font-semibold text-gray-800">{{ __('Valor del contrato: :v', ['v' => $medio->valorTexto()]) }}</span>@endif</div>
             @if ($libres->count() > 1)
                 <form method="POST" action="{{ route('contratos.elegir', $c) }}" class="flex gap-2">
                     @csrf
@@ -60,6 +61,9 @@
             @endif
         </div>
 
+        @if ($medio->faltaValor())
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ __('El administrador todavía no ha puesto el valor de tu contrato. Puedes revisar el contrato, pero para firmarlo escríbele para que lo agregue.') }}</div>
+        @endif
         <form method="POST" action="{{ route('contratos.firmar', $c) }}" enctype="multipart/form-data" id="contratoForm" class="space-y-5">
             @csrf
             {{-- 1. Encabezado --}}
@@ -81,6 +85,8 @@
                 <div class="grid sm:grid-cols-2 gap-3">
                     <div><label class="{{ $lbl }}">{{ __('Nombre del medio') }} *</label><input name="medio_nombre" data-var-input="medio" required maxlength="190" value="{{ $datos['medio_nombre'] ?? '' }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}">{{ __('NIT del medio') }}</label><input name="nit" data-var-input="nit" maxlength="40" value="{{ $datos['nit'] ?? '' }}" class="{{ $inp }}"></div>
+                    <div class="sm:col-span-2"><label class="{{ $lbl }}">{{ __('Razón social') }} * <span class="normal-case font-normal tracking-normal">{{ __('(o tu nombre completo, si eres persona natural)') }}</span></label>
+                        <input name="razon_social" data-var-input="razon_social" required maxlength="190" value="{{ $datos['razon_social'] ?? '' }}" class="{{ $inp }}"></div>
                     <div class="sm:col-span-2"><label class="{{ $lbl }}">{{ __('Representante legal') }} *</label><input name="representante" data-var-input="representante" required maxlength="190" value="{{ $datos['representante'] ?? '' }}" class="{{ $inp }}"></div>
                     <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 sm:col-span-2">
                         <div><label class="{{ $lbl }}">{{ __('Documento') }} *</label><select name="documento_tipo" data-var-input="documento_tipo" class="{{ $inp }}">@foreach ($documentos as $t)<option @selected(($datos['documento_tipo'] ?? 'C.C.') === $t)>{{ $t }}</option>@endforeach</select></div>
@@ -110,7 +116,7 @@
 
             {{-- 2. Documentos --}}
             <div class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 space-y-3">
-                <div class="flex items-center gap-2">{!! $paso(2) !!}<h2 class="text-base font-bold text-gray-900">{{ __('Documentos') }}</h2></div>
+                <div class="flex items-center gap-2">{!! $paso(2) !!}<h2 class="text-base font-bold text-gray-900">{{ __('Documentos y cuenta para los pagos') }}</h2></div>
                 <div class="grid sm:grid-cols-2 gap-3">
                     <label class="block rounded-xl border border-gray-200 p-3"><span class="{{ $lbl }}">{{ __('RUT') }} *</span>
                         <input type="file" name="rut" required accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
@@ -118,6 +124,14 @@
                     <label class="block rounded-xl border border-gray-200 p-3"><span class="{{ $lbl }}">{{ __('Certificado bancario') }} *</span>
                         <input type="file" name="certificado_bancario" required accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
                         <span class="block text-[11px] text-gray-400 mt-1">{{ __('PDF o imagen, máx. 8 MB') }}</span></label>
+                </div>
+                <div class="grid sm:grid-cols-2 gap-3 pt-1">
+                    <div><label class="{{ $lbl }}">{{ __('Banco') }} *</label><input name="banco" data-var-input="banco" required maxlength="120" value="{{ $datos['banco'] ?? '' }}" class="{{ $inp }}"></div>
+                    <div><label class="{{ $lbl }}">{{ __('Tipo de cuenta') }} *</label><select name="tipo_cuenta" data-var-input="tipo_cuenta" required class="{{ $inp }}">
+                        <option value="">—</option>@foreach (\App\Services\ContratosService::TIPOS_CUENTA as $t)<option @selected(($datos['tipo_cuenta'] ?? '') === $t)>{{ $t }}</option>@endforeach</select></div>
+                    <div><label class="{{ $lbl }}">{{ __('Número de cuenta') }} *</label><input name="numero_cuenta" data-var-input="numero_cuenta" required maxlength="40" inputmode="numeric" value="{{ $datos['numero_cuenta'] ?? '' }}" class="{{ $inp }}"></div>
+                    <div><label class="{{ $lbl }}">{{ __('Titular de la cuenta') }} *</label><input name="titular_cuenta" data-var-input="titular_cuenta" required maxlength="190" value="{{ $datos['titular_cuenta'] ?? '' }}" class="{{ $inp }}"></div>
+                    <div><label class="{{ $lbl }}">{{ __('NIT o C.C. del titular') }} *</label><input name="documento_titular" data-var-input="documento_titular" required maxlength="40" value="{{ $datos['documento_titular'] ?? '' }}" class="{{ $inp }}"></div>
                 </div>
             </div>
 
@@ -140,7 +154,7 @@
             </div>
 
             <div class="flex justify-end">
-                <button @disabled(trim(strip_tags($texto)) === '') class="h-11 rounded-xl bg-[#00024f] text-white px-6 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-40">{{ __('Firmar contrato') }}</button>
+                <button @disabled(trim(strip_tags($texto)) === '' || $medio->faltaValor()) class="h-11 rounded-xl bg-[#00024f] text-white px-6 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-40">{{ __('Firmar contrato') }}</button>
             </div>
         </form>
     @endif
@@ -151,6 +165,10 @@
     .contrato-texto h2, .contrato-texto h3, .contrato-texto h4 { font-weight: 700; margin: 1em 0 .5em; color: #111827; }
     .contrato-texto ul { list-style: disc; padding-left: 1.4em; margin: 0 0 .75em; }
     .contrato-texto ol { list-style: decimal; padding-left: 1.4em; margin: 0 0 .75em; }
+    .contrato-texto ol[type="A"] { list-style-type: upper-alpha; }
+    .contrato-texto ol[type="a"] { list-style-type: lower-alpha; }
+    .contrato-texto li p { margin: 0 0 .35em; }
+    .contrato-texto blockquote { margin: 0 0 .75em 1.4em; }
     .contrato-texto table { width: 100%; border-collapse: collapse; margin: .5em 0 1em; }
     .contrato-texto td, .contrato-texto th { border: 1px solid #d1d5db; padding: .3em .5em; }
     .contrato-texto .var { background: #eef2ff; border-radius: .25rem; padding: 0 .2em; font-weight: 600; }
@@ -161,5 +179,11 @@ document.querySelectorAll('[data-var-input]').forEach(el => {
     const pintar = () => document.querySelectorAll('[data-var="' + el.dataset.varInput + '"]').forEach(s => { s.textContent = el.value.trim() || '________'; });
     el.addEventListener('input', pintar); el.addEventListener('change', pintar);
 });
+// «C.C.» también va en palabras: «cédula de ciudadanía»
+(function () {
+    const nombres = @js(\App\Services\ContratosService::DOCUMENTO_NOMBRE), sel = document.querySelector('[name=documento_tipo]');
+    if (!sel) return;
+    sel.addEventListener('change', () => document.querySelectorAll('[data-var="documento_nombre"]').forEach(s => { s.textContent = nombres[sel.value] || sel.value; }));
+})();
 </script>
 @endsection
