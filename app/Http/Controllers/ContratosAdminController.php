@@ -35,7 +35,7 @@ class ContratosAdminController extends Controller
             'anulados' => $contratos->whereNotNull('anulado_at')->groupBy('medio_id'),
             'siguiente' => $this->contratos->codigo($campaign, $this->contratos->siguienteNumero($campaign)),
             'variables' => ContratosService::VARIABLES,
-            'clases' => MedioCampana::CLASES,
+            'canales' => MedioCampana::CANALES,
             'enlace' => $campaign->inscripcion_token ? route('inscripcion.mostrar', $campaign->inscripcion_token) : null,
             'firmaContratante' => app(\App\Services\CertificadosService::class)->dataUri($this->contratos->config($campaign)['contratante_firma']),
         ]);
@@ -58,12 +58,11 @@ class ContratosAdminController extends Controller
         $d = $request->validate([
             'id' => ['nullable', 'integer'],
             'nombre' => ['required', 'string', 'max:190'],
-            'clase_medio' => ['nullable', Rule::in(array_keys(MedioCampana::CLASES))],
             'cuerpo' => ['nullable', 'string', 'max:500000'],
             'activo' => ['nullable', 'boolean'],
         ]);
         $t = !empty($d['id']) ? ContratoTipo::where('campaign_id', $campaign->id)->findOrFail($d['id']) : new ContratoTipo(['campaign_id' => $campaign->id, 'orden' => (int) ContratoTipo::where('campaign_id', $campaign->id)->max('orden') + 1]);
-        $t->fill(['nombre' => trim($d['nombre']), 'clase_medio' => $d['clase_medio'] ?? null, 'cuerpo' => ContratosService::limpiarHtml((string) ($d['cuerpo'] ?? '')), 'activo' => (bool) ($d['activo'] ?? true)])->save();
+        $t->fill(['nombre' => trim($d['nombre']), 'cuerpo' => ContratosService::limpiarHtml((string) ($d['cuerpo'] ?? '')), 'activo' => (bool) ($d['activo'] ?? true)])->save();
         return redirect()->to(route('campaigns.contratos', $campaign) . '#tipo-' . $t->id)->with('success', __('Tipo de contrato «:n» guardado.', ['n' => $t->nombre]));
     }
 
@@ -71,10 +70,10 @@ class ContratosAdminController extends Controller
     public function vistaTipo(Campaign $campaign, int $tipo)
     {
         $t = ContratoTipo::where('campaign_id', $campaign->id)->findOrFail($tipo);
-        $m = new MedioCampana(['nombre' => __('Medio de ejemplo'), 'clase' => $t->clase_medio ?: 'digital']);
+        $m = new MedioCampana(['nombre' => __('Medio de ejemplo'), 'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => true], 'tiktok' => ['pauta' => false]]]);
         $valores = $this->contratos->valores($campaign, $m, [
             'representante' => 'Nombre del Representante', 'documento_tipo' => 'C.C.', 'documento' => '12345678', 'correo' => 'correo@medio.com',
-            'ciudad' => 'Neiva', 'sitio' => 'www.medio.com', 'nit' => '900.000.000-1', 'telefono' => '300 000 0000', 'direccion' => 'Calle 1 # 2-3',
+            'ciudad' => 'Neiva', 'canal' => ['web' => 'www.medio.com'], 'nit' => '900.000.000-1', 'telefono' => '300 000 0000', 'direccion' => 'Calle 1 # 2-3',
         ], $this->contratos->siguienteNumero($campaign));
         return view('contratos.vista', ['c' => $campaign, 't' => $t, 'texto' => $this->contratos->render($t->cuerpo, $valores, true)]);
     }
@@ -92,15 +91,14 @@ class ContratosAdminController extends Controller
         $d = $request->validate([
             'id' => ['nullable', 'integer'],
             'nombre' => ['required', 'string', 'max:190'],
-            'clase' => ['nullable', Rule::in(array_keys(MedioCampana::CLASES))],
             'tipo_id' => ['nullable', 'integer', Rule::exists('campaign_contrato_tipos', 'id')->where('campaign_id', $campaign->id)],
             'correo' => ['nullable', 'email', 'max:190'],
             'notas' => ['nullable', 'string', 'max:500'],
             'activo' => ['nullable', 'boolean'],
-        ]);
+        ] + $this->reglasCanales(), $this->mensajesCanales());
         $m = !empty($d['id']) ? MedioCampana::where('campaign_id', $campaign->id)->findOrFail($d['id']) : new MedioCampana(['campaign_id' => $campaign->id, 'orden' => (int) MedioCampana::where('campaign_id', $campaign->id)->max('orden') + 1]);
-        $m->fill(['nombre' => trim($d['nombre']), 'clase' => $d['clase'] ?? null, 'tipo_id' => $d['tipo_id'] ?? null, 'correo' => $d['correo'] ?? null,
-            'notas' => $d['notas'] ?? null, 'activo' => (bool) ($d['activo'] ?? true)])->save();
+        $m->fill(['nombre' => trim($d['nombre']), 'canales' => MedioCampana::desdeFormulario($d['canales'], $d['pauta'] ?? []), 'tipo_id' => $d['tipo_id'] ?? null,
+            'correo' => $d['correo'] ?? null, 'notas' => $d['notas'] ?? null, 'activo' => (bool) ($d['activo'] ?? true)])->save();
         return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', __('Medio «:n» guardado.', ['n' => $m->nombre]));
     }
 
@@ -108,10 +106,9 @@ class ContratosAdminController extends Controller
     {
         $d = $request->validate([
             'lista' => ['required', 'string', 'max:20000'],
-            'clase' => ['nullable', Rule::in(array_keys(MedioCampana::CLASES))],
             'tipo_id' => ['nullable', 'integer', Rule::exists('campaign_contrato_tipos', 'id')->where('campaign_id', $campaign->id)],
-        ], ['lista.required' => __('Escribe al menos un medio (uno por línea).')]);
-        $n = $this->contratos->agregarEnBloque($campaign, $d['lista'], $d['tipo_id'] ?? null, $d['clase'] ?? null);
+        ] + $this->reglasCanales(), ['lista.required' => __('Escribe al menos un medio (uno por línea).')] + $this->mensajesCanales());
+        $n = $this->contratos->agregarEnBloque($campaign, $d['lista'], $d['tipo_id'] ?? null, MedioCampana::desdeFormulario($d['canales'], $d['pauta'] ?? []));
         return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', trans_choice('{0} No se agregó ningún medio (ya estaban).|{1} Se agregó 1 medio.|[2,*] Se agregaron :count medios.', $n, ['count' => $n]));
     }
 
@@ -136,5 +133,21 @@ class ContratosAdminController extends Controller
         $k = Contrato::where('campaign_id', $campaign->id)->whereNull('anulado_at')->findOrFail($contrato);
         $this->contratos->anular($k);
         return back()->with('success', __('Contrato No. :n anulado. El medio deberá firmar uno nuevo (con un número nuevo).', ['n' => $k->codigo]));
+    }
+
+    /** Canales del medio: al menos uno; «con pauta» solo en las redes sociales. */
+    private function reglasCanales(): array
+    {
+        return [
+            'canales' => ['required', 'array', 'min:1'],
+            'canales.*' => ['string', Rule::in(array_keys(MedioCampana::CANALES))],
+            'pauta' => ['nullable', 'array'],
+            'pauta.*' => ['string', Rule::in(array_keys(array_filter(MedioCampana::CANALES, fn($c) => $c['pauta'])))],
+        ];
+    }
+
+    private function mensajesCanales(): array
+    {
+        return ['canales.required' => __('Marca los canales del medio (página web, Facebook, Instagram, TikTok, emisora…).')];
     }
 }

@@ -5,7 +5,6 @@
     $lbl = 'block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1';
     $inp = 'w-full h-10 rounded-lg border-gray-200 text-sm shadow-sm';
     $paso = fn($n) => '<span class="h-6 w-6 rounded-full bg-[#00024f] text-white text-xs font-bold flex items-center justify-center shrink-0">' . $n . '</span>';
-    $sitioEtiqueta = match ($medio?->clase) { 'emisora' => __('Emisora (nombre y frecuencia)'), 'web', 'digital' => __('Página web'), 'redes' => __('Cuenta o página en redes'), default => __('Página web o emisora') };
 @endphp
 <div class="max-w-3xl mx-auto px-2 sm:px-4 py-6 lg:py-8">
     <div class="mt-8 lg:mt-10 mb-6">
@@ -41,7 +40,7 @@
             @else
                 <select name="medio_id" required class="{{ $inp }}">
                     <option value="">{{ __('— Elige tu medio —') }}</option>
-                    @foreach ($libres as $m)<option value="{{ $m->id }}" @selected((int) old('medio_id') === $m->id)>{{ $m->nombre }} · {{ $m->claseTexto() }}</option>@endforeach
+                    @foreach ($libres as $m)<option value="{{ $m->id }}" @selected((int) old('medio_id') === $m->id)>{{ $m->nombre }}{{ $m->canales() ? ' · ' . $m->canalesNombres() : '' }}</option>@endforeach
                 </select>
                 <p class="text-xs text-gray-500">{{ __('Cada medio tiene su tipo de contrato. Si tu medio no aparece, escribe al administrador de la campaña.') }}</p>
                 <div class="text-right"><button class="h-10 rounded-xl bg-[#00024f] text-white px-5 text-sm font-semibold">{{ __('Continuar') }}</button></div>
@@ -49,7 +48,8 @@
         </form>
     @else
         <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4 mb-5 flex flex-wrap items-center justify-between gap-3">
-            <div class="text-sm"><span class="font-semibold text-gray-900">{{ $medio->nombre }}</span> · {{ $medio->claseTexto() }}
+            <div class="text-sm"><span class="font-semibold text-gray-900">{{ $medio->nombre }}</span>
+                @if ($medio->canales())<span class="block text-xs text-gray-700">{{ __('Canales: :c', ['c' => $medio->canalesTexto()]) }}</span>@endif
                 <span class="block text-xs text-gray-600">{{ __('Contrato: :t · número :n (se asigna al firmar)', ['t' => $medio->tipo?->nombre ?? '—', 'n' => $siguiente]) }}</span></div>
             @if ($libres->count() > 1)
                 <form method="POST" action="{{ route('contratos.elegir', $c) }}" class="flex gap-2">
@@ -79,8 +79,7 @@
                     @endforeach
                 </div>
                 <div class="grid sm:grid-cols-2 gap-3">
-                    <div class="sm:col-span-2"><label class="{{ $lbl }}">{{ __('Nombre del medio') }} * <span class="normal-case font-normal">({{ mb_strtolower($medio->claseTexto()) }})</span></label><input name="medio_nombre" data-var-input="medio" required maxlength="190" value="{{ $datos['medio_nombre'] ?? '' }}" class="{{ $inp }}"></div>
-                    <div><label class="{{ $lbl }}">{{ $sitioEtiqueta }}</label><input name="sitio" data-var-input="sitio" maxlength="190" value="{{ $datos['sitio'] ?? '' }}" class="{{ $inp }}"></div>
+                    <div><label class="{{ $lbl }}">{{ __('Nombre del medio') }} *</label><input name="medio_nombre" data-var-input="medio" required maxlength="190" value="{{ $datos['medio_nombre'] ?? '' }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}">{{ __('NIT del medio') }}</label><input name="nit" data-var-input="nit" maxlength="40" value="{{ $datos['nit'] ?? '' }}" class="{{ $inp }}"></div>
                     <div class="sm:col-span-2"><label class="{{ $lbl }}">{{ __('Representante legal') }} *</label><input name="representante" data-var-input="representante" required maxlength="190" value="{{ $datos['representante'] ?? '' }}" class="{{ $inp }}"></div>
                     <div class="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2 sm:col-span-2">
@@ -92,6 +91,21 @@
                     <div><label class="{{ $lbl }}">{{ __('Dirección') }}</label><input name="direccion" data-var-input="direccion" maxlength="190" value="{{ $datos['direccion'] ?? '' }}" class="{{ $inp }}"></div>
                     <div><label class="{{ $lbl }}">{{ __('Ciudad') }} *</label><input name="ciudad" data-var-input="ciudad" required maxlength="120" value="{{ $datos['ciudad'] ?? '' }}" class="{{ $inp }}"></div>
                 </div>
+                @if ($medio->canales())
+                    {{-- Los canales los define el administrador; el medio escribe el dato de cada uno --}}
+                    <div class="rounded-xl border border-gray-100 bg-gray-50/70 p-4">
+                        <p class="text-sm font-semibold text-gray-900">{{ __('Canales que cubre el contrato') }}</p>
+                        <p class="text-xs text-gray-500 mb-3">{{ __('Escribe el dato de cada canal de tu medio. Si falta un canal o sobra uno, escribe al administrador de la campaña antes de firmar.') }}</p>
+                        <div class="grid sm:grid-cols-2 gap-3">
+                            @foreach ($medio->canales() as $canal => $x)
+                                @php $info = \App\Models\MedioCampana::CANALES[$canal]; @endphp
+                                <div><label class="{{ $lbl }}">{{ $info['pide'] }} *
+                                        @if ($x['pauta'])<span class="ml-1 normal-case tracking-normal rounded-full bg-indigo-100 text-indigo-800 px-1.5 py-0.5 text-[10px] font-semibold">{{ __('con pauta') }}</span>@endif</label>
+                                    <input name="canal[{{ $canal }}]" @if ($canal === 'web') data-var-input="sitio" @endif required maxlength="190" value="{{ $datos['canal'][$canal] ?? '' }}" placeholder="{{ $info['ejemplo'] }}" class="{{ $inp }}"></div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
             </div>
 
             {{-- 2. Documentos --}}

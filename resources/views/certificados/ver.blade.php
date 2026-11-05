@@ -40,7 +40,8 @@
     @php
         $em = app(\App\Services\EmisionesRadioService::class);
         $opcionesRadio = $em->opciones($campana);
-        $esLaEmisora = (int) $participante->user_id === (int) auth()->id();
+        // Solo la reporta el propio medio, y solo si tiene emisora entre sus canales (si no se saben sus canales, como antes)
+        $esLaEmisora = (int) $participante->user_id === (int) auth()->id() && app(\App\Services\ContratosService::class)->tieneCanal($participante, 'radio');
         $reportes = \App\Services\EmisionesRadioService::disponible() ? \App\Models\EmisionRadio::where('participante_id', $participante->id)->with(['subcampana', 'tipo'])->latest('fecha_desde')->latest('id')->get() : collect();
     @endphp
     @if ($opcionesRadio->isNotEmpty() && ($esLaEmisora || $reportes->isNotEmpty()))

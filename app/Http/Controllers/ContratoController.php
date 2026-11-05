@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Campaign;
 use App\Models\CampaignParticipante;
 use App\Models\Contrato;
+use App\Models\MedioCampana;
 use App\Services\ContratosService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -28,10 +29,12 @@ class ContratoController extends Controller
         $medio = $this->contratos->medioDe($p);
         $contrato = $this->contratos->contratoDe($p);
         $anterior = $medio ? Contrato::where('participante_id', $p->id)->latest('id')->first() : null; // para precargar si lo anularon
+        $previos = (array) ($anterior?->datos ?? []);
         $datos = array_merge([
             'medio_nombre' => $medio?->nombre, 'representante' => $p->representante, 'documento_tipo' => $p->documento_tipo ?: 'C.C.',
             'documento' => $p->documento, 'ciudad' => $p->ciudad, 'correo' => $request->user()->email,
-        ], array_filter((array) ($anterior?->datos ?? [])), array_filter((array) $request->old()));
+            'canal' => array_filter(array_map(fn($x) => (string) (((array) $x)['dato'] ?? ''), (array) ($previos['canales'] ?? []))),
+        ], array_filter($previos), array_filter((array) $request->old()));
         $valores = $medio ? $this->contratos->valores($campaign, $medio, $datos) : [];
         return view('contratos.formulario', [
             'c' => $campaign, 'p' => $p, 'medio' => $medio, 'contrato' => $contrato,
@@ -58,9 +61,14 @@ class ContratoController extends Controller
         $medio = $this->contratos->medioDe($p);
         if (!$medio || !$medio->tipo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Primero elige tu medio del listado.')]);
         $archivo = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'];
-        $d = $request->validate([
+        // Cada canal del medio (los marca el administrador) pide su dato: dirección, usuario, frecuencia…
+        $porCanal = $mensajesCanal = [];
+        foreach (array_keys($medio->canales()) as $k) {
+            $porCanal["canal.$k"] = ['required', 'string', 'max:190'];
+            $mensajesCanal["canal.$k.required"] = __('Completa «:dato».', ['dato' => MedioCampana::CANALES[$k]['pide']]);
+        }
+        $d = $request->validate($porCanal + [
             'medio_nombre' => ['required', 'string', 'max:190'],
-            'sitio' => ['nullable', 'string', 'max:190'],
             'nit' => ['nullable', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
             'representante' => ['required', 'string', 'max:190'],
             'documento_tipo' => ['required', Rule::in(CampaignParticipante::DOCUMENTOS)],
@@ -81,7 +89,7 @@ class ContratoController extends Controller
             'certificado_bancario.required' => __('Adjunta el certificado bancario.'),
             'acepto.accepted' => __('Debes leer y aceptar el contrato.'),
             'firma.required' => __('Dibuja tu firma en el recuadro.'),
-        ]);
+        ] + $mensajesCanal);
         $png = $this->firmaPng($d['firma']);
         if (!$png) return back()->withInput()->withErrors(['firma' => __('No se pudo leer la firma. Vuelve a dibujarla.')]);
 

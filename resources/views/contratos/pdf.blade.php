@@ -44,7 +44,8 @@
             @if ($logo)<td style="width: 170px"><img class="logo" src="{{ $logo }}" alt=""></td>@endif
             <td>
                 <div class="medio">{{ $k->dato('medio_nombre', $k->medio?->nombre ?? '') }}</div>
-                <div class="gris">{{ $k->dato('clase_medio') }}{{ $k->dato('sitio') ? ' · ' . $k->dato('sitio') : '' }}{{ $k->dato('nit') ? ' · NIT ' . $k->dato('nit') : '' }}</div>
+                @php $canalesTexto = \App\Models\MedioCampana::textoDe($canales); @endphp
+                <div class="gris">{{ $canalesTexto !== '' ? mb_strtoupper(mb_substr($canalesTexto, 0, 1)) . mb_substr($canalesTexto, 1) : $k->dato('clase_medio') }}{{ $k->dato('nit') ? ' · NIT ' . $k->dato('nit') : '' }}</div>
             </td>
         </tr>
     </table>
@@ -53,8 +54,13 @@
     <p class="sub">{{ $k->dato('tipo_nombre') }} · {{ $c->name }}</p>
 
     <table class="datos">
-        <tr><td class="k">{{ __('Medio') }}</td><td>{{ $k->dato('medio_nombre') }} ({{ $k->dato('clase_medio') }})</td></tr>
-        @if ($k->dato('sitio'))<tr><td class="k">{{ __('Página web o emisora') }}</td><td>{{ $k->dato('sitio') }}</td></tr>@endif
+        <tr><td class="k">{{ __('Medio') }}</td><td>{{ $k->dato('medio_nombre') }}</td></tr>
+        {{-- Un renglón por canal contratado, con el dato que escribió el medio --}}
+        @forelse ($canales as $canal => $x)
+            <tr><td class="k">{{ \App\Models\MedioCampana::nombreDe($canal, $x['pauta']) }}</td><td>{{ ($x['dato'] ?? '') ?: '—' }}</td></tr>
+        @empty
+            @if ($k->dato('sitio'))<tr><td class="k">{{ __('Página web o emisora') }}</td><td>{{ $k->dato('sitio') }}</td></tr>@endif
+        @endforelse
         @if ($k->dato('nit'))<tr><td class="k">{{ __('NIT') }}</td><td>{{ $k->dato('nit') }}</td></tr>@endif
         <tr><td class="k">{{ __('Representante legal') }}</td><td>{{ $k->dato('representante') }}</td></tr>
         <tr><td class="k">{{ __('Identificación') }}</td><td>{{ $documento }}</td></tr>

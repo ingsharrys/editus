@@ -23,6 +23,9 @@ class ReportesMedioService
 {
     public const CLASES = ['tiktok' => 'TikTok', 'banner' => 'Banner'];
 
+    /** Canal del medio que pide cada reporte (ver MedioCampana::CANALES). */
+    public const CANAL = ['tiktok' => 'tiktok', 'banner' => 'web'];
+
     public static function disponible(): bool
     {
         return ProductosService::disponible() && Schema::hasColumn('campaign_productos', 'participante_id');

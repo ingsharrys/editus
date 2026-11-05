@@ -17,7 +17,7 @@
     </div>
 
     <div class="rounded-2xl border border-indigo-100 bg-indigo-50/50 px-4 py-3 mb-6 text-sm text-indigo-900">
-        {{ __('Cómo funciona: cada medio entra con el enlace de inscripción, elige cuál es de este listado, llena el encabezado (logo, membrete, representante legal, identificación, RUT, certificado bancario, correo), firma el contrato de su tipo y recibe la copia en PDF por correo. Solo después vincula su medio y llena el certificado.') }}
+        {{ __('Cómo funciona: tú cargas los medios con sus canales (página web, redes con o sin pauta, emisora…) y su tipo de contrato. Cada medio entra con el enlace de inscripción, elige cuál es de este listado, llena el encabezado (logo, membrete, representante legal, identificación, el dato de cada canal, RUT, certificado bancario, correo), firma el contrato que le asignaste y recibe la copia en PDF por correo. Solo después vincula su medio y llena el certificado. En su portal solo ve lo que le toca reportar según sus canales.') }}
         @if ($enlace)<div class="mt-2"><span class="font-semibold">{{ __('Enlace de inscripción:') }}</span> <a href="{{ $enlace }}" class="underline break-all" target="_blank">{{ $enlace }}</a></div>
         @else<div class="mt-2">{{ __('La campaña aún no tiene enlace de inscripción:') }} <a href="{{ route('campaigns.edit', $c) }}#inscripcion" class="underline">{{ __('actívalo en «Editar campaña»') }}</a>.</div>@endif
     </div>
@@ -27,13 +27,20 @@
             {{-- ================= Medios ================= --}}
             <section id="medios" class="rounded-2xl border border-gray-200 bg-white shadow-sm">
                 <div class="px-5 py-4 border-b border-gray-100"><h2 class="text-base font-bold text-gray-900">{{ __('Medios de comunicación') }}</h2>
-                    <p class="text-xs text-gray-500">{{ __('Cada medio tiene asignado un tipo de contrato; al inscribirse, el medio se elige de esta lista.') }}</p></div>
+                    <p class="text-xs text-gray-500">{{ __('Cada medio tiene sus canales y su tipo de contrato; al inscribirse, el medio se elige de esta lista.') }}</p></div>
                 @forelse ($medios as $m)
                     @php $k = $vigentes->get($m->id); @endphp
                     <details class="border-b border-gray-100 last:border-0 {{ $m->activo ? '' : 'bg-gray-50' }}">
                         <summary class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 cursor-pointer">
                             <span class="font-semibold text-gray-900">{{ $m->nombre }}</span>
-                            <span class="text-xs text-gray-500">{{ $m->claseTexto() }} · {{ $m->tipo?->nombre ?? __('sin tipo de contrato') }}</span>
+                            <span class="text-xs text-gray-500">{{ $m->tipo?->nombre ?? __('sin tipo de contrato') }}</span>
+                            <span class="flex flex-wrap gap-1">
+                                @forelse ($m->canales() as $canal => $x)
+                                    <span class="inline-flex rounded-full {{ $x['pauta'] ? 'bg-indigo-50 text-indigo-800' : 'bg-gray-100 text-gray-700' }} px-2 py-0.5 text-[11px] font-medium">{{ \App\Models\MedioCampana::nombreDe($canal, $x['pauta']) }}</span>
+                                @empty
+                                    <span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">{{ __('sin canales') }}</span>
+                                @endforelse
+                            </span>
                             <span class="ml-auto">
                                 @if ($k)<span class="inline-flex rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Contrato :n firmado', ['n' => $k->codigo]) }}</span>
                                 @elseif ($m->participante)<span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Inscrito, sin firmar') }}</span>
@@ -65,10 +72,13 @@
                             <form method="POST" action="{{ route('campaigns.contratos.medios.guardar', $c) }}" class="grid sm:grid-cols-2 gap-2">
                                 @csrf <input type="hidden" name="id" value="{{ $m->id }}">
                                 <label class="text-xs text-gray-600">{{ __('Nombre') }}<input name="nombre" value="{{ $m->nombre }}" required maxlength="190" class="{{ $inp }} mt-0.5"></label>
-                                <label class="text-xs text-gray-600">{{ __('Clase de medio') }}<select name="clase" class="{{ $inp }} mt-0.5"><option value="">—</option>@foreach ($clases as $v => $t)<option value="{{ $v }}" @selected($m->clase === $v)>{{ $t }}</option>@endforeach</select></label>
                                 <label class="text-xs text-gray-600">{{ __('Tipo de contrato') }}<select name="tipo_id" class="{{ $inp }} mt-0.5"><option value="">—</option>@foreach ($tipos as $t)<option value="{{ $t->id }}" @selected($m->tipo_id === $t->id)>{{ $t->nombre }}</option>@endforeach</select></label>
                                 <label class="text-xs text-gray-600">{{ __('Correo (opcional)') }}<input type="email" name="correo" value="{{ $m->correo }}" maxlength="190" class="{{ $inp }} mt-0.5"></label>
-                                <label class="sm:col-span-2 text-xs text-gray-600">{{ __('Notas') }}<input name="notas" value="{{ $m->notas }}" maxlength="500" class="{{ $inp }} mt-0.5"></label>
+                                <label class="text-xs text-gray-600">{{ __('Notas') }}<input name="notas" value="{{ $m->notas }}" maxlength="500" class="{{ $inp }} mt-0.5"></label>
+                                <div class="sm:col-span-2 text-xs text-gray-600">{{ __('Canales (marca todos los que tiene el medio y, en redes, si publica con pauta)') }}
+                                    <div class="mt-1">@include('campaigns.plan._canales_medio', ['sel' => $m->canales()])</div>
+                                    @if ($k)<p class="mt-1 text-[11px] text-gray-400">{{ __('El contrato firmado conserva los canales con que se firmó; un cambio aquí aplica al portal del medio y a un contrato nuevo.') }}</p>@endif
+                                </div>
                                 <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
                                     <label class="flex items-center gap-2 text-xs text-gray-700"><input type="hidden" name="activo" value="0"><input type="checkbox" name="activo" value="1" @checked($m->activo) class="h-4 w-4 rounded border-gray-300"> {{ __('Activo (aparece en la inscripción)') }}</label>
                                     <div class="flex gap-2"><button class="h-8 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">{{ __('Guardar') }}</button></div>
@@ -87,10 +97,9 @@
                         @csrf
                         <p class="text-sm font-semibold text-gray-800">{{ __('Agregar un medio') }}</p>
                         <input name="nombre" required maxlength="190" placeholder="{{ __('Nombre del medio') }}" class="{{ $inp }}">
-                        <div class="grid grid-cols-2 gap-2">
-                            <select name="clase" class="{{ $inp }}"><option value="">{{ __('Clase…') }}</option>@foreach ($clases as $v => $t)<option value="{{ $v }}">{{ $t }}</option>@endforeach</select>
-                            <select name="tipo_id" class="{{ $inp }}"><option value="">{{ __('Tipo de contrato…') }}</option>@foreach ($tipos as $t)<option value="{{ $t->id }}">{{ $t->nombre }}</option>@endforeach</select>
-                        </div>
+                        <p class="text-xs text-gray-500">{{ __('Canales del medio') }}</p>
+                        @include('campaigns.plan._canales_medio', ['sel' => []])
+                        <select name="tipo_id" class="{{ $inp }}"><option value="">{{ __('Tipo de contrato…') }}</option>@foreach ($tipos as $t)<option value="{{ $t->id }}">{{ $t->nombre }}</option>@endforeach</select>
                         <input type="email" name="correo" maxlength="190" placeholder="{{ __('Correo (opcional)') }}" class="{{ $inp }}">
                         <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Agregar') }}</button>
                     </form>
@@ -98,10 +107,9 @@
                         @csrf
                         <p class="text-sm font-semibold text-gray-800">{{ __('Agregar varios (uno por línea)') }}</p>
                         <textarea name="lista" rows="4" required placeholder="{{ __("Opanoticias\nNeiva 24; contacto@neiva24.com\nLa Voz de Pitalito") }}" class="w-full rounded-lg border-gray-200 text-sm"></textarea>
-                        <div class="grid grid-cols-2 gap-2">
-                            <select name="clase" class="{{ $inp }}"><option value="">{{ __('Clase…') }}</option>@foreach ($clases as $v => $t)<option value="{{ $v }}">{{ $t }}</option>@endforeach</select>
-                            <select name="tipo_id" class="{{ $inp }}"><option value="">{{ __('Tipo de contrato…') }}</option>@foreach ($tipos as $t)<option value="{{ $t->id }}">{{ $t->nombre }}</option>@endforeach</select>
-                        </div>
+                        <p class="text-xs text-gray-500">{{ __('Todos quedan con estos canales y este tipo de contrato (después ajustas cada uno).') }}</p>
+                        @include('campaigns.plan._canales_medio', ['sel' => []])
+                        <select name="tipo_id" class="{{ $inp }}"><option value="">{{ __('Tipo de contrato…') }}</option>@foreach ($tipos as $t)<option value="{{ $t->id }}">{{ $t->nombre }}</option>@endforeach</select>
                         <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Agregar todos') }}</button>
                     </form>
                 </div>
@@ -115,15 +123,12 @@
                     <details id="tipo-{{ $t->id }}" class="border-b border-gray-100">
                         <summary class="flex flex-wrap items-center gap-3 px-5 py-3 cursor-pointer">
                             <span class="font-semibold text-gray-900">{{ $t->nombre }}</span>
-                            <span class="text-xs text-gray-500">{{ $clases[$t->clase_medio] ?? __('Cualquier medio') }} · {{ trans_choice('{0} sin medios|{1} 1 medio|[2,*] :count medios', $t->medios_count, ['count' => $t->medios_count]) }}</span>
+                            <span class="text-xs text-gray-500">{{ trans_choice('{0} sin medios|{1} 1 medio|[2,*] :count medios', $t->medios_count, ['count' => $t->medios_count]) }}</span>
                             @if (trim(strip_tags((string) $t->cuerpo)) === '')<span class="ml-auto inline-flex rounded-full bg-amber-50 text-amber-800 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Falta el texto') }}</span>@endif
                         </summary>
                         <form method="POST" action="{{ route('campaigns.contratos.tipos.guardar', $c) }}" class="px-5 pb-4 space-y-2">
                             @csrf <input type="hidden" name="id" value="{{ $t->id }}">
-                            <div class="grid sm:grid-cols-2 gap-2">
-                                <label class="text-xs text-gray-600">{{ __('Nombre') }}<input name="nombre" value="{{ $t->nombre }}" required maxlength="190" class="{{ $inp }} mt-0.5"></label>
-                                <label class="text-xs text-gray-600">{{ __('Para') }}<select name="clase_medio" class="{{ $inp }} mt-0.5"><option value="">{{ __('Cualquier medio') }}</option>@foreach ($clases as $v => $x)<option value="{{ $v }}" @selected($t->clase_medio === $v)>{{ $x }}</option>@endforeach</select></label>
-                            </div>
+                            <label class="block text-xs text-gray-600">{{ __('Nombre') }}<input name="nombre" value="{{ $t->nombre }}" required maxlength="190" class="{{ $inp }} mt-0.5"></label>
                             <label class="block text-xs text-gray-600">{{ __('Texto del contrato (HTML o texto: un párrafo por línea)') }}
                                 <textarea name="cuerpo" rows="14" class="mt-0.5 w-full rounded-lg border-gray-200 text-sm font-mono">{{ $t->cuerpo }}</textarea></label>
                             <div class="flex flex-wrap items-center justify-between gap-2">
@@ -142,10 +147,7 @@
                 <form method="POST" action="{{ route('campaigns.contratos.tipos.guardar', $c) }}" class="px-5 py-4 bg-gray-50 rounded-b-2xl space-y-2">
                     @csrf
                     <p class="text-sm font-semibold text-gray-800">{{ __('Nuevo tipo de contrato') }}</p>
-                    <div class="grid sm:grid-cols-2 gap-2">
-                        <input name="nombre" required maxlength="190" placeholder="{{ __('Ej: Contrato emisoras') }}" class="{{ $inp }}">
-                        <select name="clase_medio" class="{{ $inp }}"><option value="">{{ __('Para cualquier medio') }}</option>@foreach ($clases as $v => $x)<option value="{{ $v }}">{{ $x }}</option>@endforeach</select>
-                    </div>
+                    <input name="nombre" required maxlength="190" placeholder="{{ __('Ej: Contrato medios digitales con pauta') }}" class="{{ $inp }}">
                     <textarea name="cuerpo" rows="5" placeholder="{{ __('Pega aquí el texto del contrato (puedes completarlo después).') }}" class="w-full rounded-lg border-gray-200 text-sm"></textarea>
                     <button class="h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Crear tipo') }}</button>
                 </form>

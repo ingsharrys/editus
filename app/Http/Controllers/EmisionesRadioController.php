@@ -17,6 +17,7 @@ class EmisionesRadioController extends Controller
     {
         abort_unless(EmisionesRadioService::disponible(), 503, __('Falta ejecutar las migraciones (php artisan migrate).'));
         $this->autorizar($request, $participante, true);
+        abort_unless(app(\App\Services\ContratosService::class)->tieneCanal($participante, 'radio'), 403, __('Tu medio no tiene emisora entre sus canales.'));
         $d = $request->validate([
             'subcampana_id' => ['required', 'integer'],
             'tipo_id' => ['required', 'integer'],

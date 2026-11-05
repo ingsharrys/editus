@@ -3,6 +3,7 @@
     $rep = app(\App\Services\ReportesMedioService::class);
     $esElMedio = (int) $participante->user_id === (int) auth()->id();
     $hechos = $rep->delMedio($participante);
+    $contratos = app(\App\Services\ContratosService::class);
     $inp = 'mt-1 w-full h-10 rounded-lg border-gray-200 text-sm';
 @endphp
 @foreach (['tiktok' => ['🎵', __('TikTok: pantallazos con el alcance'), __('Sube el pantallazo de las estadísticas de cada video de TikTok de la campaña, con su alcance. Cada reporte cuenta en el avance del plan de medios y sale en el informe con su pantallazo.')],
@@ -10,13 +11,15 @@
     @php
         $opc = $rep->opciones($campana, $clase);
         $mios = $hechos->where('clase_reporte', $clase);
+        // El medio solo reporta lo de sus canales: TikTok si tiene TikTok, banners si tiene página web
+        $puede = $esElMedio && $contratos->tieneCanal($participante, \App\Services\ReportesMedioService::CANAL[$clase]);
     @endphp
-    @if ($opc->isNotEmpty() && ($esElMedio || $mios->isNotEmpty()))
+    @if ($opc->isNotEmpty() && ($puede || $mios->isNotEmpty()))
         <div id="{{ $clase }}" class="mt-8 rounded-2xl border border-gray-200 bg-white shadow-sm p-5">
             <h2 class="text-lg font-bold text-gray-900">{{ $icono }} {{ $titulo }}</h2>
             <p class="text-sm text-gray-500 mb-4">{{ $ayuda }}</p>
             @if ($errors->any() && old('_reporte') === $clase)<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-2 mb-3 text-sm">@foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
-            @if ($esElMedio)
+            @if ($puede)
                 <form method="POST" action="{{ route('reportes-medio.guardar', [$participante, $clase]) }}" enctype="multipart/form-data" class="grid sm:grid-cols-2 gap-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4 mb-5" data-reporte="{{ $clase }}">
                     @csrf <input type="hidden" name="_reporte" value="{{ $clase }}">
                     @if ($opc->first()['sub'])
@@ -63,7 +66,7 @@
                     <p class="text-sm text-gray-500 text-center py-4">{{ $clase === 'tiktok' ? __('Todavía no hay pantallazos de TikTok.') : __('Todavía no hay banners reportados.') }}</p>
                 @endforelse
             </div>
-            @if ($esElMedio)
+            @if ($puede)
                 <script>
                 (function () {
                     const OP = @js($opc->mapWithKeys(fn($o) => [(string) ($o['sub']?->id ?? 0) => $o['tipos']->map(fn($t) => ['id' => $t->id, 'nombre' => $t->etiquetaSingular()])->values()]));

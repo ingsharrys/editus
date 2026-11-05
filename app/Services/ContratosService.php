@@ -37,8 +37,8 @@ class ContratosService
         'fecha' => 'Fecha de la firma (en letras)',
         'fecha_corta' => 'Fecha de la firma (dd/mm/aaaa)',
         'medio' => 'Nombre del medio',
-        'clase_medio' => 'Medio digital / página web / emisora…',
-        'sitio' => 'Página web o frecuencia',
+        'canales' => 'Canales del medio (ej.: página web, Facebook con pauta y TikTok)',
+        'sitio' => 'Página web del medio',
         'nit' => 'NIT del medio',
         'representante' => 'Representante legal',
         'documento_tipo' => 'Tipo de documento del representante',
@@ -57,7 +57,7 @@ class ContratosService
     {
         // Se mira en cada pantalla (middleware): se recuerda solo el «sí» y solo en esta instancia de la aplicación
         if (app()->bound('contratos.disponible')) return true;
-        if (!Schema::hasTable('campaign_contratos') || !Schema::hasColumn('campaigns', 'contratos')) return false;
+        if (!Schema::hasTable('campaign_contratos') || !Schema::hasColumn('campaigns', 'contratos') || !Schema::hasColumn('campaign_medios', 'canales')) return false;
         app()->instance('contratos.disponible', true);
         return true;
     }
@@ -134,6 +134,23 @@ class ContratosService
         return self::disponible() ? Contrato::where('participante_id', $p->id)->whereNull('anulado_at')->whereNotNull('firmado_at')->latest('id')->first() : null;
     }
 
+    /**
+     * Canales del medio que eligió el participante (['web', 'tiktok', …]), o null si no se sabe
+     * (campaña sin listado de medios o medio sin canales): en ese caso el portal muestra todo, como antes.
+     */
+    public function canalesDe(CampaignParticipante $p): ?array
+    {
+        $m = $this->medioDe($p);
+        return $m && $m->canales() ? array_keys($m->canales()) : null;
+    }
+
+    /** ¿El medio del participante tiene ese canal? (si no se saben sus canales, sí) */
+    public function tieneCanal(CampaignParticipante $p, string $canal): bool
+    {
+        $canales = $this->canalesDe($p);
+        return $canales === null || in_array($canal, $canales, true);
+    }
+
     /** ¿Le falta firmar el contrato para seguir? */
     public function requiereContrato(CampaignParticipante $p): bool
     {
@@ -189,8 +206,8 @@ class ContratosService
             'fecha' => $cert->fechaEnLetras($fecha),
             'fecha_corta' => $fecha->format('d/m/Y'),
             'medio' => $v('medio_nombre') ?: $m->nombre,
-            'clase_medio' => mb_strtolower($m->claseTexto()),
-            'sitio' => $v('sitio'),
+            'canales' => $m->canalesTexto(),
+            'sitio' => trim((string) ($datos['canal']['web'] ?? '')),
             'nit' => $v('nit'),
             'representante' => $v('representante'),
             'documento_tipo' => $v('documento_tipo') ?: 'C.C.',
@@ -271,12 +288,16 @@ class ContratosService
                 }
                 $numero = $this->siguienteNumero($c);
                 $limpios = array_map(fn($x) => is_string($x) ? trim($x) : $x, array_intersect_key($datos, array_flip(
-                    ['medio_nombre', 'sitio', 'nit', 'representante', 'documento_tipo', 'documento', 'correo', 'telefono', 'direccion', 'ciudad'])));
+                    ['medio_nombre', 'nit', 'representante', 'documento_tipo', 'documento', 'correo', 'telefono', 'direccion', 'ciudad'])));
+                // Los canales los define el administrador; el medio escribe el dato de cada uno (dirección, usuario, frecuencia)
+                $canales = [];
+                foreach ($m->canales() as $k => $info) $canales[$k] = ['pauta' => $info['pauta'], 'dato' => mb_substr(trim((string) ($datos['canal'][$k] ?? '')), 0, 190)];
                 $fecha = now();
-                $cuerpo = $this->render($m->tipo->cuerpo, $this->valores($c, $m, $limpios, $numero, $fecha));
+                $cuerpo = $this->render($m->tipo->cuerpo, $this->valores($c, $m, $limpios + ['canal' => array_map(fn($x) => $x['dato'], $canales)], $numero, $fecha));
                 return Contrato::create([
                     'campaign_id' => $c->id, 'medio_id' => $m->id, 'participante_id' => $p->id, 'user_id' => $p->user_id, 'tipo_id' => $m->tipo_id,
-                    'numero' => $numero, 'codigo' => $this->codigo($c, $numero), 'datos' => $limpios + ['tipo_nombre' => $m->tipo->nombre, 'clase_medio' => $m->claseTexto()],
+                    'numero' => $numero, 'codigo' => $this->codigo($c, $numero),
+                    'datos' => $limpios + ['sitio' => ($canales['web']['dato'] ?? '') ?: null, 'canales' => $canales, 'tipo_nombre' => $m->tipo->nombre],
                     'logo_path' => $guardar($archivos['logo'] ?? null, 'logo'),
                     'membrete_path' => $guardar($archivos['membrete'] ?? null, 'membrete'),
                     'rut_path' => $guardar($archivos['rut'] ?? null, 'rut'),
@@ -329,6 +350,8 @@ class ContratosService
             'firmaContratante' => $cert->dataUri($cfg['contratante_firma']),
             'cfg' => $cfg,
             'documento' => trim($k->dato('documento_tipo', 'C.C.') . ' ' . $cert->formatoDocumento($k->dato('documento'))),
+            // Los canales tal como quedaron en el contrato firmado
+            'canales' => $k->canales(),
         ];
     }
 
@@ -414,9 +437,10 @@ class ContratosService
 
     /**
      * Agrega medios en bloque: una línea por medio. Cada línea puede traer «Nombre; correo».
+     * Todos quedan con el mismo tipo de contrato y los mismos canales ($canales de MedioCampana::desdeFormulario).
      * Devuelve cuántos se agregaron (los repetidos se omiten).
      */
-    public function agregarEnBloque(Campaign $c, string $texto, ?int $tipoId, ?string $clase): int
+    public function agregarEnBloque(Campaign $c, string $texto, ?int $tipoId, array $canales): int
     {
         $existentes = MedioCampana::where('campaign_id', $c->id)->pluck('nombre')->map(fn($n) => mb_strtolower(trim($n)))->flip();
         $orden = (int) MedioCampana::where('campaign_id', $c->id)->max('orden');
@@ -426,7 +450,7 @@ class ContratosService
             $nombre = mb_substr($partes[0] ?? '', 0, 190);
             if ($nombre === '' || $existentes->has(mb_strtolower($nombre))) continue;
             $correo = collect(array_slice($partes, 1))->first(fn($x) => filter_var($x, FILTER_VALIDATE_EMAIL));
-            MedioCampana::create(['campaign_id' => $c->id, 'nombre' => $nombre, 'clase' => $clase, 'tipo_id' => $tipoId, 'correo' => $correo, 'activo' => true, 'orden' => ++$orden]);
+            MedioCampana::create(['campaign_id' => $c->id, 'nombre' => $nombre, 'canales' => $canales, 'tipo_id' => $tipoId, 'correo' => $correo, 'activo' => true, 'orden' => ++$orden]);
             $existentes->put(mb_strtolower($nombre), true);
             $n++;
         }

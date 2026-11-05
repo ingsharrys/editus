@@ -32,6 +32,7 @@ class ContratosMediosTest extends TestCase
         config(['services.editus.medios' => ['opanoticias' => 'Opanoticias'], 'services.facebook.version' => 'v23.0', 'mail.default' => 'smtp']);
         $this->crearEsquemaPlanMedios();
         (require database_path('migrations/2026_11_05_000001_contratos_de_medios.php'))->up();
+        (require database_path('migrations/2026_11_06_000001_canales_de_los_medios.php'))->up();
         Storage::fake('local');
         Mail::fake();
         $this->admin = User::factory()->create(['role_id' => Role::where('slug', 'admin')->value('id')]);
@@ -58,8 +59,8 @@ class ContratosMediosTest extends TestCase
     private function prepararContratos(): ContratoTipo
     {
         $this->actingAs($this->admin)->post(route('campaigns.contratos.tipos.guardar', $this->c), [
-            'nombre' => 'Contrato emisoras', 'clase_medio' => 'emisora',
-            'cuerpo' => '<h2>Objeto</h2><p>Contrato No. {numero} entre {contratante} y {medio} ({clase_medio}), representado por {representante} con {documento_tipo} {documento}, correo {correo}.</p><script>alert(1)</script>',
+            'nombre' => 'Contrato emisoras',
+            'cuerpo' => '<h2>Objeto</h2><p>Contrato No. {numero} entre {contratante} y {medio} ({canales}), representado por {representante} con {documento_tipo} {documento}, correo {correo}.</p><script>alert(1)</script>',
         ])->assertRedirect();
         $this->actingAs($this->admin)->post(route('campaigns.contratos.config', $this->c), [
             'prefijo' => 'SALUD-2026-', 'inicio' => 7, 'digitos' => 3, 'contratante' => 'DIME MEDIA S.A.S.', 'contratante_nit' => '901.000.000-1',
@@ -67,7 +68,7 @@ class ContratosMediosTest extends TestCase
         ])->assertRedirect();
         $tipo = ContratoTipo::firstOrFail();
         $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.bloque', $this->c), [
-            'lista' => "Canal 6 Alfasurt\nLa Voz de Pitalito; voz@pitalito.co\nCanal 6 Alfasurt", 'clase' => 'emisora', 'tipo_id' => $tipo->id,
+            'lista' => "Canal 6 Alfasurt\nLa Voz de Pitalito; voz@pitalito.co\nCanal 6 Alfasurt", 'canales' => ['radio', 'facebook'], 'pauta' => ['facebook'], 'tipo_id' => $tipo->id,
         ])->assertSessionHas('success', 'Se agregaron 2 medios.');
         return $tipo;
     }
@@ -83,7 +84,8 @@ class ContratosMediosTest extends TestCase
     private function datosFirma(array $extra = []): array
     {
         return $extra + [
-            'medio_nombre' => 'Canal 6 Alfasurt Pitalito', 'sitio' => 'Canal 6 · 96.3 FM', 'nit' => '800.123.456-7',
+            'medio_nombre' => 'Canal 6 Alfasurt Pitalito', 'nit' => '800.123.456-7',
+            'canal' => ['web' => 'www.canal6.co', 'facebook' => 'facebook.com/canal6', 'instagram' => '@canal6', 'tiktok' => '@canal6', 'radio' => 'Canal 6 · 96.3 FM'],
             'representante' => 'Alba Luz Erazo', 'documento_tipo' => 'C.C.', 'documento' => '36123456', 'correo' => 'alba@canal6.co',
             'telefono' => '3001234567', 'ciudad' => 'Pitalito (Huila)', 'acepto' => '1', 'firma' => $this->firmaPng(),
             'logo' => UploadedFile::fake()->image('logo.png', 300, 120), 'membrete' => UploadedFile::fake()->image('membrete.png', 1200, 200),
@@ -95,9 +97,15 @@ class ContratosMediosTest extends TestCase
     {
         $this->prepararContratos();
         $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk()
-            ->assertSee('Medios y contratos')->assertSee('Canal 6 Alfasurt')->assertSee('SALUD-2026-007')->assertSee('Sin inscribir');
+            ->assertSee('Medios y contratos')->assertSee('Canal 6 Alfasurt')->assertSee('SALUD-2026-007')->assertSee('Sin inscribir')
+            ->assertSee('Facebook (con pauta)')->assertSee('Emisora');
         $this->actingAs($this->admin)->get(route('campaigns.contratos.tipos.vista', [$this->c, ContratoTipo::first()->id]))->assertOk()
-            ->assertSee('Medio de ejemplo')->assertSee('DIME MEDIA S.A.S.')->assertDontSee('<script>alert(1)</script>', false);
+            ->assertSee('Medio de ejemplo')->assertSee('DIME MEDIA S.A.S.')->assertSee('página web, Facebook con pauta y TikTok')->assertDontSee('<script>alert(1)</script>', false);
+        // Un medio sin canales no se puede crear, y la pauta solo va en redes sociales
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.bloque', $this->c), ['lista' => 'Sin canales'])->assertSessionHasErrors('canales');
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.bloque', $this->c), ['lista' => 'X', 'canales' => ['radio'], 'pauta' => ['radio']])->assertSessionHasErrors('pauta.0');
+        $this->assertSame(['tiktok' => ['pauta' => true], 'radio' => ['pauta' => false]], MedioCampana::desdeFormulario(['radio', 'tiktok', 'fax'], ['tiktok', 'radio']));
+        $this->assertSame('página web, Facebook con pauta y emisora', MedioCampana::textoDe(['radio' => [], 'facebook' => ['pauta' => true], 'web' => []]));
 
         $u = $this->inscribir('Alba Luz Erazo');
         // Primero el contrato: el certificado (vincular el medio) y cualquier pantalla lo llevan a firmarlo
@@ -108,16 +116,19 @@ class ContratosMediosTest extends TestCase
         $canal6 = MedioCampana::where('nombre', 'Canal 6 Alfasurt')->firstOrFail();
         $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $canal6->id])->assertRedirect(route('contratos.formulario', $this->c));
         $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertOk()->assertSee('Contrato emisoras')->assertSee('SALUD-2026-007')
-            ->assertSee('data-var="representante"', false);
+            ->assertSee('data-var="representante"', false)->assertSee('Canales que cubre el contrato')->assertSee('Nombre y frecuencia de la emisora')
+            ->assertSee('Página de Facebook')->assertDontSee('Usuario de TikTok');
 
         // Faltan datos, documentos o la firma
         $this->actingAs($u)->post(route('contratos.firmar', $this->c), ['medio_nombre' => 'X'])
-            ->assertSessionHasErrors(['logo', 'rut', 'certificado_bancario', 'representante', 'documento', 'correo', 'acepto', 'firma']);
+            ->assertSessionHasErrors(['logo', 'rut', 'certificado_bancario', 'representante', 'documento', 'correo', 'acepto', 'firma', 'canal.radio', 'canal.facebook']);
 
         $this->actingAs($u)->post(route('contratos.firmar', $this->c), $this->datosFirma())->assertRedirect(route('certificados.formulario', $this->c));
         $k = Contrato::firstOrFail();
         $this->assertSame([7, 'SALUD-2026-007', 'alba@canal6.co'], [$k->numero, $k->codigo, $k->dato('correo')]);
-        $this->assertStringContainsString('Contrato No. SALUD-2026-007 entre DIME MEDIA S.A.S. y Canal 6 Alfasurt Pitalito (emisora), representado por Alba Luz Erazo con C.C. 36.123.456', $k->cuerpo);
+        $this->assertStringContainsString('Contrato No. SALUD-2026-007 entre DIME MEDIA S.A.S. y Canal 6 Alfasurt Pitalito (Facebook con pauta y emisora), representado por Alba Luz Erazo con C.C. 36.123.456', $k->cuerpo);
+        // Quedan los canales que marcó el administrador con el dato que escribió el medio (la emisora no lleva pauta)
+        $this->assertSame(['facebook' => ['pauta' => true, 'dato' => 'facebook.com/canal6'], 'radio' => ['pauta' => false, 'dato' => 'Canal 6 · 96.3 FM']], $k->canales());
         $this->assertStringNotContainsString('<script', $k->cuerpo);
         foreach (['logo_path', 'membrete_path', 'rut_path', 'certificado_bancario_path', 'firma_path', 'pdf_path'] as $campo) Storage::disk('local')->assertExists($k->$campo);
         $this->assertStringStartsWith('%PDF', Storage::disk('local')->get($k->pdf_path));
@@ -159,8 +170,14 @@ class ContratosMediosTest extends TestCase
         $sub = \App\Models\Subcampana::create(['campaign_id' => $this->c->id, 'nombre' => 'Vacunación', 'is_active' => true, 'orden' => 1]);
         $sub->tipos()->attach([$tk->id => ['cantidad' => 4], $bn->id => ['cantidad' => 2], $otro->id => ['cantidad' => 3]]);
 
-        $u = $this->inscribir('Alba Luz Erazo');
+        // Canal 6 tiene página web, TikTok con pauta y emisora (el administrador edita sus canales)
         $canal6 = MedioCampana::where('nombre', 'Canal 6 Alfasurt')->firstOrFail();
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), [
+            'id' => $canal6->id, 'nombre' => 'Canal 6 Alfasurt', 'canales' => ['web', 'tiktok', 'radio'], 'pauta' => ['tiktok'], 'tipo_id' => $tipo->id, 'activo' => '1',
+        ])->assertRedirect();
+        $this->assertSame(['web' => ['pauta' => false], 'tiktok' => ['pauta' => true], 'radio' => ['pauta' => false]], $canal6->fresh()->canales());
+
+        $u = $this->inscribir('Alba Luz Erazo');
         $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $canal6->id]);
         $p = CampaignParticipante::where('user_id', $u->id)->firstOrFail();
         // Sin contrato firmado no puede reportar
@@ -193,6 +210,15 @@ class ContratosMediosTest extends TestCase
         // Cuenta en el avance de la subcampaña
         $this->assertSame(1, app(\App\Services\ProductosService::class)->matrizSubcampanas($this->c)[$sub->id][$tk->id]['piezas']);
         $this->actingAs($u)->get(route('certificados.ver', $p))->assertSee('alcance 15.300')->assertSee('Banner · Canal 6 Alfasurt Pitalito');
+
+        // La Voz de Pitalito solo tiene emisora y Facebook: en su portal no le aparecen TikTok ni banners, y no puede reportarlos
+        $voz = $this->inscribir('Pedro Pitalito');
+        $this->actingAs($voz)->post(route('contratos.elegir', $this->c), ['medio_id' => MedioCampana::where('nombre', 'La Voz de Pitalito')->value('id')]);
+        $this->actingAs($voz)->post(route('contratos.firmar', $this->c), $this->datosFirma(['medio_nombre' => 'La Voz de Pitalito', 'correo' => 'pedro@voz.co']))->assertRedirect();
+        $pv = CampaignParticipante::where('user_id', $voz->id)->firstOrFail();
+        $this->actingAs($voz)->get(route('certificados.ver', $pv))->assertOk()->assertDontSee('TikTok: pantallazos con el alcance')->assertDontSee('Banners publicados en tu web');
+        $this->actingAs($voz)->post(route('reportes-medio.guardar', [$pv, 'tiktok']), ['subcampana_id' => $sub->id, 'tipo_id' => $tk->id, 'fecha' => '2026-03-02',
+            'alcance' => 10, 'captura' => UploadedFile::fake()->image('x.png')])->assertForbidden();
 
         // Las capturas solo las ven el medio y el administrador; solo el medio borra lo suyo
         $u2 = User::factory()->create(['role_id' => null]); // otro usuario de editus
@@ -234,6 +260,14 @@ class ContratosMediosTest extends TestCase
     {
         $u = $this->inscribir('Medio sin contrato');
         $this->actingAs($u)->get(route('certificados.formulario', $this->c))->assertOk()->assertSee('Términos y condiciones');
+    }
+
+    public function test_los_medios_que_tenian_clase_quedan_con_su_canal(): void
+    {
+        $id = \Illuminate\Support\Facades\DB::table('campaign_medios')->insertGetId(['campaign_id' => $this->c->id, 'nombre' => 'Emisora vieja', 'clase' => 'emisora',
+            'activo' => true, 'orden' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        (require database_path('migrations/2026_11_06_000001_canales_de_los_medios.php'))->up();
+        $this->assertSame(['radio' => ['pauta' => false]], MedioCampana::findOrFail($id)->canales());
     }
 
     public function test_un_medio_sin_tipo_de_contrato_no_se_puede_elegir(): void

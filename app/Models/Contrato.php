@@ -50,6 +50,13 @@ class Contrato extends Model
 
     public function dato(string $k, string $defecto = ''): string
     {
-        return trim((string) (($this->datos ?? [])[$k] ?? '')) ?: $defecto;
+        $v = ($this->datos ?? [])[$k] ?? '';
+        return is_scalar($v) ? (trim((string) $v) ?: $defecto) : $defecto;
+    }
+
+    /** Canales tal como quedaron al firmar: ['facebook' => ['pauta' => true, 'dato' => 'facebook.com/…'], …] */
+    public function canales(): array
+    {
+        return MedioCampana::ordenar((array) (($this->datos ?? [])['canales'] ?? []));
     }
 }
