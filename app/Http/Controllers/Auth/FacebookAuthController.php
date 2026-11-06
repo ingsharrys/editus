@@ -44,13 +44,16 @@ class FacebookAuthController extends Controller
             'full' => $request->all(),
         ]);
 
+        // Los errores vuelven a la pantalla de ingreso de editus con qué hacer (volver a «facebook.login» abría otra vez
+        // la ventana de Facebook y la persona quedaba dando vueltas sin ver el aviso)
         if ($request->has('error')) {
             $desc = $request->get('error_description') ?: $request->get('error_reason') ?: $request->get('error');
-            return redirect()->route('facebook.login')->with('error', __('Facebook OAuth error: :detalle', ['detalle' => $desc]));
+            Log::warning('[FB] login: Facebook devolvió un error', ['query' => $request->query()]);
+            return redirect()->route('login')->withErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos($desc)]);
         }
 
         if (!$request->filled('code')) {
-            return redirect()->route('facebook.login')->with('error', __('Facebook no devolvió el parámetro "code".'));
+            return redirect()->route('login')->withErrors(['email' => __('Facebook no devolvió el parámetro "code". Vuelve a intentarlo.')]);
         }
 
         $version = config('services.facebook.version', 'v23.0');
@@ -58,7 +61,8 @@ class FacebookAuthController extends Controller
         try {
             $fbUser = Socialite::driver('facebook')->usingGraphVersion($version)->user();
         } catch (\Throwable $e) {
-            return redirect()->route('facebook.login')->with('error', __('Fallo al obtener el usuario de FB: :detalle', ['detalle' => $e->getMessage()]));
+            Log::warning('[FB] login: no se pudo obtener el usuario', ['err' => $e->getMessage()]);
+            return redirect()->route('login')->withErrors(['email' => __('No se pudo completar el ingreso con Facebook. Vuelve a intentarlo o entra con tu correo y contraseña. (Detalle: :detalle)', ['detalle' => \Illuminate\Support\Str::limit($e->getMessage(), 200)])]);
         }
 
         // 1. Intercambio por token de larga duración siempre (incluso si el usuario ya existe)

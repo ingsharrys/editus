@@ -6,6 +6,17 @@ use Illuminate\Support\Facades\Log;
 
 class FacebookGraph
 {
+    /**
+     * Qué hacer cuando Facebook no le da acceso a editus (la persona canceló o Facebook negó permisos). El caso más común:
+     * «No se concedieron los permisos solicitados a los siguientes activos comerciales»: la cuenta con la que entró no tiene
+     * control total de una página o portafolio comercial que quedó elegido en la ventana de Facebook.
+     */
+    public static function ayudaPermisos(?string $detalle = null): string
+    {
+        $texto = __('Facebook no le dio acceso a editus. Si viste «No se concedieron los permisos solicitados a los siguientes activos comerciales», la cuenta de Facebook con la que entraste no tiene control total de alguna página o portafolio comercial que quedó elegido. Vuelve a intentarlo y, en la ventana de Facebook, deja marcadas solo las páginas y negocios que administras (si ya habías conectado antes, entra a «Editar acceso»), o pide al administrador de esa página o portafolio que te dé control total.');
+        $detalle = trim((string) $detalle);
+        return $detalle !== '' ? $texto . ' ' . __('(Detalle de Facebook: :d)', ['d' => \Illuminate\Support\Str::limit($detalle, 200)]) : $texto;
+    }
 
     /**
      * Busca una página por ID en /me/accounts usando el token de usuario.

@@ -65,8 +65,11 @@ class FacebookLoginTest extends TestCase
 
     public function test_errores_de_facebook_y_usuario_desactivado(): void
     {
-        $this->get('/auth/facebook/login/callback?error=access_denied')->assertRedirect(route('facebook.login'))->assertSessionHas('error');
-        $this->get('/auth/facebook/login/callback')->assertSessionHas('error', 'Facebook no devolvió el parámetro "code".');
+        // Vuelve a la pantalla de ingreso con qué hacer (no otra vez a la ventana de Facebook)
+        $this->get('/auth/facebook/login/callback?error=access_denied&error_reason=user_denied')->assertRedirect(route('login'))
+            ->assertSessionHasErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos('user_denied')]);
+        $this->get(route('login'))->assertOk()->assertSee('No se concedieron los permisos solicitados a los siguientes activos comerciales');
+        $this->get('/auth/facebook/login/callback')->assertRedirect(route('login'))->assertSessionHasErrors(['email' => 'Facebook no devolvió el parámetro "code". Vuelve a intentarlo.']);
 
         // Error de la Graph API al pedir las páginas: entra, pero avisa con el mensaje de Facebook
         $this->facebook();

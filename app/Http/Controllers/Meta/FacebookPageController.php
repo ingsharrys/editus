@@ -1202,7 +1202,7 @@ class FacebookPageController extends Controller
             Log::warning('[FB] linkCallback: error de Facebook', ['query' => $request->query()]);
 
             return redirect()->route('meta.pages.index')
-                ->with('error', __('Facebook devolvió un error: :detalle', ['detalle' => $desc]));
+                ->with('error', \App\Support\FacebookGraph::ayudaPermisos($desc));
         }
 
         // Si no te falla state, puedes dejar ->user() normal.
