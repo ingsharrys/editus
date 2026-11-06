@@ -278,6 +278,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/campanas/{campaign}/contratos/medios/bloque', [$KA, 'mediosEnBloque'])->name('campaigns.contratos.medios.bloque');
         Route::post('/campanas/{campaign}/contratos/medios/{medio}/liberar', [$KA, 'liberarMedio'])->whereNumber('medio')->name('campaigns.contratos.medios.liberar');
         Route::delete('/campanas/{campaign}/contratos/medios/{medio}', [$KA, 'borrarMedio'])->whereNumber('medio')->name('campaigns.contratos.medios.borrar');
+        Route::post('/campanas/{campaign}/contratos/medios/{medio}/estado', [$KA, 'estadoMedio'])->whereNumber('medio')->name('campaigns.contratos.medios.estado');
         Route::post('/campanas/{campaign}/contratos/{contrato}/anular', [$KA, 'anular'])->whereNumber('contrato')->name('campaigns.contratos.anular');
     });
     // Certificado del medio inscrito (lo llena y firma el medio; el administrador también lo ve)

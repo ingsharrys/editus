@@ -32,6 +32,9 @@
         </div>
     @elseif (!$medio)
         {{-- 1. ¿Qué medio eres? --}}
+        @if ($deshabilitado ?? false)
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ __('El medio que habías elegido quedó deshabilitado en la campaña. Elige otro del listado o escribe al administrador.') }}</div>
+        @endif
         <form method="POST" action="{{ route('contratos.elegir', $c) }}" class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 space-y-3">
             @csrf
             <div class="flex items-center gap-2">{!! $paso(1) !!}<h2 class="text-base font-bold text-gray-900">{{ __('¿Qué medio representas?') }}</h2></div>

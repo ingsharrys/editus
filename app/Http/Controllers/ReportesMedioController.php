@@ -25,6 +25,7 @@ class ReportesMedioController extends Controller
         if (app(ContratosService::class)->requiereContrato($participante)) {
             return redirect()->route('contratos.formulario', $participante->campaign_id)->with('aviso', __('Primero firma el contrato.'));
         }
+        abort_unless(app(ContratosService::class)->medioActivo($participante), 403, __('Tu medio está deshabilitado en esta campaña: ya no puede reportar.'));
         abort_unless(app(ContratosService::class)->tieneCanal($participante, ReportesMedioService::CANAL[$clase]), 403,
             $clase === 'tiktok' ? __('Tu medio no tiene TikTok entre sus canales.') : __('Tu medio no tiene página web entre sus canales.'));
         $d = $request->validate([

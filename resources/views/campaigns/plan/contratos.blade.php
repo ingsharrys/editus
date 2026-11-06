@@ -43,10 +43,11 @@
                                     <span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">{{ __('sin canales') }}</span>
                                 @endforelse
                             </span>
-                            <span class="ml-auto">
+                            <span class="ml-auto flex flex-wrap items-center gap-1">
+                                @if (isset($conActividad[$m->id]))<span class="inline-flex rounded-full bg-sky-50 text-sky-800 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Con publicaciones') }}</span>@endif
+                                @if (!$m->activo)<span class="inline-flex rounded-full bg-gray-200 text-gray-600 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Deshabilitado') }}</span>@endif
                                 @if ($k)<span class="inline-flex rounded-full bg-emerald-50 text-emerald-700 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Contrato :n firmado', ['n' => $k->codigo]) }}</span>
                                 @elseif ($m->participante)<span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Inscrito, sin firmar') }}</span>
-                                @elseif (!$m->activo)<span class="inline-flex rounded-full bg-gray-100 text-gray-500 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Inactivo') }}</span>
                                 @else<span class="inline-flex rounded-full bg-gray-100 text-gray-600 px-2.5 py-0.5 text-[11px] font-semibold">{{ __('Sin inscribir') }}</span>@endif
                             </span>
                         </summary>
@@ -75,21 +76,29 @@
                                 @csrf <input type="hidden" name="id" value="{{ $m->id }}">
                                 <label class="text-xs text-gray-600">{{ __('Nombre') }}<input name="nombre" value="{{ $m->nombre }}" required maxlength="190" class="{{ $inp }} mt-0.5"></label>
                                 <label class="text-xs text-gray-600">{{ __('Tipo de contrato') }}<select name="tipo_id" class="{{ $inp }} mt-0.5"><option value="">—</option>@foreach ($tipos as $t)<option value="{{ $t->id }}" @selected($m->tipo_id === $t->id)>{{ $t->nombre }}</option>@endforeach</select></label>
-                                <label class="text-xs text-gray-600">{{ __('Valor del contrato ($)') }}<input name="valor" value="{{ $m->valor ? number_format($m->valor, 0, ',', '.') : '' }}" maxlength="30" inputmode="numeric" placeholder="2.500.000" class="{{ $inp }} mt-0.5"></label>
+                                <label class="text-xs text-gray-600">{{ __('Valor del contrato ($)') }}<input name="valor" value="{{ $m->valor ? number_format($m->valor, 0, ',', '.') : '' }}" maxlength="30" inputmode="numeric" placeholder="{{ __('Ej.: 2.500.000') }}" class="{{ $inp }} mt-0.5"></label>
                                 <label class="text-xs text-gray-600">{{ __('Correo (opcional)') }}<input type="email" name="correo" value="{{ $m->correo }}" maxlength="190" class="{{ $inp }} mt-0.5"></label>
                                 <label class="text-xs text-gray-600">{{ __('Notas') }}<input name="notas" value="{{ $m->notas }}" maxlength="500" class="{{ $inp }} mt-0.5"></label>
                                 <div class="sm:col-span-2 text-xs text-gray-600">{{ __('Canales (salen del tipo de contrato; ajústalos si este medio es distinto y marca la pauta en las redes que la lleven)') }}
                                     <div class="mt-1">@include('campaigns.plan._canales_medio', ['sel' => $m->canales()])</div>
                                     @if ($k)<p class="mt-1 text-[11px] text-gray-400">{{ __('El contrato firmado conserva los canales con que se firmó; un cambio aquí aplica al portal del medio y a un contrato nuevo.') }}</p>@endif
                                 </div>
-                                <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
-                                    <label class="flex items-center gap-2 text-xs text-gray-700"><input type="hidden" name="activo" value="0"><input type="checkbox" name="activo" value="1" @checked($m->activo) class="h-4 w-4 rounded border-gray-300"> {{ __('Activo (aparece en la inscripción)') }}</label>
-                                    <div class="flex gap-2"><button class="h-8 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">{{ __('Guardar') }}</button></div>
-                                </div>
+                                <div class="sm:col-span-2 flex justify-end"><button class="h-8 rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold">{{ __('Guardar') }}</button></div>
                             </form>
-                            @unless ($k || $anulados->has($m->id))
-                                <form method="POST" action="{{ route('campaigns.contratos.medios.borrar', [$c, $m->id]) }}" onsubmit="return confirm(@js(__('¿Borrar :n del listado?', ['n' => $m->nombre])))">@csrf @method('DELETE')<button class="text-xs text-rose-700 hover:underline">{{ __('Borrar del listado') }}</button></form>
-                            @endunless
+                            {{-- Sin publicaciones se puede borrar; con publicaciones, solo deshabilitar (su historial queda) --}}
+                            <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-gray-100 pt-3">
+                                <form method="POST" action="{{ route('campaigns.contratos.medios.estado', [$c, $m->id]) }}"
+                                      @if ($m->activo) onsubmit="return confirm(@js(__('¿Deshabilitar «:n»? No aparecerá en la inscripción, dejará de recibir publicaciones de la campaña y no podrá reportar nada nuevo. Lo que ya publicó y su contrato se conservan.', ['n' => $m->nombre])))" @endif>@csrf
+                                    <button class="h-8 rounded-lg border {{ $m->activo ? 'border-amber-200 text-amber-800' : 'border-emerald-200 text-emerald-800' }} bg-white px-3 text-xs font-semibold">{{ $m->activo ? __('Deshabilitar') : __('Habilitar') }}</button></form>
+                                @if (isset($conActividad[$m->id]))
+                                    <span class="text-[11px] text-gray-500">{{ __('Ya tiene publicaciones en la campaña: no se puede borrar, solo deshabilitar.') }}</span>
+                                @else
+                                    <form method="POST" action="{{ route('campaigns.contratos.medios.borrar', [$c, $m->id]) }}"
+                                          onsubmit="return confirm(@js($k ? __('¿Borrar «:n»? Aún no ha publicado nada. Su contrato No. :k quedará anulado.', ['n' => $m->nombre, 'k' => $k->codigo]) : __('¿Borrar «:n» del listado?', ['n' => $m->nombre])))">@csrf @method('DELETE')
+                                        <button class="h-8 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-700">{{ __('Borrar') }}</button></form>
+                                    <span class="text-[11px] text-gray-400">{{ __('Aún no ha publicado nada: se puede borrar.') }}</span>
+                                @endif
+                            </div>
                         </div>
                     </details>
                 @empty

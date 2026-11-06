@@ -588,6 +588,76 @@ class ContratosService
     // ───────────────────────── Listado de medios ─────────────────────────
 
     /**
+     * Medios del listado que ya tienen actividad en la campaña: publicaciones o en vivos en sus páginas, reportes de
+     * TikTok o banners, o cuñas de radio. Esos ya no se pueden borrar, solo deshabilitar. Devuelve sus ids.
+     */
+    public function medioIdsConActividad(Campaign $c, ?array $soloMedios = null): array
+    {
+        $medios = MedioCampana::where('campaign_id', $c->id)->whereNotNull('participante_id')
+            ->when($soloMedios !== null, fn($q) => $q->whereIn('id', $soloMedios))->pluck('id', 'participante_id');
+        if ($medios->isEmpty()) return [];
+        $participantes = CampaignParticipante::whereIn('id', $medios->keys())->get(['id', 'user_id', 'meta_page_ids']);
+        $conActividad = [];
+        // Piezas y en vivos publicados para la campaña en las páginas de cada medio
+        $paginasDe = DB::table('meta_page_user')->whereIn('user_id', $participantes->pluck('user_id'))->get(['user_id', 'meta_page_id'])
+            ->groupBy('user_id')->map(fn($g) => $g->pluck('meta_page_id')->map(fn($v) => (int) $v)->all());
+        $paginas = [];
+        foreach ($participantes as $p) {
+            $suyas = $paginasDe[$p->user_id] ?? [];
+            $elegidas = array_map('intval', (array) $p->meta_page_ids);
+            $paginas[$p->id] = $elegidas ? array_values(array_intersect($suyas, $elegidas)) : $suyas;
+        }
+        $todas = array_values(array_unique(array_merge([], ...array_values($paginas))));
+        $conPublicaciones = $todas ? \App\Models\MetaPost::where('campaign_id', $c->id)->whereIn('meta_page_id', $todas)->where('status', 'success')
+            ->distinct()->pluck('meta_page_id')->map(fn($v) => (int) $v)->all() : [];
+        foreach ($paginas as $pid => $ids) if (array_intersect($ids, $conPublicaciones)) $conActividad[$pid] = true;
+        // Lo que reportó el propio medio: TikTok, banners y radio
+        if (ReportesMedioService::disponible()) {
+            foreach (\App\Models\Producto::whereIn('participante_id', $medios->keys())->distinct()->pluck('participante_id') as $pid) $conActividad[$pid] = true;
+        }
+        if (EmisionesRadioService::disponible()) {
+            foreach (\App\Models\EmisionRadio::whereIn('participante_id', $medios->keys())->distinct()->pluck('participante_id') as $pid) $conActividad[$pid] = true;
+        }
+        return $medios->only(array_keys($conActividad))->values()->map(fn($v) => (int) $v)->all();
+    }
+
+    public function tieneActividad(MedioCampana $m): bool
+    {
+        return $m->participante_id && $this->medioIdsConActividad($m->campaign, [$m->id]) !== [];
+    }
+
+    /**
+     * Borra un medio que no tiene actividad. Si alguien ya había firmado su contrato, el contrato queda anulado
+     * (se guarda, con su número, para el registro) y esa persona tendrá que elegir su medio y firmar de nuevo.
+     */
+    public function borrarMedio(MedioCampana $m): void
+    {
+        DB::transaction(function () use ($m) {
+            Contrato::where('medio_id', $m->id)->whereNull('anulado_at')->update(['anulado_at' => now()]);
+            $m->delete();
+        });
+        app(CertificadosService::class)->sincronizarPaginas($m->campaign);
+    }
+
+    /** ¿El medio del participante está habilitado? (sin medio del listado, sí: campañas sin contratos) */
+    public function medioActivo(CampaignParticipante $p): bool
+    {
+        $m = $this->medioDe($p);
+        return !$m || $m->activo;
+    }
+
+    /**
+     * Participantes cuyas páginas entran a la campaña: con listado de medios, solo los que tienen un medio habilitado
+     * (un medio deshabilitado o borrado deja de recibir publicaciones). Sin listado, null: todos, como antes.
+     */
+    public function participantesQuePublican(Campaign $c): ?array
+    {
+        if (!self::disponible() || !MedioCampana::where('campaign_id', $c->id)->exists()) return null;
+        return MedioCampana::where('campaign_id', $c->id)->where('activo', true)->whereNotNull('participante_id')
+            ->pluck('participante_id')->map(fn($v) => (int) $v)->all();
+    }
+
+    /**
      * Agrega medios en bloque: una línea por medio, «Nombre; correo; valor» (el correo y el valor son opcionales).
      * Todos quedan con el mismo tipo de contrato y los mismos canales ($canales de MedioCampana::desdeFormulario).
      * Devuelve cuántos se agregaron (los repetidos se omiten).

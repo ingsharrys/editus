@@ -32,6 +32,10 @@
             <a href="{{ route('contratos.pdf', $contratoMedio) }}" class="h-9 inline-flex items-center rounded-lg bg-white border border-emerald-200 px-3 text-xs font-semibold text-emerald-800">{{ __('Descargar contrato') }}</a>
         </div>
     @endif
+    @if (\App\Services\ContratosService::disponible() && !app(\App\Services\ContratosService::class)->medioActivo($participante))
+        <div class="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 mb-5 text-sm text-amber-900">
+            {{ __('Este medio está deshabilitado en la campaña: ya no recibe publicaciones ni puede reportar. Lo que ya publicó y su contrato se conservan.') }}</div>
+    @endif
 
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm px-6 sm:px-14 py-10 sm:py-14">
         @include('certificados._hoja')
@@ -41,7 +45,8 @@
         $em = app(\App\Services\EmisionesRadioService::class);
         $opcionesRadio = $em->opciones($campana);
         // Solo la reporta el propio medio, y solo si tiene emisora entre sus canales (si no se saben sus canales, como antes)
-        $esLaEmisora = (int) $participante->user_id === (int) auth()->id() && app(\App\Services\ContratosService::class)->tieneCanal($participante, 'radio');
+        $esLaEmisora = (int) $participante->user_id === (int) auth()->id() && app(\App\Services\ContratosService::class)->tieneCanal($participante, 'radio')
+            && app(\App\Services\ContratosService::class)->medioActivo($participante);
         $reportes = \App\Services\EmisionesRadioService::disponible() ? \App\Models\EmisionRadio::where('participante_id', $participante->id)->with(['subcampana', 'tipo'])->latest('fecha_desde')->latest('id')->get() : collect();
     @endphp
     @if ($opcionesRadio->isNotEmpty() && ($esLaEmisora || $reportes->isNotEmpty()))

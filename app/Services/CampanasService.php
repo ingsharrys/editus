@@ -88,7 +88,11 @@ class CampanasService
         $inscritas = [];
         if ($c->exists && \App\Services\CertificadosService::disponible()) {
             $cert = app(\App\Services\CertificadosService::class);
-            foreach ($c->participantes()->get() as $p) foreach ($cert->paginas($p) as $pg) $inscritas[] = (int) $pg->id;
+            $publican = app(\App\Services\ContratosService::class)->participantesQuePublican($c); // sin los medios deshabilitados
+            foreach ($c->participantes()->get() as $p) {
+                if ($publican !== null && !in_array((int) $p->id, $publican, true)) continue;
+                foreach ($cert->paginas($p) as $pg) $inscritas[] = (int) $pg->id;
+            }
         }
 
         DB::transaction(function () use ($perfil, $deMedios, $paginasExtra, $conOrigen, $inscritas) {

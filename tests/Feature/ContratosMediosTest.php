@@ -345,6 +345,61 @@ class ContratosMediosTest extends TestCase
         $this->assertSame(0, app(ContratosService::class)->actualizarModelos()); // ya no hay nada que actualizar
     }
 
+    public function test_sin_publicaciones_se_borra_y_con_publicaciones_solo_se_deshabilita(): void
+    {
+        $tipo = $this->prepararContratos();
+        // Un medio que nadie ha elegido se borra
+        $voz = MedioCampana::where('nombre', 'La Voz de Pitalito')->firstOrFail();
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertSee('Aún no ha publicado nada: se puede borrar.');
+        $this->actingAs($this->admin)->delete(route('campaigns.contratos.medios.borrar', [$this->c, $voz->id]))->assertSessionHas('success', 'Medio «La Voz de Pitalito» borrado.');
+        $this->assertNull($voz->fresh());
+
+        // Canal 6 firmó pero no ha publicado nada: también se borra, y su contrato queda anulado (con su número, para el registro)
+        $otro = MedioCampana::create(['campaign_id' => $this->c->id, 'nombre' => 'Otro medio', 'canales' => ['facebook' => ['pauta' => false]], 'tipo_id' => $tipo->id, 'activo' => true, 'orden' => 9]);
+        $u = $this->inscribir('Alba Luz Erazo');
+        $canal6 = MedioCampana::where('nombre', 'Canal 6 Alfasurt')->firstOrFail();
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $canal6->id]);
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $this->datosFirma())->assertRedirect(route('certificados.formulario', $this->c));
+        $k = Contrato::firstOrFail();
+        $this->actingAs($this->admin)->delete(route('campaigns.contratos.medios.borrar', [$this->c, $canal6->id]))
+            ->assertSessionHas('success', 'Medio «Canal 6 Alfasurt» borrado. Su contrato No. SALUD-2026-007 quedó anulado.');
+        $this->assertNull($canal6->fresh());
+        $this->assertNotNull($k->fresh()->anulado_at);
+        $this->actingAs($u)->get(route('profile.edit'))->assertRedirect(route('contratos.formulario', $this->c)); // vuelve a elegir y firmar
+
+        // Elige el otro medio, firma y publica: ya no se puede borrar, solo deshabilitar
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $otro->id]);
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $this->datosFirma(['medio_nombre' => 'Otro medio', 'canal' => ['facebook' => 'facebook.com/otro']]))->assertRedirect();
+        $this->assertSame('SALUD-2026-008', Contrato::whereNull('anulado_at')->value('codigo')); // el número anulado no se reutiliza
+        $p = CampaignParticipante::where('user_id', $u->id)->firstOrFail();
+        $pagina = MetaPage::create(['page_id' => '900', 'name' => 'Otro medio']);
+        \Illuminate\Support\Facades\DB::table('meta_page_user')->insert(['meta_page_id' => $pagina->id, 'user_id' => $u->id]);
+        $p->forceFill(['meta_page_ids' => [$pagina->id]])->save();
+        app(\App\Services\CertificadosService::class)->sincronizarPaginas($this->c);
+        $this->assertDatabaseHas('campana_pagina', ['meta_page_id' => $pagina->id, 'origen' => 'inscrito']);
+        $this->assertSame([], app(ContratosService::class)->medioIdsConActividad($this->c)); // vinculado, pero aún sin publicar
+        \App\Models\MetaPost::create(['user_id' => $this->admin->id, 'meta_page_id' => $pagina->id, 'campaign_id' => $this->c->id, 'type' => 'photo', 'network' => 'facebook', 'status' => 'success', 'published_at' => now()]);
+        $this->assertSame([$otro->id], app(ContratosService::class)->medioIdsConActividad($this->c));
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertSee('Con publicaciones')->assertSee('no se puede borrar, solo deshabilitar');
+        $this->actingAs($this->admin)->delete(route('campaigns.contratos.medios.borrar', [$this->c, $otro->id]))
+            ->assertSessionHas('error', '«Otro medio» ya tiene publicaciones en la campaña: no se puede borrar, solo deshabilitar.');
+        $this->assertNotNull($otro->fresh());
+
+        // Deshabilitado: sale de las páginas de la campaña y no puede reportar; su contrato y lo publicado quedan
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.estado', [$this->c, $otro->id]))->assertSessionHas('success');
+        $this->assertFalse($otro->fresh()->activo);
+        $this->assertDatabaseMissing('campana_pagina', ['meta_page_id' => $pagina->id, 'origen' => 'inscrito']);
+        $this->actingAs($u)->get(route('certificados.ver', $p))->assertOk()->assertSee('Este medio está deshabilitado en la campaña')->assertSee('Contrato No. SALUD-2026-008 firmado');
+        $this->actingAs($u)->post(route('reportes-medio.guardar', [$p, 'tiktok']), ['tipo_id' => 1])->assertForbidden();
+        $this->assertSame(1, \App\Models\MetaPost::where('campaign_id', $this->c->id)->count());
+        // Guardar sus datos no lo vuelve a habilitar; el botón sí
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['id' => $otro->id, 'nombre' => 'Otro medio', 'tipo_id' => $tipo->id, 'canales' => ['facebook']])->assertRedirect();
+        $this->assertFalse($otro->fresh()->activo);
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.estado', [$this->c, $otro->id]))->assertSessionHas('success', '«Otro medio» quedó habilitado.');
+        $this->assertTrue($otro->fresh()->activo);
+        $this->assertDatabaseHas('campana_pagina', ['meta_page_id' => $pagina->id, 'origen' => 'inscrito']);
+    }
+
     public function test_sin_listado_de_medios_el_certificado_sigue_como_antes(): void
     {
         $u = $this->inscribir('Medio sin contrato');

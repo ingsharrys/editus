@@ -38,6 +38,7 @@ class ContratosAdminController extends Controller
             'tipos' => $tipos,
             'faltanModelos' => array_diff(array_keys(ContratosService::MODELOS), $tipos->pluck('clave')->filter()->all()) !== [],
             'medios' => $medios,
+            'conActividad' => array_flip($this->contratos->medioIdsConActividad($campaign)),
             'vigentes' => $vigentes,
             'anulados' => $contratos->whereNotNull('anulado_at')->groupBy('medio_id'),
             'siguiente' => $this->contratos->codigo($campaign, $this->contratos->siguienteNumero($campaign)),
@@ -120,8 +121,11 @@ class ContratosAdminController extends Controller
             throw \Illuminate\Validation\ValidationException::withMessages(['valor' => __('Este contrato divide el valor en dos cuotas mensuales iguales: escribe un valor par.')]);
         }
         $m = !empty($d['id']) ? MedioCampana::where('campaign_id', $campaign->id)->findOrFail($d['id']) : new MedioCampana(['campaign_id' => $campaign->id, 'orden' => (int) MedioCampana::where('campaign_id', $campaign->id)->max('orden') + 1]);
+        $activo = array_key_exists('activo', $d) ? (bool) $d['activo'] : ($m->exists ? (bool) $m->activo : true);
+        $cambiaEstado = $m->exists && (bool) $m->activo !== $activo;
         $m->fill(['nombre' => trim($d['nombre']), 'canales' => $canales, 'tipo_id' => $d['tipo_id'] ?? null, 'valor' => $valor,
-            'correo' => $d['correo'] ?? null, 'notas' => $d['notas'] ?? null, 'activo' => (bool) ($d['activo'] ?? true)])->save();
+            'correo' => $d['correo'] ?? null, 'notas' => $d['notas'] ?? null, 'activo' => $activo])->save();
+        if ($cambiaEstado && $m->participante_id) app(\App\Services\CertificadosService::class)->sincronizarPaginas($campaign);
         return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', __('Medio «:n» guardado.', ['n' => $m->nombre]));
     }
 
@@ -146,9 +150,28 @@ class ContratosAdminController extends Controller
     public function borrarMedio(Campaign $campaign, int $medio)
     {
         $m = MedioCampana::where('campaign_id', $campaign->id)->findOrFail($medio);
-        if (Contrato::where('medio_id', $m->id)->exists()) return back()->with('error', __('Este medio tiene contratos: desactívalo en lugar de borrarlo.'));
-        $m->delete();
-        return back()->with('success', __('Medio borrado.'));
+        if ($this->contratos->tieneActividad($m)) {
+            return back()->with('error', __('«:n» ya tiene publicaciones en la campaña: no se puede borrar, solo deshabilitar.', ['n' => $m->nombre]));
+        }
+        $anulado = Contrato::where('medio_id', $m->id)->whereNull('anulado_at')->value('codigo');
+        $this->contratos->borrarMedio($m);
+        return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', $anulado
+            ? __('Medio «:n» borrado. Su contrato No. :k quedó anulado.', ['n' => $m->nombre, 'k' => $anulado])
+            : __('Medio «:n» borrado.', ['n' => $m->nombre]));
+    }
+
+    /**
+     * Habilita o deshabilita un medio. Deshabilitado no aparece en la inscripción, deja de recibir publicaciones de la
+     * campaña y no puede reportar nada nuevo; su contrato y lo que ya publicó quedan.
+     */
+    public function estadoMedio(Campaign $campaign, int $medio)
+    {
+        $m = MedioCampana::where('campaign_id', $campaign->id)->findOrFail($medio);
+        $m->forceFill(['activo' => !$m->activo])->save();
+        if ($m->participante_id) app(\App\Services\CertificadosService::class)->sincronizarPaginas($campaign);
+        return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', $m->activo
+            ? __('«:n» quedó habilitado.', ['n' => $m->nombre])
+            : __('«:n» quedó deshabilitado: ya no recibe publicaciones ni puede reportar; lo que ya publicó se conserva.', ['n' => $m->nombre]));
     }
 
     public function anular(Campaign $campaign, int $contrato)

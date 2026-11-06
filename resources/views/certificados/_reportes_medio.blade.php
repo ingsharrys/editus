@@ -12,7 +12,7 @@
         $opc = $rep->opciones($campana, $clase);
         $mios = $hechos->where('clase_reporte', $clase);
         // El medio solo reporta lo de sus canales: TikTok si tiene TikTok, banners si tiene página web
-        $puede = $esElMedio && $contratos->tieneCanal($participante, \App\Services\ReportesMedioService::CANAL[$clase]);
+        $puede = $esElMedio && $contratos->medioActivo($participante) && $contratos->tieneCanal($participante, \App\Services\ReportesMedioService::CANAL[$clase]);
     @endphp
     @if ($opc->isNotEmpty() && ($puede || $mios->isNotEmpty()))
         <div id="{{ $clase }}" class="mt-8 rounded-2xl border border-gray-200 bg-white shadow-sm p-5">

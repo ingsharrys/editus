@@ -28,6 +28,9 @@ class ContratoController extends Controller
         if (!$this->contratos->usaContratos($campaign)) return redirect()->route('certificados.formulario', $campaign);
         $medio = $this->contratos->medioDe($p);
         $contrato = $this->contratos->contratoDe($p);
+        // Si deshabilitaron el medio que eligió (y aún no firma), vuelve a elegir
+        $deshabilitado = $medio && !$medio->activo && !$contrato;
+        if ($deshabilitado) $medio = null;
         $anterior = $medio ? Contrato::where('participante_id', $p->id)->latest('id')->first() : null; // para precargar si lo anularon
         $previos = (array) ($anterior?->datos ?? []);
         $datos = array_merge([
@@ -37,7 +40,7 @@ class ContratoController extends Controller
         ], array_filter($previos), array_filter((array) $request->old()));
         $valores = $medio ? $this->contratos->valores($campaign, $medio, $datos) : [];
         return view('contratos.formulario', [
-            'c' => $campaign, 'p' => $p, 'medio' => $medio, 'contrato' => $contrato,
+            'c' => $campaign, 'p' => $p, 'medio' => $medio, 'contrato' => $contrato, 'deshabilitado' => $deshabilitado,
             'libres' => $this->contratos->mediosLibres($campaign, $p),
             'datos' => $datos, 'valores' => $valores,
             'texto' => $medio && $medio->tipo ? $this->contratos->render($medio->tipo->cuerpo, $valores, true) : '',
@@ -60,6 +63,7 @@ class ContratoController extends Controller
         if ($this->contratos->contratoDe($p)) return redirect()->route('contratos.formulario', $campaign);
         $medio = $this->contratos->medioDe($p);
         if (!$medio || !$medio->tipo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Primero elige tu medio del listado.')]);
+        if (!$medio->activo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Ese medio está deshabilitado en la campaña. Elige otro o escribe al administrador.')]);
         if ($aviso = $medio->avisoValor()) return redirect()->route('contratos.formulario', $campaign)->withErrors(['valor' => $aviso]);
         $archivo = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'];
         // Cada canal del medio (los marca el administrador) pide su dato: dirección, usuario, frecuencia…
