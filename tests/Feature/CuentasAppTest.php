@@ -82,6 +82,7 @@ class CuentasAppTest extends TestCase
         $provider->shouldReceive('redirectUrl')->andReturnSelf();
         $provider->shouldReceive('stateless')->andReturnSelf();
         $provider->shouldReceive('scopes')->andReturnSelf();
+        $provider->shouldReceive('setScopes')->andReturnSelf();
         $provider->shouldReceive('with')->andReturnSelf();
         $provider->shouldReceive('redirect')->andReturn(redirect("https://{$driver}.test/oauth"));
         $provider->shouldReceive('user')->andReturn($user);
@@ -96,6 +97,8 @@ class CuentasAppTest extends TestCase
         $this->socialite('facebook', new \Laravel\Socialite\Two\User());
         $r = $this->get('/auth/app/facebook?' . http_build_query($this->firma('7') + ['volver' => 'en-vivo']));
         $r->assertRedirect('https://facebook.test/oauth');
+        // La app sigue pidiendo el portafolio comercial, como antes
+        $this->assertContains('business_management', \App\Support\FacebookGraph::permisosPaginas(true));
         $this->assertSame('7', session('vinculo_app.u'));
         $this->assertSame('en-vivo', session('vinculo_app.volver'));
     }

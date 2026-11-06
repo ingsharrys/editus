@@ -1156,26 +1156,33 @@ class FacebookPageController extends Controller
             ->redirectUrl(route('facebook.link.callback'));
     }
 
-    public function linkRedirect()
+    /**
+     * Conectar páginas. Basta con ser editor o administrador de la página; con «?portafolio=1» (o $portafolio)
+     * también se pide el portafolio comercial. Ojo: Socialite ya trae los permisos de services.facebook.scopes y
+     * «scopes()» los suma; por eso se usa «setScopes()», que deja exactamente los que se piden aquí.
+     */
+    public function linkRedirect(?Request $request = null, ?bool $portafolio = null)
     {
+        $request ??= request();
+        $portafolio ??= $request->boolean('portafolio');
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
         $params = ['auth_type' => 'rerequest'];
+        $scopes = \App\Support\FacebookGraph::permisosPaginas($portafolio);
 
-        if ($cid = config('services.facebook.link_config_id')) {
+        if ($cid = \App\Support\FacebookGraph::configId('link', $portafolio)) {
             $params['config_id'] = $cid;
             $params['response_type'] = 'code';
             $params['override_default_response_type'] = 'true';
 
             return Socialite::driver('facebook')
+                ->setScopes($scopes)
                 ->with($params)
                 ->redirectUrl($redirectUrl)
                 ->redirect();
         }
 
-        $scopes = config('services.facebook.link_scopes', []);
-
         return Socialite::driver('facebook')
-            ->scopes($scopes)
+            ->setScopes($scopes)
             ->with($params)
             ->redirectUrl($redirectUrl)
             ->redirect();

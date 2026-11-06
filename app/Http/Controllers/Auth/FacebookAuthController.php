@@ -18,21 +18,24 @@ use App\Models\MetaPage;
 
 class FacebookAuthController extends Controller
 {
-    public function redirect()
+    public function redirect(Request $request)
     {
         $version = config('services.facebook.version', 'v23.0');
-        $scopes = config('services.facebook.link_scopes', ['email', 'pages_show_list']);
+        // Basta con ser editor o administrador de la página; con «?portafolio=1» también se pide el portafolio comercial
+        $portafolio = $request->boolean('portafolio');
+        $scopes = \App\Support\FacebookGraph::permisosPaginas($portafolio);
 
         $with = [];
 
         // si tienes config_id (business login), lo mandas
-        if ($cid = config('services.facebook.login_config_id')) {
+        if ($cid = \App\Support\FacebookGraph::configId('login', $portafolio)) {
             $with['config_id'] = $cid;
         }
 
+        // «setScopes» y no «scopes»: Socialite ya trae services.facebook.scopes (con business_management) y «scopes» los suma
         return Socialite::driver('facebook')
             ->usingGraphVersion($version)
-            ->scopes($scopes)
+            ->setScopes($scopes)
             ->with($with)
             ->redirect();
     }

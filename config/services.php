@@ -56,6 +56,8 @@ return [
         // Conexión/sincronización de páginas (usadas por FacebookPageController)
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
         'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
+        // opcional: configuración aparte (con business_management) para conectar desde un portafolio comercial
+        'portafolio_config_id' => env('FACEBOOK_PORTAFOLIO_CONFIG_ID'),
         'link_scopes' => array_values(array_diff(array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_comments,instagram_content_publish'))

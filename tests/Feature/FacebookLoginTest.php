@@ -39,6 +39,34 @@ class FacebookLoginTest extends TestCase
         Socialite::shouldReceive('driver')->with('facebook')->andReturn($driver);
     }
 
+    public function test_basta_con_ser_editor_de_la_pagina_y_el_portafolio_es_aparte(): void
+    {
+        // Facebook niega «business_management» a quien no está en el portafolio comercial (y entonces niega todo):
+        // por eso solo se pide en la opción del portafolio
+        config(['services.facebook.redirect' => 'https://app.editus.online/auth/facebook/login/callback', 'services.facebook.link_config_id' => null,
+            'services.facebook.login_config_id' => null, 'services.facebook.portafolio_config_id' => null,
+            'services.facebook.link_scopes' => ['email', 'public_profile', 'pages_show_list', 'pages_manage_posts', 'business_management', 'instagram_basic']]);
+        $this->assertSame(['email', 'public_profile', 'pages_show_list', 'pages_manage_posts', 'instagram_basic'], \App\Support\FacebookGraph::permisosPaginas());
+        $this->assertContains('business_management', \App\Support\FacebookGraph::permisosPaginas(true));
+
+        $normal = urldecode((string) $this->get(route('facebook.login'))->assertRedirect()->headers->get('Location'));
+        $this->assertStringContainsString('pages_manage_posts', $normal);
+        $this->assertStringNotContainsString('business_management', $normal);
+        $conPortafolio = urldecode((string) $this->get(route('facebook.login', ['portafolio' => 1]))->headers->get('Location'));
+        $this->assertStringContainsString('business_management', $conPortafolio);
+
+        // «Conectar mis páginas» en la web: igual
+        $admin = User::factory()->create(['role_id' => \App\Models\Role::where('slug', 'admin')->value('id')]);
+        $conectar = urldecode((string) $this->actingAs($admin)->get(route('facebook.connect'))->assertRedirect()->headers->get('Location'));
+        $this->assertStringContainsString('pages_show_list', $conectar);
+        $this->assertStringNotContainsString('business_management', $conectar);
+        $this->assertStringContainsString('business_management', urldecode((string) $this->actingAs($admin)->get(route('facebook.connect', ['portafolio' => 1]))->headers->get('Location')));
+
+        // Con «Facebook Login for Business» el portafolio puede tener su propia configuración
+        config(['services.facebook.login_config_id' => '111', 'services.facebook.portafolio_config_id' => '222']);
+        $this->assertSame(['111', '222', '111'], [\App\Support\FacebookGraph::configId('login'), \App\Support\FacebookGraph::configId('login', true), \App\Support\FacebookGraph::configId('login', false)]);
+    }
+
     public function test_ingresa_cambia_el_token_y_sincroniza_las_paginas(): void
     {
         $this->facebook();

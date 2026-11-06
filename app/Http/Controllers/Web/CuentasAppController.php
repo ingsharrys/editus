@@ -38,7 +38,7 @@ class CuentasAppController extends Controller
         if ((string) config('services.facebook.client_id') === '') return $this->resultado('facebook', false, __('editus no tiene configurada la app de Facebook (FACEBOOK_CLIENT_ID).'));
 
         $request->session()->put(self::SESION, ['u' => $u, 'red' => 'facebook', 'desde' => time(), 'volver' => $this->volver($request)]);
-        return $facebook->linkRedirect();
+        return $facebook->linkRedirect($request, true); // como hasta ahora: con el portafolio comercial
     }
 
     public function youtube(Request $request): RedirectResponse|View

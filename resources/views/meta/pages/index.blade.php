@@ -184,6 +184,12 @@
                 </div>
             </div>
         
+            <p class="mt-3 text-[11px] text-gray-500">
+                {{ __('Para conectar una página basta con ser su editor o administrador.') }}
+                {{ __('¿Tus páginas solo las manejas desde un portafolio comercial (Business Manager) y no aparecen? Si eres administrador del portafolio,') }}
+                <a href="{{ route('facebook.connect', ['portafolio' => 1]) }}" class="underline text-indigo-700">{{ __('conéctalas desde el portafolio') }}</a>.
+            </p>
+
             <!-- SECCIÓN REPAIR -->
             <div class="mt-5 pt-4 border-t border-gray-100">
         
