@@ -61,8 +61,8 @@
             @endif
         </div>
 
-        @if ($medio->faltaValor())
-            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ __('El administrador todavía no ha puesto el valor de tu contrato. Puedes revisar el contrato, pero para firmarlo escríbele para que lo agregue.') }}</div>
+        @if ($aviso = $medio->avisoValor())
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ $aviso }}</div>
         @endif
         <form method="POST" action="{{ route('contratos.firmar', $c) }}" enctype="multipart/form-data" id="contratoForm" class="space-y-5">
             @csrf

@@ -65,10 +65,19 @@ class MedioCampana extends Model
         return $this->valor ? '$ ' . number_format((int) $this->valor, 0, ',', '.') : '';
     }
 
-    /** ¿Le falta el valor para poder firmar? (cuando el texto de su contrato lo usa) */
+    /** ¿El valor le impide firmar? (falta, o es impar y el contrato lo divide en dos cuotas iguales) */
     public function faltaValor(): bool
     {
-        return !$this->valor && $this->tipo && $this->tipo->usaValor();
+        return $this->avisoValor() !== null;
+    }
+
+    /** Lo que se le dice al medio cuando el valor le impide firmar (o null si está bien). */
+    public function avisoValor(): ?string
+    {
+        if (!$this->tipo || !$this->tipo->usaValor()) return null;
+        if (!$this->valor) return __('El administrador todavía no ha puesto el valor de tu contrato. Puedes revisar el contrato, pero para firmarlo escríbele para que lo agregue.');
+        if ($this->tipo->usaMitad() && $this->valor % 2) return __('El valor de tu contrato no se puede dividir en dos cuotas iguales. Escribe al administrador de la campaña para que lo revise.');
+        return null;
     }
 
     /** «2.500.000», «$ 2.500.000» o «2500000,50» → 2500000 (null si no hay número). */

@@ -35,7 +35,13 @@ class ContratoTipo extends Model
     /** ¿El texto usa el valor del contrato? (entonces cada medio necesita su valor para poder firmar) */
     public function usaValor(): bool
     {
-        return (bool) preg_match('/\{\s*valor(_letras)?\s*\}/i', (string) $this->cuerpo);
+        return (bool) preg_match('/\{\s*valor(_letras|_mitad|_mitad_letras)?\s*\}/i', (string) $this->cuerpo);
+    }
+
+    /** ¿El texto divide el valor en dos cuotas iguales? (entonces el valor tiene que ser par) */
+    public function usaMitad(): bool
+    {
+        return (bool) preg_match('/\{\s*valor_mitad(_letras)?\s*\}/i', (string) $this->cuerpo);
     }
 
     public function rolMedio(): string

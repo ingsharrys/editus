@@ -25,6 +25,7 @@ class ContratosAdminController extends Controller
         abort_unless(ContratosService::disponible(), 404, __('Falta migrar la base de datos (php artisan migrate).'));
         // Los modelos de contrato que trae editus quedan listos para elegir la primera vez que se abre esta pantalla
         if (!$this->contratos->config($campaign)['modelos_cargados']) $this->contratos->cargarModelos($campaign->refresh());
+        $this->contratos->actualizarModelos($campaign); // si cambió un Word de los modelos, los tipos que nadie editó se ponen al día
         $cfg = $this->contratos->config($campaign);
         $cert = app(\App\Services\CertificadosService::class);
         $tipos = ContratoTipo::withCount('medios')->where('campaign_id', $campaign->id)->orderBy('orden')->orderBy('id')->get();
@@ -114,8 +115,12 @@ class ContratosAdminController extends Controller
             'valor' => ['nullable', 'string', 'max:30', 'regex:/^\$?\s*[\d.,\s]+$/'],
         ] + $this->reglasCanales(false), ['valor.regex' => __('Escribe el valor solo con números (ej.: 2.500.000).')]);
         $canales = $this->canalesDe($d);
+        $valor = MedioCampana::leerValor($d['valor'] ?? null);
+        if ($valor && $valor % 2 && !empty($d['tipo_id']) && ContratoTipo::find($d['tipo_id'])?->usaMitad()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['valor' => __('Este contrato divide el valor en dos cuotas mensuales iguales: escribe un valor par.')]);
+        }
         $m = !empty($d['id']) ? MedioCampana::where('campaign_id', $campaign->id)->findOrFail($d['id']) : new MedioCampana(['campaign_id' => $campaign->id, 'orden' => (int) MedioCampana::where('campaign_id', $campaign->id)->max('orden') + 1]);
-        $m->fill(['nombre' => trim($d['nombre']), 'canales' => $canales, 'tipo_id' => $d['tipo_id'] ?? null, 'valor' => MedioCampana::leerValor($d['valor'] ?? null),
+        $m->fill(['nombre' => trim($d['nombre']), 'canales' => $canales, 'tipo_id' => $d['tipo_id'] ?? null, 'valor' => $valor,
             'correo' => $d['correo'] ?? null, 'notas' => $d['notas'] ?? null, 'activo' => (bool) ($d['activo'] ?? true)])->save();
         return redirect()->to(route('campaigns.contratos', $campaign) . '#medios')->with('success', __('Medio «:n» guardado.', ['n' => $m->nombre]));
     }

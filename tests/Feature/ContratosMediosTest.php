@@ -287,6 +287,10 @@ class ContratosMediosTest extends TestCase
         ])->assertSessionHas('success', 'Se agregaron 2 medios.');
         $this->assertSame([['web', 'facebook'], 1800000, 'contacto@neiva24.com'], [array_keys(MedioCampana::where('nombre', 'Neiva 24')->first()->canales()), MedioCampana::where('nombre', 'Neiva 24')->value('valor'), MedioCampana::where('nombre', 'Neiva 24')->value('correo')]);
         $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['nombre' => 'Sin nada'])->assertSessionHasErrors('canales');
+        // El contrato divide el valor en dos cuotas iguales: un valor impar no se acepta
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['nombre' => 'Impar', 'tipo_id' => $m3->id, 'valor' => '2.500.001'])->assertSessionHasErrors('valor');
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.bloque', $this->c), ['lista' => "Impar; 1.000.001\nPar; 1.000.000", 'tipo_id' => $m2->id])->assertSessionHasErrors('lista');
+        $this->assertFalse(MedioCampana::whereIn('nombre', ['Impar', 'Par'])->exists());
 
         // Un medio sin valor no puede firmar (el contrato lo pide)
         $voz = $this->inscribir('Pedro Pitalito');
@@ -307,6 +311,7 @@ class ContratosMediosTest extends TestCase
         foreach (['No. 001 DE 2026', 'Entre los suscritos a saber: <strong>Opa Noticias S.A.S.</strong>, representado legalmente por <strong>Alba Luz Erazo</strong>',
                   'identificado con cédula de ciudadanía No. <strong>36.123.456</strong>', 'su medio digital denominado <strong>Opanoticias</strong>',
                   'la suma de <strong>$ 2.500.000</strong> (<strong>DOS MILLONES QUINIENTOS MIL</strong> pesos M/cte.)',
+                  'en dos (2) cuotas mensuales iguales, mes vencido', 'es decir, la suma de $ 1.250.000 (UN MILLÓN DOSCIENTOS CINCUENTA MIL pesos M/cte.) por mes',
                   'Banco: <strong>Bancolombia</strong>', 'Tipo de cuenta: <strong>Ahorros</strong>', 'Número de cuenta: <strong>123-456789-01</strong>',
                   'Hasta 20 publicaciones por mes en TikTok, publicadas directamente por EL ARRENDADOR'] as $texto) {
             $this->assertStringContainsString($texto, $k->cuerpo, $texto);
@@ -319,6 +324,25 @@ class ContratosMediosTest extends TestCase
         $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertSee('Cargar los modelos del PIC 2026');
         $this->actingAs($this->admin)->post(route('campaigns.contratos.modelos', $this->c))->assertSessionHas('success', 'Se cargó 1 modelo de contrato.');
         $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->whereNotNull('clave')->count());
+    }
+
+    public function test_los_modelos_ya_cargados_se_ponen_al_dia_si_nadie_los_edito(): void
+    {
+        // Así quedaron los modelos cargados antes del cambio de la cláusula quinta (forma de pago)
+        $nueva = 'El valor del contrato se pagará en dos (2) cuotas mensuales iguales, mes vencido, cada una equivalente al cincuenta por ciento (50%) del valor total del contrato, es decir, la suma de $ {valor_mitad} ({valor_mitad_letras} pesos M/cte.) por mes, previa presentación de los siguientes documentos:';
+        $vieja = 'EL ARRENDATARIO pagará a EL ARRENDADOR el valor de las publicaciones efectivamente realizadas en cada periodo mensual, previa presentación de los siguientes documentos:';
+        $antes = fn(int $n) => ContratosService::limpiarHtml(str_replace($nueva, $vieja, file_get_contents(resource_path("contratos/pic-2026/modelo-$n.html"))));
+        foreach ([1, 2] as $n) $this->assertContains(ContratosService::huella($antes($n)), ContratosService::MODELOS["pic-2026-$n"]['anteriores']);
+        $sinEditar = ContratoTipo::create(['campaign_id' => $this->c->id, 'clave' => 'pic-2026-1', 'nombre' => 'Modelo 1', 'cuerpo' => str_replace("\n", "\r\n", $antes(1)), 'activo' => true]);
+        $editado = ContratoTipo::create(['campaign_id' => $this->c->id, 'clave' => 'pic-2026-2', 'nombre' => 'Modelo 2', 'cuerpo' => $antes(2) . '<p>Cláusula propia.</p>', 'activo' => true]);
+
+        // Al abrir «Medios y contratos»: el que nadie editó queda con el texto nuevo; el editado se respeta
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk();
+        $this->assertStringContainsString('dos (2) cuotas mensuales iguales', $sinEditar->fresh()->cuerpo);
+        $this->assertTrue($sinEditar->fresh()->usaMitad());
+        $this->assertStringNotContainsString('dos (2) cuotas mensuales iguales', $editado->fresh()->cuerpo);
+        $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->count()); // y el modelo 3, que faltaba, se cargó
+        $this->assertSame(0, app(ContratosService::class)->actualizarModelos()); // ya no hay nada que actualizar
     }
 
     public function test_sin_listado_de_medios_el_certificado_sigue_como_antes(): void

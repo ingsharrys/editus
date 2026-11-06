@@ -34,8 +34,8 @@
                         <summary class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 cursor-pointer">
                             <span class="font-semibold text-gray-900">{{ $m->nombre }}</span>
                             <span class="text-xs text-gray-500">{{ $m->tipo?->nombre ?? __('sin tipo de contrato') }}</span>
-                            @if ($m->valor)<span class="text-xs font-semibold text-gray-700">{{ $m->valorTexto() }}</span>
-                            @elseif ($m->faltaValor())<span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">{{ __('falta el valor') }}</span>@endif
+                            @if ($m->valor)<span class="text-xs font-semibold text-gray-700">{{ $m->valorTexto() }}</span>@endif
+                            @if ($m->faltaValor())<span class="inline-flex rounded-full bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">{{ $m->valor ? __('valor impar: no se divide en dos cuotas') : __('falta el valor') }}</span>@endif
                             <span class="flex flex-wrap gap-1">
                                 @forelse ($m->canales() as $canal => $x)
                                     <span class="inline-flex rounded-full {{ $x['pauta'] ? 'bg-indigo-50 text-indigo-800' : 'bg-gray-100 text-gray-700' }} px-2 py-0.5 text-[11px] font-medium">{{ \App\Models\MedioCampana::nombreDe($canal, $x['pauta']) }}</span>

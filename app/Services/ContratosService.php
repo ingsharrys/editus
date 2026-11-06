@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Contratos de los medios de una campaña.
@@ -49,6 +50,8 @@ class ContratosService
         'documento' => 'Número de documento del representante',
         'valor' => 'Valor del contrato del medio (ej.: 2.500.000)',
         'valor_letras' => 'Valor del contrato en letras (ej.: DOS MILLONES QUINIENTOS MIL)',
+        'valor_mitad' => 'La mitad del valor: cada una de las dos cuotas mensuales (ej.: 1.250.000)',
+        'valor_mitad_letras' => 'La mitad del valor en letras (ej.: UN MILLÓN DOSCIENTOS CINCUENTA MIL)',
         'banco' => 'Banco de la cuenta del medio',
         'tipo_cuenta' => 'Tipo de cuenta (Ahorros o Corriente)',
         'numero_cuenta' => 'Número de la cuenta',
@@ -76,12 +79,17 @@ class ContratosService
      */
     public const MODELOS = [
         'pic-2026-1' => ['nombre' => 'Modelo 1 · Publicaciones en el medio digital', 'archivo' => 'pic-2026/modelo-1.html',
-            'canales' => ['facebook' => ['pauta' => false]]],
+            'canales' => ['facebook' => ['pauta' => false]],
+            'anteriores' => ['947b95aa72fcb8f9b8edae5c1d1ce18011851e96f587e0e311ee2d25182933ca']],
         'pic-2026-2' => ['nombre' => 'Modelo 2 · Publicaciones y banners en la página web', 'archivo' => 'pic-2026/modelo-2.html',
-            'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false]]],
+            'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false]],
+            'anteriores' => ['e040cfa43c634b916abae3bf71c12c017bb151894a37f0fe254e0c2769c8e8f1']],
         'pic-2026-3' => ['nombre' => 'Modelo 3 · Publicaciones, Instagram, TikTok, banners y radio', 'archivo' => 'pic-2026/modelo-3.html',
-            'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false], 'instagram' => ['pauta' => false], 'tiktok' => ['pauta' => false], 'radio' => ['pauta' => false]]],
+            'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false], 'instagram' => ['pauta' => false], 'tiktok' => ['pauta' => false], 'radio' => ['pauta' => false]],
+            'anteriores' => ['33bb2258fc3b60ae786b1b127b16e4bda2476337b0872755969c8e7bcb1948bd']],
     ];
+    // «anteriores»: huellas (ContratosService::huella) de los textos que ya tuvo cada modelo. Cuando se cambia un Word,
+    // se agrega aquí la huella del texto que se reemplaza: así los tipos que nadie editó se ponen al día solos.
 
     /** Las partes en los modelos del PIC 2026: el medio arrienda el espacio (arrendador) a DIME MEDIA (arrendatario). */
     public const MODELOS_ROLES = ['rol_medio' => 'EL ARRENDADOR', 'rol_contratante' => 'EL ARRENDATARIO'];
@@ -208,6 +216,28 @@ class ContratosService
         return $n;
     }
 
+    /**
+     * Pone al día los tipos de contrato hechos con un modelo de editus cuando el modelo cambió (un Word nuevo), solo si
+     * nadie los editó: su texto todavía es el de una versión anterior del modelo. Los contratos ya firmados no cambian.
+     * Sin campaña, revisa todas. Devuelve cuántos actualizó.
+     */
+    public function actualizarModelos(?Campaign $c = null): int
+    {
+        $n = 0;
+        foreach (self::MODELOS as $clave => $m) {
+            $archivo = resource_path('contratos/' . $m['archivo']);
+            if (!is_file($archivo) || empty($m['anteriores'])) continue;
+            $nuevo = self::limpiarHtml((string) file_get_contents($archivo));
+            ContratoTipo::where('clave', $clave)->when($c, fn($q) => $q->where('campaign_id', $c->id))->get()
+                ->each(function (ContratoTipo $t) use ($m, $nuevo, &$n) {
+                    if (!in_array(self::huella((string) $t->cuerpo), $m['anteriores'], true)) return;
+                    $t->forceFill(['cuerpo' => $nuevo])->save();
+                    $n++;
+                });
+        }
+        return $n;
+    }
+
     /** Número que le tocaría al próximo contrato (para mostrarlo; el definitivo se asigna al firmar). */
     public function siguienteNumero(Campaign $c): int
     {
@@ -310,6 +340,8 @@ class ContratosService
             'documento' => $v('documento') !== '' ? $cert->formatoDocumento($v('documento')) : '',
             'valor' => $m->valor ? number_format((int) $m->valor, 0, ',', '.') : '',
             'valor_letras' => $m->valor ? NumeroEnLetras::pesos((int) $m->valor) : '',
+            'valor_mitad' => $m->valor ? number_format(intdiv((int) $m->valor, 2), 0, ',', '.') : '',
+            'valor_mitad_letras' => $m->valor ? NumeroEnLetras::pesos(intdiv((int) $m->valor, 2)) : '',
             'banco' => $v('banco'),
             'tipo_cuenta' => $v('tipo_cuenta'),
             'numero_cuenta' => $v('numero_cuenta'),
@@ -342,6 +374,12 @@ class ContratosService
         }, $html);
     }
 
+    /** Huella de un texto de contrato, sin contar espacios ni saltos de línea (para saber si alguien lo modificó). */
+    public static function huella(string $html): string
+    {
+        return hash('sha256', preg_replace('/\s+/u', ' ', trim($html)) ?? '');
+    }
+
     /** HTML del modelo de contrato: solo etiquetas de texto (lo escribe el administrador o se importa de Word). */
     public static function limpiarHtml(string $html): string
     {
@@ -369,7 +407,7 @@ class ContratosService
         $c = $p->campaign;
         $m = $this->medioDe($p);
         if (!$m || !$m->tipo) throw new \RuntimeException(__('Primero elige tu medio del listado.'));
-        if ($m->faltaValor()) throw new \RuntimeException(__('Tu contrato todavía no tiene valor. Escribe al administrador de la campaña.'));
+        if ($aviso = $m->avisoValor()) throw new \RuntimeException($aviso);
         $dir = 'contratos/' . $c->id;
         $guardados = [];
         $guardar = function (?UploadedFile $f, string $nombre) use ($dir, &$guardados) {
@@ -557,19 +595,27 @@ class ContratosService
     public function agregarEnBloque(Campaign $c, string $texto, ?int $tipoId, array $canales): int
     {
         $existentes = MedioCampana::where('campaign_id', $c->id)->pluck('nombre')->map(fn($n) => mb_strtolower(trim($n)))->flip();
-        $orden = (int) MedioCampana::where('campaign_id', $c->id)->max('orden');
-        $n = 0;
+        $nuevos = [];
         foreach (preg_split('/\R/u', $texto) as $linea) {
             $partes = array_map('trim', preg_split('/[;\t]/', $linea));
             $nombre = mb_substr($partes[0] ?? '', 0, 190);
-            if ($nombre === '' || $existentes->has(mb_strtolower($nombre))) continue;
+            if ($nombre === '' || $existentes->has(mb_strtolower($nombre)) || isset($nuevos[mb_strtolower($nombre)])) continue;
             $otros = array_slice($partes, 1);
             $correo = collect($otros)->first(fn($x) => filter_var($x, FILTER_VALIDATE_EMAIL));
             $valor = collect($otros)->filter(fn($x) => preg_match('/^\$?\s*[\d.,\s]+$/', $x))->map(fn($x) => MedioCampana::leerValor($x))->filter()->first();
-            MedioCampana::create(['campaign_id' => $c->id, 'nombre' => $nombre, 'canales' => $canales, 'tipo_id' => $tipoId, 'valor' => $valor, 'correo' => $correo, 'activo' => true, 'orden' => ++$orden]);
-            $existentes->put(mb_strtolower($nombre), true);
-            $n++;
+            $nuevos[mb_strtolower($nombre)] = ['nombre' => $nombre, 'correo' => $correo, 'valor' => $valor];
         }
-        return $n;
+        // Si el contrato divide el valor en dos cuotas iguales, cada valor tiene que ser par
+        $tipo = $tipoId ? ContratoTipo::find($tipoId) : null;
+        $impares = collect($nuevos)->filter(fn($x) => $x['valor'] && $x['valor'] % 2 && $tipo?->usaMitad())->pluck('nombre');
+        if ($impares->isNotEmpty()) throw ValidationException::withMessages([
+            'lista' => __('Este contrato divide el valor en dos cuotas mensuales iguales y estos medios tienen un valor impar: :m.', ['m' => $impares->implode(', ')]),
+        ]);
+        $orden = (int) MedioCampana::where('campaign_id', $c->id)->max('orden');
+        foreach ($nuevos as $x) {
+            MedioCampana::create(['campaign_id' => $c->id, 'nombre' => $x['nombre'], 'canales' => $canales, 'tipo_id' => $tipoId, 'valor' => $x['valor'],
+                'correo' => $x['correo'], 'activo' => true, 'orden' => ++$orden]);
+        }
+        return count($nuevos);
     }
 }

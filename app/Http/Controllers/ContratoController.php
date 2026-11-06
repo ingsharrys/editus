@@ -60,7 +60,7 @@ class ContratoController extends Controller
         if ($this->contratos->contratoDe($p)) return redirect()->route('contratos.formulario', $campaign);
         $medio = $this->contratos->medioDe($p);
         if (!$medio || !$medio->tipo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Primero elige tu medio del listado.')]);
-        if ($medio->faltaValor()) return redirect()->route('contratos.formulario', $campaign)->withErrors(['valor' => __('Tu contrato todavía no tiene valor. Escribe al administrador de la campaña.')]);
+        if ($aviso = $medio->avisoValor()) return redirect()->route('contratos.formulario', $campaign)->withErrors(['valor' => $aviso]);
         $archivo = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'];
         // Cada canal del medio (los marca el administrador) pide su dato: dirección, usuario, frecuencia…
         $porCanal = $mensajesCanal = [];
