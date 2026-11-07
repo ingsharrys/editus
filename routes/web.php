@@ -77,8 +77,8 @@ Route::get('/dashboard', fn() => redirect(auth()->user()->urlInicio()))
 
 /*
 |--------------------------------------------------------------------------
-| Login básico con Facebook (público)
-| - Solo public_profile + email (para externos)
+| Ingreso con Facebook (público, «Continuar con Facebook»)
+| - Entra o crea la cuenta y conecta las páginas (permisos de páginas, sin portafolio comercial)
 |--------------------------------------------------------------------------
 */
 Route::get('/auth/facebook/login', [FacebookAuthController::class, 'redirect'])

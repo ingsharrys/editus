@@ -72,12 +72,13 @@ class FacebookLoginTest extends TestCase
         $this->facebook();
         Http::fake([
             'graph.facebook.com/v23.0/oauth/access_token*' => Http::response(['access_token' => 'largo', 'expires_in' => 5184000]),
+            'graph.facebook.com/v23.0/debug_token*' => Http::response(['data' => ['scopes' => ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'read_insights']]]),
             'graph.facebook.com/v23.0/me/accounts*' => Http::response(['data' => [
                 ['id' => '111', 'name' => 'Diario Uno', 'category' => 'Medio', 'access_token' => 'tok-111', 'tasks' => ['ANALYZE', 'CREATE_CONTENT'], 'instagram_business_account' => ['id' => 'IG1']],
                 ['id' => '222', 'name' => 'Diario Dos', 'access_token' => 'tok-222', 'tasks' => ['CREATE_CONTENT']],
             ]]),
         ]);
-        $this->get('/auth/facebook/login/callback?code=abc')->assertRedirect(route('meta.pages.index'))->assertSessionHas('success', '¡Conexión exitosa! Páginas sincronizadas: 2');
+        $this->get('/auth/facebook/login/callback?code=abc')->assertRedirect(route('meta.pages.index'))->assertSessionHas('success', '¡Conexión exitosa! Páginas sincronizadas: 2')->assertSessionMissing('error');
         $u = User::where('email', 'ana@diario.co')->firstOrFail();
         $this->assertAuthenticatedAs($u);
         $this->assertSame('largo', SocialAccount::where('user_id', $u->id)->value('access_token'));
@@ -95,7 +96,7 @@ class FacebookLoginTest extends TestCase
     {
         // Vuelve a la pantalla de ingreso con qué hacer (no otra vez a la ventana de Facebook)
         $this->get('/auth/facebook/login/callback?error=access_denied&error_reason=user_denied')->assertRedirect(route('login'))
-            ->assertSessionHasErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos('user_denied')]);
+            ->assertSessionHasErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos('user_denied', false, true)]);
         $this->get(route('login'))->assertOk()->assertSee('No se concedieron los permisos solicitados a los siguientes activos comerciales');
         $this->get('/auth/facebook/login/callback')->assertRedirect(route('login'))->assertSessionHasErrors(['email' => 'Facebook no devolvió el parámetro "code". Vuelve a intentarlo.']);
 

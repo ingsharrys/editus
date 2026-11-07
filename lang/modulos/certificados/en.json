@@ -102,5 +102,8 @@
     "Medio retirado de la campaña.": "Outlet removed from the campaign.",
     ":n publicación(es) actualizada(s).": ":n post(s) updated.",
     "Quedaste inscrito en la campaña «:nombre». Completa y firma tu certificado.": "You are enrolled in the campaign «:nombre». Complete and sign your certificate.",
-    "Antes de continuar, completa y firma el certificado de la campaña «:nombre».": "Before continuing, complete and sign the certificate for the campaign «:nombre»."
+    "Antes de continuar, completa y firma el certificado de la campaña «:nombre».": "Before continuing, complete and sign the certificate for the campaign «:nombre».",
+    "Basta con ser editor o administrador de la página; no hace falta pertenecer al portafolio comercial (Business Manager). En la ventana de Facebook marca solo tus páginas y deja activados los permisos.": "Being an editor or admin of the page is enough; you don't need to belong to the business portfolio (Business Manager). In the Facebook window, tick only your pages and leave the permissions on.",
+    "Solo si administras el portafolio comercial dueño de la página:": "Only if you manage the business portfolio that owns the page:",
+    "conectar desde el portafolio": "connect from the portfolio"
 }

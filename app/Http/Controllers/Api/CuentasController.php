@@ -41,7 +41,8 @@ class CuentasController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 422);
         }
-        return response()->json(['success' => true, 'paginas' => $n] + $this->cuentas->resumen($usuario, $this->nombre($request)));
+        // 'aviso': permisos esenciales que la persona quitó en la ventana de Facebook (null si no falta ninguno)
+        return response()->json(['success' => true, 'paginas' => $n, 'aviso' => $this->cuentas->avisoPermisosDeLaApp($usuario)] + $this->cuentas->resumen($usuario, $this->nombre($request)));
     }
 
     public function desconectarFacebook(Request $request): JsonResponse

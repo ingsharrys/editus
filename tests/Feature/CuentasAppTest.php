@@ -97,8 +97,10 @@ class CuentasAppTest extends TestCase
         $this->socialite('facebook', new \Laravel\Socialite\Two\User());
         $r = $this->get('/auth/app/facebook?' . http_build_query($this->firma('7') + ['volver' => 'en-vivo']));
         $r->assertRedirect('https://facebook.test/oauth');
-        // La app sigue pidiendo el portafolio comercial, como antes
-        $this->assertContains('business_management', \App\Support\FacebookGraph::permisosPaginas(true));
+        // Basta con ser editor o administrador de la página: la app ya no pide el portafolio comercial (salvo con &portafolio=1)
+        // (la marca de la ventana va por su «state»; el Socialite simulado no manda «state»)
+        $this->assertSame(['origen' => 'app', 'portafolio' => false], array_intersect_key((array) session('fb_conexion._'), array_flip(['origen', 'portafolio'])));
+        $this->assertSame('7', session('fb_conexion._.vinculo.u'));
         $this->assertSame('7', session('vinculo_app.u'));
         $this->assertSame('en-vivo', session('vinculo_app.volver'));
     }
@@ -109,6 +111,7 @@ class CuentasAppTest extends TestCase
         $this->socialite('facebook', $fb);
         Http::fake([
             'graph.facebook.com/v23.0/oauth/access_token*' => Http::response(['access_token' => 'largo', 'expires_in' => 5000000], 200),
+            'graph.facebook.com/v23.0/debug_token*' => Http::response(['data' => ['scopes' => ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'read_insights']]], 200),
             'graph.facebook.com/v23.0/me/accounts*' => Http::response(['data' => [
                 ['id' => '555', 'name' => 'Mi Página', 'category' => 'Medio', 'access_token' => 'tok-555', 'tasks' => ['ANALYZE', 'CREATE_CONTENT']],
                 ['id' => '111', 'name' => 'Opa Noticias', 'category' => 'Medio', 'access_token' => 'tok-111-de-7', 'tasks' => ['CREATE_CONTENT']],
@@ -187,7 +190,10 @@ class CuentasAppTest extends TestCase
     public function test_sincronizar_y_desconectar_facebook(): void
     {
         $social = SocialAccount::create(['user_id' => null, 'usuario_app' => '7', 'provider' => 'facebook', 'provider_user_id' => 'FB77', 'access_token' => 'largo']);
-        Http::fake(['graph.facebook.com/v23.0/me/accounts*' => Http::response(['data' => [['id' => '555', 'name' => 'Mi Página', 'access_token' => 'tok-555', 'tasks' => []]]], 200)]);
+        Http::fake([
+            'graph.facebook.com/v23.0/me/accounts*' => Http::response(['data' => [['id' => '555', 'name' => 'Mi Página', 'access_token' => 'tok-555', 'tasks' => []]]], 200),
+            'graph.facebook.com/v23.0/debug_token*' => Http::response(['data' => ['scopes' => ['pages_show_list']]], 200),
+        ]);
 
         $this->assertStringContainsString('Primero conecta', $this->api()->postJson('/api/cuentas/facebook/sincronizar', ['usuario' => '8'])->assertStatus(422)->json('error'));
         $this->api()->postJson('/api/cuentas/facebook/sincronizar', ['usuario' => '7'])->assertOk()->assertJsonPath('paginas', 1)->assertJsonPath('facebook.paginas.0.page_id', '555');

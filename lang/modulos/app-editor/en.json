@@ -196,11 +196,15 @@
     "editus no tiene configurada la app de Facebook (FACEBOOK_CLIENT_ID).": "editus doesn't have the Facebook app configured (FACEBOOK_CLIENT_ID).",
     "editus no tiene configurado el cliente de Google (GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET).": "editus doesn't have the Google client configured (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET).",
     "No se reconoció al usuario de la app. Vuelve a intentarlo desde la app.": "The app user wasn't recognized. Try again from the app.",
-    "Facebook no autorizó la conexión: :error": "Facebook didn't authorize the connection: :error",
     "No se pudo completar la conexión con Facebook. Inténtalo de nuevo. Detalle: :error": "Couldn't complete the connection with Facebook. Please try again. Details: :error",
     "Tu cuenta quedó conectada, pero no se pudieron leer tus páginas: :error": "Your account is connected, but we couldn't read your pages: :error",
     "Se conectó 1 página de Facebook.": "1 Facebook page connected.",
     "Se conectaron :n páginas de Facebook.": ":n Facebook pages connected.",
     "Google no autorizó la conexión: :error": "Google didn't authorize the connection: :error",
-    "Monto": "Amount"
+    "Monto": "Amount",
+    "Volver a conectar mis páginas": "Connect my pages again",
+    "Conectar desde el portafolio comercial (solo si lo administras)": "Connect from the business portfolio (only if you manage it)",
+    "Toca «Volver a la app» cuando termines.": "Tap «Back to the app» when you're done.",
+    "¿Falta una página que solo manejas desde un portafolio comercial (Business Manager)?": "Is a page you only manage from a business portfolio (Business Manager) missing?",
+    "Conéctala desde el portafolio": "Connect it from the portfolio"
 }

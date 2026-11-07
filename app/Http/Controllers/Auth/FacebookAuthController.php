@@ -12,8 +12,6 @@ use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
-use App\Models\MetaPage;
 
 
 class FacebookAuthController extends Controller
@@ -49,10 +47,10 @@ class FacebookAuthController extends Controller
 
         // Los errores vuelven a la pantalla de ingreso de editus con qué hacer (volver a «facebook.login» abría otra vez
         // la ventana de Facebook y la persona quedaba dando vueltas sin ver el aviso)
-        if ($request->has('error')) {
-            $desc = $request->get('error_description') ?: $request->get('error_reason') ?: $request->get('error');
+        // (?error=… al cancelar, o ?error_code=…&error_message=… cuando la ventana de Facebook falla)
+        if (($desc = \App\Support\FacebookGraph::errorDeLaVentana($request)) !== null) {
             Log::warning('[FB] login: Facebook devolvió un error', ['query' => $request->query()]);
-            return redirect()->route('login')->withErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos($desc)]);
+            return redirect()->route('login')->withErrors(['email' => \App\Support\FacebookGraph::ayudaPermisos($desc, false, true)]);
         }
 
         if (!$request->filled('code')) {
@@ -134,182 +132,17 @@ class FacebookAuthController extends Controller
         // 4. Iniciar sesión
         Auth::login($user, true);
 
-        // 5. Sincronizar las páginas
+        // 5. Sincronizar las páginas (lo mismo que «Conectar mis páginas»)
+        $cuentas = app(\App\Services\CuentasAppService::class);
         try {
-            $count = $this->performSync($user, $social);
+            $count = $cuentas->sincronizarPaginas($social, $user->id, null);
         } catch (\Throwable $e) {
             Log::error('[FB] callback: fallo en performSync', ['err' => $e->getMessage()]);
             return redirect()->route('meta.pages.index')->with('error', __('Usuario conectado, pero falló la sincronización: :detalle', ['detalle' => $e->getMessage()]));
         }
 
-        // 6. Redirigir con el mensaje de éxito y el conteo
-        return redirect()->route('meta.pages.index')->with('success', __('¡Conexión exitosa! Páginas sincronizadas: :n', ['n' => $count]));
-    }
-
-    private function performSync(User $user, SocialAccount $social): int
-    {
-        $version = config('services.facebook.version', 'v23.0');
-        $base = "https://graph.facebook.com/{$version}";
-
-        $fieldsFull = 'id,name,category,access_token,tasks,instagram_business_account,picture{url}';
-        // Sin el campo de Instagram: para tokens que aún no tienen instagram_basic,
-        // Facebook rechaza la llamada completa si se pide ese campo.
-        $fieldsBasic = 'id,name,category,access_token,tasks';
-
-        $http = Http::withToken($social->access_token)->timeout(30)->connectTimeout(10);
-
-        /**
-         * Recorre un edge paginado. Si Facebook rechaza los campos completos
-         * (error #100 por campo/permiso), reintenta con los básicos.
-         * @return array{0: array, 1: ?string} [páginas, error]
-         */
-        $fetchEdge = function (string $edge) use ($http, $base, $fieldsFull, $fieldsBasic): array {
-            foreach ([$fieldsFull, $fieldsBasic] as $attempt => $fields) {
-                $rows = [];
-                $url = "{$base}/me/{$edge}?fields={$fields}&limit=100";
-                $failed = null;
-
-                while ($url) {
-                    $resp = $http->get($url);
-                    if (!$resp->ok()) {
-                        $failed = $resp->body();
-                        break;
-                    }
-                    $json = $resp->json();
-                    $rows = array_merge($rows, (array) data_get($json, 'data', []));
-                    $url = data_get($json, 'paging.next');
-                }
-
-                if ($failed === null) {
-                    return [$rows, null];
-                }
-
-                $code = (int) data_get(json_decode($failed, true), 'error.code');
-                $isFieldError = $code === 100 || str_contains($failed, 'nonexisting field') || str_contains($failed, 'instagram');
-                if ($attempt === 0 && $isFieldError) {
-                    Log::info('[sync] campos completos rechazados, reintentando con básicos', ['edge' => $edge]);
-                    continue;
-                }
-
-                return [[], $failed];
-            }
-
-            return [[], null];
-        };
-
-        // 1) Páginas "clásicas" del usuario: /me/accounts
-        [$pages, $err] = $fetchEdge('accounts');
-        if ($err !== null) {
-            Log::error('FB /me/accounts error', ['body' => $err]);
-            throw new \RuntimeException(__('No se pudieron obtener las páginas: :detalle', ['detalle' => $this->graphErrorMessage($err)]));
-        }
-
-        // 2) Fallback: páginas asignadas vía Business Manager: /me/assigned_pages
-        if (empty($pages)) {
-            [$pages, $err] = $fetchEdge('assigned_pages');
-            if ($err !== null) {
-                Log::warning('FB /me/assigned_pages error', ['body' => $err]);
-            }
-        }
-
-        // 3) Si sigue vacío, no hay páginas para ese usuario
-        if (empty($pages)) {
-            throw new \RuntimeException(__("No se encontraron páginas.\n- Asegúrate de haber aceptado estos permisos: pages_show_list, pages_manage_posts, pages_manage_metadata, pages_read_engagement, read_insights, business_management.\n- Verifica que tu cuenta administre al menos una página o tenga páginas asignadas en Business Manager.\n- Revisa en Facebook > Configuración > Integraciones que la app tenga acceso a esa(s) página(s)."));
-        }
-
-        // 4) Guardado página por página: un fallo en una no bloquea a las demás
-        $saved = 0;
-        foreach ($pages as $page) {
-            try {
-                DB::transaction(function () use ($page, $user, $social, $base, $http) {
-                    $pageId = (string) data_get($page, 'id');
-                    $igId = data_get($page, 'instagram_business_account.id');
-                    $pageAccessToken = data_get($page, 'access_token');
-
-                    if (!$pageAccessToken) {
-                        $try = $http->get("{$base}/{$pageId}", ['fields' => 'access_token']);
-                        if ($try->ok()) {
-                            $pageAccessToken = data_get($try->json(), 'access_token');
-                        } else {
-                            Log::warning('No page_access_token (fallback)', $try->json() ?? []);
-                        }
-                    }
-
-                    $tasks = data_get($page, 'tasks', []);
-                    if (!is_array($tasks)) {
-                        $tasks = $tasks ? [$tasks] : [];
-                    }
-
-                    $metaPage = MetaPage::updateOrCreate(
-                        ['page_id' => $pageId],
-                        [
-                            'name' => data_get($page, 'name'),
-                            'category' => data_get($page, 'category'),
-                            'instagram_business_account_id' => $igId,
-                            'picture_url' => "{$base}/{$pageId}/picture?type=normal",
-                            'tasks' => array_values($tasks),
-                        ]
-                    );
-
-                    $user->metaPages()->syncWithoutDetaching([
-                        $metaPage->id => [
-                            'page_access_token' => $pageAccessToken,
-                            'social_account_id' => $social->id,
-                            'expires_at' => null,
-                            'is_active' => $pageAccessToken ? 1 : 0,
-                            'updated_at' => now(),
-                        ]
-                    ]);
-
-                    if (!$pageAccessToken) {
-                        Log::warning('Sin token de página: revisar rol/permisos del usuario en la página', ['page_id' => $pageId, 'tasks' => $tasks]);
-                    } elseif (!in_array('ANALYZE', $tasks, true)) {
-                        Log::info('Token OK pero tasks sin ANALYZE (insights pueden fallar)', ['page_id' => $pageId, 'tasks' => $tasks]);
-                    }
-                });
-                $saved++;
-            } catch (\Throwable $e) {
-                Log::warning('[sync] página no guardada', ['page' => data_get($page, 'id'), 'name' => data_get($page, 'name'), 'err' => $e->getMessage()]);
-            }
-        }
-
-        return $saved;
-    }
-
-    /** Mensaje legible de un error de la Graph API (cuerpo JSON de la respuesta). */
-    private function graphErrorMessage(string $body): string
-    {
-        $e = (array) data_get(json_decode($body, true), 'error', []);
-        $msg = (string) ($e['error_user_msg'] ?? $e['message'] ?? '');
-        if ($msg === '') return mb_substr(trim(strip_tags($body)), 0, 200) ?: __('error desconocido');
-        return trim($msg . (isset($e['code']) ? " (#{$e['code']})" : ''));
-    }
-
-    /**
-     * Ruta temporal para ver la URL exacta que genera Socialite.
-     * Úsala SOLO para debug y luego la borras.
-     */
-    public function debugUrl()
-    {
-        $scopes = config('services.facebook.login_scopes', ['email', 'public_profile']);
-        $version = config('services.facebook.version', 'v23.0');
-
-        $url = Socialite::driver('facebook')
-            ->usingGraphVersion($version)
-            ->scopes($scopes)
-            ->redirect()
-            ->getTargetUrl();
-
-        dd($url);
-    }
-
-    public function redirectBasic()
-    {
-        return $this->redirect();
-    }
-
-    public function callbackBasic(Request $request)
-    {
-        return $this->callback($request);
+        // 6. Redirigir con el mensaje de éxito y el conteo (y qué permisos quitó, si quitó alguno esencial)
+        $r = redirect()->route('meta.pages.index')->with('success', __('¡Conexión exitosa! Páginas sincronizadas: :n', ['n' => $count]));
+        return ($aviso = $cuentas->avisoPermisos($social)) ? $r->with('error', $aviso) : $r;
     }
 }

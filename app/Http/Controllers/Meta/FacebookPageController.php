@@ -1149,67 +1149,98 @@ class FacebookPageController extends Controller
     }
 
 
-    protected function socialite()
-    {
-        return Socialite::driver('facebook')
-            ->scopes(config('services.facebook.scopes', []))
-            ->redirectUrl(route('facebook.link.callback'));
-    }
+    /**
+     * Sesión: qué botón abrió cada ventana de Facebook, por el «state» de esa ventana (origen web o app, si fue «desde el
+     * portafolio», configuración y, si es de la app, su enlace firmado). Así el callback sabe de dónde vino aunque haya
+     * otra ventana abierta en el mismo navegador.
+     */
+    public const SESION_CONEXION = 'fb_conexion';
 
     /**
-     * Conectar páginas. Basta con ser editor o administrador de la página; con «?portafolio=1» (o $portafolio)
-     * también se pide el portafolio comercial. Ojo: Socialite ya trae los permisos de services.facebook.scopes y
-     * «scopes()» los suma; por eso se usa «setScopes()», que deja exactamente los que se piden aquí.
+     * Conectar páginas. Basta con ser editor o administrador de la página: se abre la ventana clásica de Facebook con
+     * los permisos de las páginas y sin el portafolio comercial (o FACEBOOK_PAGINAS_CONFIG_ID, si se configuró). Con
+     * «?portafolio=1» (o $portafolio) se pide lo de siempre, con el portafolio comercial. $origen: 'web' o 'app'.
+     * Ojo: Socialite le suma los permisos de services.facebook.scopes a «scopes()»; por eso se usa «setScopes()».
      */
-    public function linkRedirect(?Request $request = null, ?bool $portafolio = null)
+    public function linkRedirect(?Request $request = null, ?bool $portafolio = null, string $origen = 'web')
     {
         $request ??= request();
         $portafolio ??= $request->boolean('portafolio');
+        $origen = $origen === 'app' ? 'app' : 'web';
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
+        $scopes = FacebookGraph::permisosPaginas($portafolio);
+        $cid = FacebookGraph::configId($origen, $portafolio);
+
         $params = ['auth_type' => 'rerequest'];
-        $scopes = \App\Support\FacebookGraph::permisosPaginas($portafolio);
-
-        if ($cid = \App\Support\FacebookGraph::configId('link', $portafolio)) {
-            $params['config_id'] = $cid;
-            $params['response_type'] = 'code';
-            $params['override_default_response_type'] = 'true';
-
-            return Socialite::driver('facebook')
-                ->setScopes($scopes)
-                ->with($params)
-                ->redirectUrl($redirectUrl)
-                ->redirect();
+        if ($cid) {
+            $params += ['config_id' => $cid, 'response_type' => 'code', 'override_default_response_type' => 'true'];
+            // Con la configuración de «Conectar mis páginas» Facebook pide lo que ella diga: no se manda la lista
+            // (Meta recomienda no mandarla). En la del portafolio se deja como siempre.
+            if (!$portafolio) $params['scope'] = null;
         }
 
-        return Socialite::driver('facebook')
+        $respuesta = Socialite::driver('facebook')
             ->setScopes($scopes)
             ->with($params)
             ->redirectUrl($redirectUrl)
             ->redirect();
+
+        // Marca de esta ventana por su «state» (Socialite lo acaba de guardar en la sesión). La de la app lleva su enlace
+        // firmado: el callback la atiende aunque mientras tanto se haya abierto otra ventana en el mismo navegador.
+        $marca = ['origen' => $origen, 'portafolio' => $portafolio, 'config_id' => $cid, 'desde' => time()];
+        if ($origen === 'app') $marca['vinculo'] = (array) $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION, []);
+        $marcas = array_filter((array) $request->session()->get(self::SESION_CONEXION, []), fn($m) => is_array($m) && (int) ($m['desde'] ?? 0) > time() - 3600);
+        $marcas[(string) $request->session()->get('state') ?: '_'] = $marca;
+        $request->session()->put(self::SESION_CONEXION, array_slice($marcas, -5, null, true));
+        Log::info('[FB] conectar: se abre la ventana de Facebook', [
+            'origen' => $origen, 'portafolio' => $portafolio, 'config_id' => $cid,
+            'permisos' => $cid && !$portafolio ? 'los de la configuración en Meta' : $scopes,
+        ]);
+
+        return $respuesta;
+    }
+
+    /**
+     * La marca de la ventana que vuelve de Facebook (por su «state»), que se borra al leerla, y si el «state» coincidió
+     * con una ventana abierta desde esta misma sesión. [marca o [], verificada]
+     */
+    private function marcaDeLaVentana(Request $request): array
+    {
+        $marcas = (array) $request->session()->get(self::SESION_CONEXION, []);
+        $estado = $request->query('state', '');
+        if (!is_string($estado)) return [[], false];
+        $clave = $estado !== '' ? $estado : '_';
+        if (!isset($marcas[$clave]) || !is_array($marcas[$clave])) return [[], false];
+        $marca = $marcas[$clave];
+        unset($marcas[$clave]);
+        $request->session()->put(self::SESION_CONEXION, $marcas);
+        return [$marca, $clave !== '_'];
     }
 
     public function linkCallback(Request $request)
     {
         $redirectUrl = config('services.facebook.link_redirect') ?: route('facebook.link.callback');
+        [$conexion, $verificada] = $this->marcaDeLaVentana($request);
+        $portafolio = (bool) ($conexion['portafolio'] ?? false);
 
-        // Conexión iniciada desde la app del editor (sin sesión de editus): la resuelve CuentasAppController
-        if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
-            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackFacebook($request, (array) $vinculo, $redirectUrl, app(\App\Services\CuentasAppService::class));
+        // Conexión iniciada desde la app del editor (sin sesión de editus): la resuelve CuentasAppController.
+        // Sin marca (ventanas abiertas antes de actualizar editus) se decide como antes: por la sesión de la app.
+        $vinculo = (array) $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION, []);
+        $deLaApp = $conexion ? ($conexion['origen'] ?? null) === 'app' : $vinculo && ($vinculo['red'] ?? 'facebook') === 'facebook';
+        if ($deLaApp) {
+            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackFacebook($request, (array) ($conexion['vinculo'] ?? $vinculo), $redirectUrl, app(\App\Services\CuentasAppService::class), $portafolio, $verificada);
         }
         if (!Auth::check()) {
             return redirect()->route('login')->with('error', __('Inicia sesión en editus para conectar páginas.'));
         }
 
-        // Si Facebook devolvió un error (usuario canceló, permisos denegados, etc.)
-        if ($request->has('error')) {
-            $desc = $request->get('error_description')
-                ?: $request->get('error_reason')
-                ?: $request->get('error');
-
-            Log::warning('[FB] linkCallback: error de Facebook', ['query' => $request->query()]);
+        // Si Facebook devolvió un error (la persona canceló, Facebook negó permisos…) o volvió sin código
+        $desc = FacebookGraph::errorDeLaVentana($request);
+        if ($desc !== null || !$request->filled('code')) {
+            Log::warning('[FB] linkCallback: error de Facebook', ['query' => $request->query(), 'conexion' => array_diff_key($conexion, ['vinculo' => 1])]);
 
             return redirect()->route('meta.pages.index')
-                ->with('error', \App\Support\FacebookGraph::ayudaPermisos($desc));
+                ->with('error', FacebookGraph::ayudaPermisos($desc, $portafolio));
         }
 
         // Si no te falla state, puedes dejar ->user() normal.
@@ -1265,8 +1296,9 @@ class FacebookPageController extends Controller
             ]
         );
 
+        $cuentas = app(\App\Services\CuentasAppService::class);
         try {
-            $count = $this->performSync($current, $social);
+            $count = $cuentas->sincronizarPaginas($social, $current->id, null);
         } catch (\Throwable $e) {
             Log::error('[FB] linkCallback: fallo en performSync', ['err' => $e->getMessage()]);
 
@@ -1275,9 +1307,11 @@ class FacebookPageController extends Controller
                 ->with('error', __('Cuenta conectada, pero la sincronización de páginas falló: :detalle', ['detalle' => $e->getMessage()]));
         }
 
-        return redirect()
+        $r = redirect()
             ->route('meta.pages.index')
             ->with('success', __('Páginas sincronizadas: :n', ['n' => $count]));
+        // Si en la ventana de Facebook quitó permisos sin los que no se publica o no se mide, se le dice cuáles
+        return ($aviso = $cuentas->avisoPermisos($social)) ? $r->with('error', $aviso) : $r;
     }
 
 
@@ -1287,6 +1321,7 @@ class FacebookPageController extends Controller
 
         $social = SocialAccount::where('user_id', $user->id)
             ->where('provider', 'facebook')
+            ->latest('updated_at')
             ->first();
 
         if (!$social) {
@@ -1294,15 +1329,16 @@ class FacebookPageController extends Controller
                 ->with('info', __('Primero conecta tu cuenta de Facebook para poder sincronizar páginas.'));
         }
 
+        $cuentas = app(\App\Services\CuentasAppService::class);
         try {
-            $count = $this->performSync($user, $social);
+            $count = $cuentas->sincronizarPaginas($social, $user->id, null);
         } catch (\Throwable $e) {
             Log::error('[FB] sync: fallo en performSync', [
                 'user_id' => $user->id,
                 'err' => $e->getMessage(),
             ]);
 
-            if ($this->isExpiredTokenError($e->getMessage())) {
+            if ($e->getCode() === 190 || $this->isExpiredTokenError($e->getMessage())) {
                 return redirect()->route('facebook.connect')
                     ->with('error', __('Tu sesión de Facebook expiró. Vuelve a conectar tu cuenta.'));
             }
@@ -1310,7 +1346,8 @@ class FacebookPageController extends Controller
             return back()->with('error', __('No se pudieron sincronizar las páginas: :detalle', ['detalle' => $e->getMessage()]));
         }
 
-        return back()->with('success', __('Páginas sincronizadas: :n', ['n' => $count]));
+        $r = back()->with('success', __('Páginas sincronizadas: :n', ['n' => $count]));
+        return ($aviso = $cuentas->avisoPermisos($social)) ? $r->with('error', $aviso) : $r;
     }
 
     /**
@@ -1320,15 +1357,10 @@ class FacebookPageController extends Controller
     private function isExpiredTokenError(string $message): bool
     {
         return str_contains($message, '"code":190')
+            || str_contains($message, '(#190)')
             || str_contains($message, 'Session has expired')
             || str_contains($message, 'The session has been invalidated')
             || str_contains($message, 'Error validating access token');
-    }
-
-    private function performSync(User $user, SocialAccount $social): int
-    {
-        // Misma lógica para la web y para las cuentas conectadas desde la app (CuentasAppService)
-        return app(\App\Services\CuentasAppService::class)->sincronizarPaginas($social, $user->id, null);
     }
 
     public function startRepairTokens(Request $request)
@@ -1606,6 +1638,7 @@ class FacebookPageController extends Controller
 
             $social = SocialAccount::where('user_id', $user->id)
                 ->where('provider', 'facebook')
+                ->latest('updated_at')
                 ->first();
 
             if (!$social) {
@@ -1636,7 +1669,7 @@ class FacebookPageController extends Controller
                 ]
             ]);
 
-            return back()->with('success', __('Página «:pagina» vinculada correctamente.', ['pagina' => $metaPage->name]));
+            return $this->vinculadaConAviso($social, $metaPage, $user->id, __('Página «:pagina» vinculada correctamente.', ['pagina' => $metaPage->name]));
         }
 
         if ($ownerId) {
@@ -1685,6 +1718,18 @@ class FacebookPageController extends Controller
             'is_active' => true,
         ]);
 
-        return back()->with('success', __('Página «:pagina» vinculada usando la cuenta de «:usuario».', ['pagina' => $metaPage->name, 'usuario' => $owner->name]));
+        return $this->vinculadaConAviso($social, $metaPage, $owner->id, __('Página «:pagina» vinculada usando la cuenta de «:usuario».', ['pagina' => $metaPage->name, 'usuario' => $owner->name]));
+    }
+
+    /**
+     * Después de «Vincular»: si a esa conexión le faltan permisos esenciales, no desplaza a la que funciona (queda
+     * detrás) y se avisa qué falta; si no, solo el mensaje de éxito.
+     */
+    private function vinculadaConAviso(SocialAccount $social, MetaPage $metaPage, int $userId, string $exito)
+    {
+        $cuentas = app(\App\Services\CuentasAppService::class);
+        $cuentas->cederElTurno($social, $metaPage->id, $userId, null);
+        $r = back()->with('success', $exito);
+        return ($aviso = $cuentas->avisoPermisos($social)) ? $r->with('error', $aviso) : $r;
     }
 }

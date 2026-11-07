@@ -62,7 +62,8 @@
                     {{ __('Aún no tienes páginas de Facebook conectadas a editus.') }}
                     @if (Route::has('facebook.connect') && auth()->user()->tienePermiso('paginas'))
                         <a href="{{ route('facebook.connect') }}" class="font-semibold underline">{{ __('Conectar mis páginas') }}</a>
-                        <span class="block text-xs mt-1">{{ __('Basta con ser editor o administrador de la página. Si tus páginas solo las manejas desde un portafolio comercial (Business Manager) y eres su administrador:') }}
+                        <span class="block text-xs mt-1">{{ __('Basta con ser editor o administrador de la página; no hace falta pertenecer al portafolio comercial (Business Manager). En la ventana de Facebook marca solo tus páginas y deja activados los permisos.') }}
+                            {{ __('Solo si administras el portafolio comercial dueño de la página:') }}
                             <a href="{{ route('facebook.connect', ['portafolio' => 1]) }}" class="underline">{{ __('conectar desde el portafolio') }}</a>.</span>
                     @endif
                     <span class="block text-xs mt-1">{{ __('Puedes firmar ahora y conectarlas después.') }}</span>

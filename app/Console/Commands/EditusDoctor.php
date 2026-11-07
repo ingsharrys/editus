@@ -24,7 +24,11 @@ class EditusDoctor extends Command
 
     protected $description = 'Diagnóstico integral: configuración, BD, cola, scheduler y tokens de Meta';
 
-    private const REQUIRED_SCOPES = [
+    /**
+     * Permisos del Usuario de Sistema de editus (editus-bot, FACEBOOK_SYSTEM_USER_TOKEN), el respaldo para publicar.
+     * No son los de los medios: ellos conectan sin business_management (ver «Facebook: qué abre cada botón»).
+     */
+    private const SCOPES_USUARIO_SISTEMA = [
         'pages_show_list', 'pages_manage_posts', 'pages_read_engagement', 'pages_manage_metadata',
         'read_insights', 'business_management', 'instagram_basic', 'instagram_content_publish',
         'instagram_manage_insights',
@@ -39,6 +43,9 @@ class EditusDoctor extends Command
 
         $this->section('Configuración');
         $this->checkConfig();
+
+        $this->section('Facebook: qué abre cada botón');
+        $this->checkFacebookFlujos();
 
         $this->section('Almacenamiento y procesos');
         $this->checkStorage();
@@ -117,15 +124,12 @@ class EditusDoctor extends Command
         foreach ([
             'services.facebook.client_id' => 'FACEBOOK_CLIENT_ID',
             'services.facebook.client_secret' => 'FACEBOOK_CLIENT_SECRET',
-            'services.facebook.link_config_id' => 'FACEBOOK_LINK_CONFIG_ID',
             'services.facebook.system_user_token' => 'FACEBOOK_SYSTEM_USER_TOKEN',
             'services.editus.ingest_token' => 'EDITUS_INGEST_TOKEN',
         ] as $key => $envName) {
             $val = config($key);
             if ($val) {
                 $this->okLine("{$envName} configurado" . ($envName === 'FACEBOOK_SYSTEM_USER_TOKEN' ? ' (' . strlen($val) . ' chars)' : ''));
-            } elseif ($envName === 'FACEBOOK_LINK_CONFIG_ID') {
-                $this->warnLine("{$envName} vacío (se usarán scopes clásicos en vez de Login for Business)");
             } elseif ($envName === 'EDITUS_INGEST_TOKEN') {
                 $this->failLine("{$envName} vacío: el puente /api/articulos/publicar rechazará todo con 401", "Definir EDITUS_INGEST_TOKEN en .env (mismo valor que EDITUS_TOKEN en esnoticia) y php artisan config:cache");
             } else {
@@ -135,6 +139,35 @@ class EditusDoctor extends Command
 
         $cached = file_exists(base_path('bootstrap/cache/config.php'));
         $cached ? $this->okLine('Configuración cacheada (producción)') : $this->warnLine('Configuración sin cachear', 'Ejecutar bash deploy.sh (activa config/route/view cache)');
+    }
+
+    /**
+     * Qué ventana de Facebook abre cada botón y qué pide. Para conectar una página basta con ser su editor o
+     * administrador: ningún botón, salvo «desde el portafolio», debe pedir business_management ni usar la
+     * configuración del portafolio (Facebook niega todo a quien no está en él).
+     */
+    private function checkFacebookFlujos(): void
+    {
+        foreach (\App\Support\FacebookGraph::flujos() as $nombre => $f) {
+            $ventana = $f['config_id'] ? "Login for Business (config_id {$f['config_id']})" : 'ventana clásica, sin config_id';
+            $permisos = $f['permisos'] === null ? 'los define la configuración en Meta' : implode(', ', $f['permisos']);
+            $this->okLine("{$nombre}: {$ventana} → {$permisos}");
+        }
+
+        // Las del portafolio: FACEBOOK_PORTAFOLIO_CONFIG_ID y FACEBOOK_LINK_CONFIG_ID (la que antes usaba «Conectar mis páginas»)
+        $dePortafolio = \App\Support\FacebookGraph::configsDePortafolio();
+        $paginas = trim((string) config('services.facebook.paginas_config_id'));
+        if ($paginas !== '' && in_array($paginas, $dePortafolio, true)) {
+            $this->warnLine("FACEBOOK_PAGINAS_CONFIG_ID es una configuración del portafolio ({$paginas}): no se usa para «Conectar mis páginas»", 'Crear en Meta una configuración aparte (token de usuario, solo páginas, sin business_management) o borrar FACEBOOK_PAGINAS_CONFIG_ID');
+        }
+        $login = trim((string) config('services.facebook.login_config_id'));
+        if ($login !== '' && in_array($login, $dePortafolio, true)) {
+            $this->warnLine("FACEBOOK_LOGIN_CONFIG_ID es una configuración del portafolio ({$login}): «Continuar con Facebook» le exigirá el portafolio a todos", 'Borrar FACEBOOK_LOGIN_CONFIG_ID del .env y ejecutar php artisan config:cache');
+        }
+        $faltan = array_diff(\App\Support\FacebookGraph::PERMISOS_ESENCIALES, \App\Support\FacebookGraph::permisosPaginas());
+        if ($faltan) {
+            $this->failLine('«Conectar mis páginas» no pide ' . implode(', ', $faltan) . ': sin eso no se publica o no se mide', 'Agregar ' . implode(', ', $faltan) . ' a FACEBOOK_LINK_SCOPES y ejecutar php artisan config:cache');
+        }
     }
 
     private function checkStorage(): void
@@ -260,7 +293,7 @@ class EditusDoctor extends Command
                 $perms = Http::withToken($sys)->timeout(20)->get("{$base}/me/permissions");
                 $granted = collect((array) data_get($perms->json(), 'data', []))
                     ->where('status', 'granted')->pluck('permission')->all();
-                $missing = array_values(array_diff(self::REQUIRED_SCOPES, $granted));
+                $missing = array_values(array_diff(self::SCOPES_USUARIO_SISTEMA, $granted));
                 empty($missing)
                     ? $this->okLine('Usuario de Sistema con los 9 permisos requeridos')
                     : $this->failLine('Al Usuario de Sistema le faltan permisos: ' . implode(', ', $missing), 'Regenerar el token de editus-bot en Business Manager marcando los 9 permisos y actualizar FACEBOOK_SYSTEM_USER_TOKEN');

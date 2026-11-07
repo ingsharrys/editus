@@ -32,9 +32,11 @@ class YoutubeController extends Controller
 
     public function callback(Request $request, YouTubeLiveService $youtube): RedirectResponse|\Illuminate\Contracts\View\View
     {
-        // Conexión iniciada desde la app del editor (sin sesión de editus)
-        if ($vinculo = $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION)) {
-            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackYoutube($request, (array) $vinculo, $youtube);
+        // Conexión iniciada desde la app del editor (sin sesión de editus). Solo un enlace de YouTube: uno de Facebook que
+        // quedó a medias en este navegador no se queda con la conexión del administrador
+        $vinculo = (array) $request->session()->get(\App\Http\Controllers\Web\CuentasAppController::SESION, []);
+        if ($vinculo && ($vinculo['red'] ?? null) === 'youtube') {
+            return app(\App\Http\Controllers\Web\CuentasAppController::class)->callbackYoutube($request, $vinculo, $youtube);
         }
         if (!auth()->check() || !auth()->user()->tienePermiso('app_editor')) {
             return redirect()->route('login')->with('error', __('Inicia sesión como administrador para conectar canales.'));

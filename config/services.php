@@ -53,19 +53,22 @@ return [
         // opcional: por si luego tu app está en “Login for Business”
         'login_config_id' => env('FACEBOOK_LOGIN_CONFIG_ID'),
 
-        // Conexión/sincronización de páginas (usadas por FacebookPageController)
+        // Conexión/sincronización de páginas (usadas por FacebookPageController; qué abre cada botón: FacebookGraph::configId)
         'link_redirect' => env('FACEBOOK_LINK_REDIRECT_URI'),
+        // Configuración de «Facebook Login for Business» de «conectar desde el portafolio» (pide el portafolio comercial)
         'link_config_id' => env('FACEBOOK_LINK_CONFIG_ID'),
-        // opcional: configuración aparte (con business_management) para conectar desde un portafolio comercial
+        // opcional: otra configuración para el portafolio (si existe, reemplaza a link_config_id en esa opción)
         'portafolio_config_id' => env('FACEBOOK_PORTAFOLIO_CONFIG_ID'),
+        // opcional: configuración para «Conectar mis páginas» (token de usuario, solo páginas, sin business_management).
+        // Sin ella se abre la ventana clásica de Facebook con link_scopes. Si es igual a la del portafolio, no se usa.
+        'paginas_config_id' => env('FACEBOOK_PAGINAS_CONFIG_ID'),
         'link_scopes' => array_values(array_diff(array_values(array_filter(array_map(
             'trim',
             explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_comments,instagram_content_publish'))
         ))), $scopesOmitidos)),
-        'scopes' => array_values(array_diff(array_values(array_filter(array_map(
-            'trim',
-            explode(',', env('FACEBOOK_LINK_SCOPES', 'email,public_profile,pages_show_list,pages_manage_posts,pages_manage_metadata,pages_read_engagement,pages_read_user_content,read_insights,business_management,instagram_basic,instagram_manage_comments,instagram_content_publish'))
-        ))), $scopesOmitidos)),
+        // Socialite le suma estos permisos a toda ventana de Facebook que no use «setScopes()»: solo lo básico, para que
+        // nunca se cuele «business_management» (Facebook se lo niega a quien no está en el portafolio y entonces niega todo)
+        'scopes' => ['email', 'public_profile'],
         'system_user_token' => env('FACEBOOK_SYSTEM_USER_TOKEN'),
     ],
 
