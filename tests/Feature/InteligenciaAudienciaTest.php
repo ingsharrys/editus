@@ -350,6 +350,66 @@ class InteligenciaAudienciaTest extends TestCase
         $this->actingAs($this->admin)->get('/admin/inteligencia')->assertOk()->assertSee('Consultas a la IA')->assertSee('Alcaldía 2027');
     }
 
+    public function test_modulo_meta_lee_comentarios_sin_clave_de_anthropic(): void
+    {
+        config(['services.anthropic.key' => '']);
+        $campana = $this->campana();
+        PublicacionRed::create([
+            'meta_page_id' => $this->page->id, 'red' => 'facebook', 'post_id' => '111_55',
+            'tipo' => 'foto', 'texto' => 'Publicación de prueba',
+            'publicado_en' => now(), 'comentarios' => 1,
+        ]);
+
+        Http::fake([
+            'graph.facebook.com/v23.0/111_55/comments*' => Http::response(['data' => [
+                ['id' => '55_22', 'message' => 'Comentario del usuario', 'created_time' => '2026-11-09T10:00:00+0000', 'from' => ['name' => 'Persona de prueba']],
+            ]]),
+        ]);
+
+        $post = PublicacionRed::where('post_id', '111_55')->firstOrFail();
+        $this->actingAs($this->admin)
+            ->get(route('inteligencia.meta-comments-review', [
+                'campana' => $campana, 'page_id' => $this->page->id, 'post_id' => $post->id,
+            ]))
+            ->assertOk()
+            ->assertSee('Opa Noticias')
+            ->assertSee('Comentario del usuario')
+            ->assertSee('Persona de prueba');
+
+        Http::assertSent(fn ($request) =>
+            str_contains($request->url(), '/111_55/comments')
+            && ($request['access_token'] ?? null) === 'tok-pagina'
+        );
+        $this->assertDatabaseCount('comentarios_analisis', 0);
+    }
+
+    public function test_modulo_meta_no_consulta_paginas_fuera_de_la_campana(): void
+    {
+        $campana = $this->campana();
+        $otra = MetaPage::create(['page_id' => '222', 'name' => 'Página ajena']);
+        $this->actingAs($this->admin)->get(route('inteligencia.meta-comments-review', [
+            'campana' => $campana, 'page_id' => $otra->id,
+        ]))->assertNotFound();
+    }
+
+    public function test_modulo_meta_no_consulta_sin_token_propio(): void
+    {
+        $campana = $this->campana();
+        $this->page->users()->updateExistingPivot($this->admin->id, ['is_active' => false]);
+
+        $post = PublicacionRed::create([
+            'meta_page_id' => $this->page->id, 'red' => 'facebook',
+            'post_id' => '111_77', 'tipo' => 'foto', 'texto' => 'Prueba',
+            'publicado_en' => now(),
+        ]);
+
+        Http::fake();
+        $this->actingAs($this->admin)->get(route('inteligencia.meta-comments-review', [
+            'campana' => $campana, 'page_id' => $this->page->id, 'post_id' => $post->id,
+        ]))->assertOk()->assertSee('no tiene un token activo');
+        Http::assertNothingSent();
+    }
+
     public function test_sin_clave_de_ia_el_modulo_sigue_funcionando(): void
     {
         config(['services.anthropic.key' => '']);
