@@ -63,7 +63,7 @@ class MetaCommentsReviewController extends Controller
                 } else {
                     try {
                         $response = $graph->get($post->post_id . '/comments', [
-                            'fields' => 'id,message,created_time,from',
+                            'fields' => 'id,message,created_time',
                             'limit' => 25,
                             'filter' => 'stream',
                         ], $token);
@@ -73,8 +73,9 @@ class MetaCommentsReviewController extends Controller
                         $retrieved = true;
 
                         if (!empty($data['comment_id'])) {
-                            $selected = collect($comments)->firstWhere('id', $data['comment_id']);
-                            abort_unless($selected !== null, 404);
+                            if (!collect($comments)->contains('id', $data['comment_id'])) {
+                                $error = 'El comentario seleccionado no aparece en los resultados de esta consulta.';
+                            } else {
                             $replyResponse = $graph->get($data['comment_id'] . '/comments', [
                                 'fields' => 'id,message,created_time,from',
                                 'limit' => 25,
@@ -82,6 +83,7 @@ class MetaCommentsReviewController extends Controller
                             $replies = collect($replyResponse['data'] ?? [])
                                 ->filter(fn ($item) => is_array($item))
                                 ->values()->all();
+                            }
                         }
                     } catch (\Throwable $e) {
                         Log::warning('[meta-review] fallo al recuperar comentarios', [
