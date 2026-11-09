@@ -157,6 +157,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/inteligencia/general/recolectar/paso', [\App\Http\Controllers\Admin\InteligenciaController::class, 'recolectarPaso'])->name('inteligencia.general.recolectar.paso');
         Route::post('/admin/inteligencia/consultar', [\App\Http\Controllers\Admin\InteligenciaController::class, 'consultar'])->name('inteligencia.consultar');
         Route::post('/admin/inteligencia', [\App\Http\Controllers\Admin\InteligenciaController::class, 'store'])->name('inteligencia.store');
+        Route::get('/admin/inteligencia/{campana}/meta-comentarios-prueba', [\App\Http\Controllers\Admin\MetaCommentsReviewController::class, 'index'])->name('inteligencia.meta-comments-review');
         Route::get('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'show'])->name('inteligencia.show');
         Route::put('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'update'])->name('inteligencia.update');
         Route::delete('/admin/inteligencia/{campana}', [\App\Http\Controllers\Admin\InteligenciaController::class, 'destroy'])->name('inteligencia.destroy');
