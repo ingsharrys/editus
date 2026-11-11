@@ -103,6 +103,9 @@ class ContratosService
     /** Hoja membreteada del contratante de los modelos (fondo de cada página del contrato). */
     public const MODELOS_MEMBRETE = 'pic-2026/membrete-dime-media.jpg';
 
+    /** Firma del representante legal del contratante de los modelos (Juan Carlos Charry González, Dime Media). */
+    public const MODELOS_FIRMA = 'pic-2026/firma-dime-media.png';
+
     public static function disponible(): bool
     {
         // Se mira en cada pantalla (middleware): se recuerda solo el «sí» y solo en esta instancia de la aplicación
@@ -211,9 +214,40 @@ class ContratosService
             Storage::disk(self::DISCO)->put($ruta, (string) file_get_contents($membrete));
             $cfg['contratante_membrete'] = $ruta;
         }
+        $cfg = $this->conFirmaDeLosModelos($c, $cfg);
         $cfg['modelos_cargados'] = true;
         $c->forceFill(['contratos' => $cfg])->save();
         return $n;
+    }
+
+    /**
+     * Pone la firma de Dime Media en las campañas con los modelos del PIC que aún no tienen «Firma del contratante»
+     * (solo si el contratante es Dime Media). Los contratos ya firmados se rehacen con ella al abrirlos (pdf()).
+     * Devuelve en cuántas campañas la puso.
+     */
+    public function ponerFirmaDeLosModelos(?Campaign $c = null): int
+    {
+        $n = 0;
+        foreach ($c ? [$c] : Campaign::whereNotNull('contratos')->get() as $campana) {
+            $cfg = (array) ($campana->contratos ?? []);
+            if (empty($cfg['modelos_cargados']) || !empty($cfg['contratante_firma'])) continue;
+            $nuevo = $this->conFirmaDeLosModelos($campana, $cfg);
+            if (empty($nuevo['contratante_firma'])) continue;
+            $campana->forceFill(['contratos' => $nuevo])->save();
+            $n++;
+        }
+        return $n;
+    }
+
+    private function conFirmaDeLosModelos(Campaign $c, array $cfg): array
+    {
+        $firma = resource_path('contratos/' . self::MODELOS_FIRMA);
+        $contratante = mb_strtoupper(trim((string) ($cfg['contratante'] ?? '')));
+        if (!empty($cfg['contratante_firma']) || !is_file($firma) || ($contratante !== '' && !str_contains($contratante, 'DIME MEDIA'))) return $cfg;
+        $ruta = 'contratos/' . $c->id . '/firma-contratante-' . Str::random(10) . '.png';
+        Storage::disk(self::DISCO)->put($ruta, (string) file_get_contents($firma));
+        $cfg['contratante_firma'] = $ruta;
+        return $cfg;
     }
 
     /**

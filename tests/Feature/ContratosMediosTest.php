@@ -342,6 +342,23 @@ class ContratosMediosTest extends TestCase
         $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->whereNotNull('clave')->count());
     }
 
+    public function test_la_firma_de_dime_media_sale_aunque_el_contrato_se_haya_firmado_antes(): void
+    {
+        $svc = app(ContratosService::class);
+        // Campaña con los modelos del PIC cargados antes de que existiera la firma: queda con la de Dime Media
+        $this->c->forceFill(['contratos' => ['modelos_cargados' => true, 'contratante' => 'DIME MEDIA S.A.S.']])->save();
+        $this->assertSame(1, $svc->ponerFirmaDeLosModelos());
+        $firma = $svc->config($this->c->fresh())['contratante_firma'];
+        $this->assertNotNull($firma);
+        $this->assertSame(file_get_contents(resource_path('contratos/' . ContratosService::MODELOS_FIRMA)), Storage::disk('local')->get($firma));
+        $this->assertSame(0, $svc->ponerFirmaDeLosModelos(), 'no la duplica');
+
+        // Si el contratante es otra empresa, no se le pone la firma de Dime Media
+        $this->c->forceFill(['contratos' => ['modelos_cargados' => true, 'contratante' => 'OTRA EMPRESA S.A.S.']])->save();
+        $this->assertSame(0, $svc->ponerFirmaDeLosModelos($this->c->fresh()));
+        $this->assertNull($svc->config($this->c->fresh())['contratante_firma']);
+    }
+
     public function test_los_modelos_ya_cargados_se_ponen_al_dia_si_nadie_los_edito(): void
     {
         // Así quedaron los modelos cargados antes del cambio de la cláusula quinta (forma de pago)
