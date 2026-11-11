@@ -161,14 +161,11 @@ class EnVivoDiagnostico extends Command
         // ---- 8. Emisor (pregrabados programados) ----
         if ($emisor->configurado()) {
             $this->seccion('8. Emisor de pregrabados (' . $emisor->base() . ')');
-            try {
-                $salud = $emisor->salud();
-                $salud !== null ? $this->bien('Responde y acepta el secreto') : $this->mal('No responde o no acepta EMISOR_SECRETO');
-                if ($salud === null) $this->acciones[] = 'Instala el emisor en el VPS nuevo (bash /opt/editus-src/infra/en-vivo/instalar-emisor.sh https://app.editus.online) y copia su secreto de /opt/emisor/.env a EMISOR_SECRETO';
-            } catch (\Throwable $e) {
-                $this->mal('No conecta: ' . mb_substr($e->getMessage(), 0, 160));
-                $this->acciones[] = 'Instala el emisor en el VPS nuevo: bash /opt/editus-src/infra/en-vivo/instalar-emisor.sh https://app.editus.online';
-            }
+            $this->probarEmisor($emisor);
+        } elseif ((string) config('services.emisor.url') !== '') {
+            $this->seccion('8. Emisor de pregrabados');
+            $this->mal('EMISOR_SECRETO vacío o con menos de 32 caracteres');
+            $this->acciones[] = 'Copia EMISOR_SECRETO de /opt/emisor/.env del VPS al .env de editus, luego: php artisan config:clear';
         }
 
         $this->seccion('Qué hacer');
@@ -179,6 +176,77 @@ class EnVivoDiagnostico extends Command
         }
         $this->line('');
         return $this->fallos ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Prueba el emisor por partes, igual que lo usan editus y el navegador: si llega (Nginx), si acepta el
+     * secreto y el reloj, si deja subir desde la página de editus (CORS) y si acepta el permiso de subida.
+     */
+    private function probarEmisor(EmisorClient $emisor): void
+    {
+        $base = $emisor->base();
+        $instalar = 'En el VPS (root): bash /opt/editus-src/infra/en-vivo/instalar-emisor.sh https://app.editus.online';
+
+        // a) /salud es pública: dice si Nginx manda /emisor/ al contenedor
+        try {
+            $r = Http::timeout(15)->acceptJson()->get($base . '/salud');
+        } catch (\Throwable $e) {
+            $this->mal('No conecta con ' . $base . '/salud: ' . mb_substr(preg_replace('/\?\S*/', '?…', $e->getMessage()), 0, 160));
+            $this->acciones[] = 'Revisa EMISOR_URL (debe ser https://live.esnoticia.org/emisor, sin espacios ni / al final) y que el DNS y el puerto 443 del VPS respondan';
+            return;
+        }
+        if (!$r->successful() || ($r->json('ok') !== true)) {
+            $this->mal("{$base}/salud responde HTTP {$r->status()} pero no es el emisor: a Nginx le falta «location /emisor/» o el contenedor está caído");
+            $this->acciones[] = $instalar . '  (agrega «location /emisor/» a Nginx y levanta el contenedor; luego: cd /opt/emisor && docker compose logs --tail 50)';
+            return;
+        }
+        $this->bien('Llega al emisor (versión ' . ($r->json('version') ?? '?') . ')');
+        if ($fecha = $r->header('Date')) {
+            $desfase = abs(time() - (int) strtotime($fecha));
+            if ($desfase > 120) {
+                $this->mal("El reloj de este servidor y el del VPS se llevan {$desfase} s (el emisor rechaza las firmas con más de 300 s)");
+                $this->acciones[] = 'Sincroniza la hora en los dos servidores: timedatectl set-ntp true';
+            }
+        }
+
+        // b) /estado firmado: el secreto es el mismo de /opt/emisor/.env
+        [$codigo, $json] = $emisor->estadoFirmado();
+        if ($codigo === 200) {
+            $gb = isset($json['libre']) ? ' · espacio libre: ' . round(((float) $json['libre']) / 1073741824, 1) . ' GB' : '';
+            $this->bien('Acepta el secreto (EMISOR_SECRETO)' . $gb);
+        } elseif ($codigo === 401) {
+            $this->mal('No acepta EMISOR_SECRETO: no es el mismo de /opt/emisor/.env (o los relojes no coinciden)');
+            $this->acciones[] = 'Compara la huella: en el VPS, grep -oP "^EMISOR_SECRETO=\K.*" /opt/emisor/.env | tr -d "\r\n" | sha256sum | cut -c1-8 debe dar la misma huella del punto 1; si no, copia el secreto del VPS al .env de editus y corre php artisan config:clear';
+        } else {
+            $this->mal('/estado respondió ' . ($codigo ?: 'sin conexión') . ': ' . mb_substr((string) ($json['error'] ?? ''), 0, 120));
+            $this->acciones[] = 'Revisa los logs del emisor: cd /opt/emisor && docker compose logs --tail 50';
+        }
+
+        // c) Subida desde el navegador: CORS para la página de editus y permiso (token) de subida
+        $origen = preg_replace('#^(https?://[^/]+).*$#', '$1', rtrim((string) config('app.url'), '/'));
+        $id = 'diag-' . now()->format('YmdHis');
+        try {
+            $pre = Http::timeout(15)->withHeaders(['Origin' => $origen, 'Access-Control-Request-Method' => 'PUT', 'Access-Control-Request-Headers' => 'content-range'])
+                ->send('OPTIONS', $base . '/subidas/' . $id);
+            $permitido = (string) $pre->header('Access-Control-Allow-Origin');
+            if ($permitido === $origen || $permitido === '*') {
+                $this->bien("Deja subir videos desde {$origen}");
+            } else {
+                $this->mal("No deja subir desde {$origen} (CORS): el navegador corta la subida y sale «Sin respuesta del servidor de transmisión»");
+                $this->acciones[] = "En el VPS: en /opt/emisor/.env pon EMISOR_ORIGENES={$origen} (sin / al final; varias separadas por coma) y luego: cd /opt/emisor && docker compose up -d";
+            }
+            $sub = Http::timeout(15)->withHeaders(['Origin' => $origen])->acceptJson()->get($emisor->urlSubida($id, 1024));
+            if ($sub->status() === 200) {
+                $this->bien('Acepta el permiso de subida que firma editus');
+            } elseif ($sub->status() === 403) {
+                $this->mal('Rechaza el permiso de subida: EMISOR_SECRETO no es el mismo de /opt/emisor/.env');
+                $this->acciones[] = 'Copia EMISOR_SECRETO de /opt/emisor/.env al .env de editus (sin espacios ni comillas) y corre php artisan config:clear';
+            } else {
+                $this->mal("La subida de prueba respondió HTTP {$sub->status()}");
+            }
+        } catch (\Throwable $e) {
+            $this->mal('La prueba de subida no conectó: ' . mb_substr(preg_replace('/\?\S*/', '?…', $e->getMessage()), 0, 160));
+        }
     }
 
     private function seccion(string $t): void

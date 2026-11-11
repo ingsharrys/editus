@@ -71,6 +71,12 @@ class EmisorClient
         return $codigo === 200 ? $json : null;
     }
 
+    /** Para el diagnóstico: código HTTP (0 sin conexión) y JSON de /estado firmado. */
+    public function estadoFirmado(): array
+    {
+        return $this->pedir('GET', '/estado');
+    }
+
     /** Aviso del emisor (subido, listo, reintento, terminado, error): firma, ventana de 5 min y nonce de un solo uso. */
     public function avisoValido(Request $request): bool
     {
