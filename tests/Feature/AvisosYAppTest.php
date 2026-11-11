@@ -154,6 +154,32 @@ class AvisosYAppTest extends TestCase
         $this->assertNotNull(collect($this->llamadas)->first(fn($l) => str_contains($l['url'], 'thumbnails/set?videoId=yt-1')), 'YouTube recibe la miniatura');
     }
 
+    public function test_una_miniatura_pesada_o_grande_se_reduce_en_vez_de_rechazarse(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $servicio = app(\App\Services\MiniaturaService::class);
+        // PNG sin comprimir de más de 2 MB (como una captura de pantalla)
+        $im = imagecreatetruecolor(1700, 1000);
+        imagefill($im, 0, 0, imagecolorallocate($im, 0, 2, 79));
+        ob_start(); imagepng($im, null, 0); $png = ob_get_clean();
+        $this->assertGreaterThan(\App\Services\MiniaturaService::MAX_BYTES, strlen($png));
+        $ruta = $servicio->guardarBase64('data:image/png;base64,' . base64_encode($png));
+        $guardada = \Illuminate\Support\Facades\Storage::disk('public')->get($ruta);
+        $this->assertStringEndsWith('.jpg', $ruta);
+        $this->assertLessThanOrEqual(\App\Services\MiniaturaService::MAX_BYTES, strlen($guardada));
+        $this->assertSame([1700, 1000], array_slice(getimagesizefromstring($guardada), 0, 2), 'cabe en 1920×1080: no cambia de tamaño');
+
+        // Foto enorme (de celular): se reduce para que quepa en 1920×1080, sin recortar
+        $im = imagecreatetruecolor(4000, 3000);
+        ob_start(); imagejpeg($im, null, 80); $jpg = ob_get_clean();
+        $guardada = \Illuminate\Support\Facades\Storage::disk('public')->get($servicio->guardarBase64(base64_encode($jpg)));
+        $this->assertSame([1440, 1080], array_slice(getimagesizefromstring($guardada), 0, 2));
+
+        // Muy pequeña o que no es imagen: sigue rechazándose
+        $this->expectException(\InvalidArgumentException::class);
+        $servicio->guardarBase64($this->jpgBase64(200, 100));
+    }
+
     public function test_api_de_la_app_solo_lo_suyo_y_pregrabados(): void
     {
         // Página de otro usuario: no

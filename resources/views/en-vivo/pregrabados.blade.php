@@ -121,7 +121,7 @@
 <div class="">
                             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Miniatura del anuncio (opcional)') }}</label>
                             <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
-                            <p class="text-[11px] text-gray-400 mt-1">{{ __('JPG o PNG de 1280×720, hasta 2 MB. Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).') }}</p>
+                            <p class="text-[11px] text-gray-400 mt-1">{{ __('JPG o PNG, ideal 1280×720 (si pesa más de 2 MB, editus la reduce). Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).') }}</p>
                         </div>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="anuncio_facebook" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>{{ __('Publicar anuncio en Facebook') }}</strong>. <span class="text-gray-500">{{ __('Meta ya no permite programar en vivos desde aplicaciones: publicamos un post con la fecha y la hora (se borra si cancelas). El en vivo se crea solo a la hora.') }}</span></span></label>
                 <label class="flex items-start gap-2.5 text-sm text-gray-700"><input type="checkbox" name="etiqueta" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span><strong>{{ __('Etiqueta «PREGRABADO»') }}</strong> {{ __('en una esquina.') }} <span class="text-gray-500">{{ __('Facebook exige que el contenido pregrabado se distinga del que es en vivo.') }}</span></span></label>
@@ -168,6 +168,7 @@
     </div>
 </div>
 
+@include('en-vivo._miniatura-js')
 <script>
 (function () {
   const RUTAS = {
@@ -191,7 +192,6 @@
     'pesaMucho' => __('El video pesa :tam y el máximo es :max.'),
     'escribeTitulo' => __('Escribe el título.'),
     'eligeDestino' => __('Elige al menos una página de Facebook o un canal de YouTube.'),
-    'miniaturaPesada' => __('La miniatura pesa más de 2 MB. Usa una imagen JPG de 1280×720.'),
     'ahora' => __('ahora'),
     'enDia' => __('en :d día :h h'),
     'enDias' => __('en :d días :h h'),
@@ -304,8 +304,8 @@
     if (!datos.meta_page_ids.length && !datos.youtube_canal_ids.length) return error(TX.eligeDestino);
     const img = f.get('miniatura_archivo');
     if (img && img.size) {
-      if (img.size > 2 * 1024 * 1024) return error(TX.miniaturaPesada);
-      datos.miniatura = await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => ok(null); fr.readAsDataURL(img); });
+      // Si pesa más de 2 MB o es muy grande, se reduce aquí mismo (_miniatura-js)
+      try { datos.miniatura = await window.prepararMiniatura(img); } catch (e) { return error(e.message); }
     }
     const b = g('pg-boton'); b.disabled = true;
     try {

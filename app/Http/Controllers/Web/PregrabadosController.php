@@ -70,7 +70,7 @@ class PregrabadosController extends Controller
             'archivo_nombre' => ['required', 'string', 'max:255'], 'archivo_bytes' => ['required', 'integer', 'min:1000'],
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'],
             'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'], 'calidad' => ['nullable', 'in:auto,720'],
-            'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
         ]);
         $cuando = Carbon::createFromFormat('Y-m-d\TH:i', $d['programada_en'], config('app.timezone'))->seconds(0);
         if ($cuando->lt(now()->addMinutes(10))) return $this->error(__('Programa el video al menos 10 minutos en el futuro: hay que subirlo y prepararlo.'));

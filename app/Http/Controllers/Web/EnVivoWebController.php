@@ -91,7 +91,7 @@ class EnVivoWebController extends Controller
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'date_format:Y-m-d\TH:i'],
-            'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'], 'marca_id' => ['nullable', 'integer'],
+            'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'], 'marca_id' => ['nullable', 'integer'],
             'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $datos['plantilla'] = $this->conMarca($datos['marca_id'] ?? null, (array) ($datos['plantilla'] ?? []));

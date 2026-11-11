@@ -150,7 +150,7 @@
                         <div class="sm:col-span-2">
                             <label class="block text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-1">{{ __('Miniatura del anuncio (opcional)') }}</label>
                             <input type="file" name="miniatura_archivo" accept="image/jpeg,image/png" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold file:text-gray-700 hover:file:bg-gray-200">
-                            <p class="text-[11px] text-gray-400 mt-1">{{ __('JPG o PNG de 1280×720, hasta 2 MB. Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).') }}</p>
+                            <p class="text-[11px] text-gray-400 mt-1">{{ __('JPG o PNG, ideal 1280×720 (si pesa más de 2 MB, editus la reduce). Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).') }}</p>
                         </div>
                         <label class="sm:col-span-2 flex items-start gap-2 text-sm text-gray-700"><input type="checkbox" name="anuncio_facebook" value="1" checked class="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600"><span>{{ __('Publicar anuncio en Facebook') }} <span class="block text-[11px] text-gray-500">{{ __('Meta ya no permite programar en vivos desde aplicaciones: publicamos un post con la miniatura, la fecha y la hora (se borra si cancelas). El en vivo se crea a la hora, al salir al aire.') }}</span></span></label>
                     </div>
@@ -288,6 +288,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
 <script src="{{ route('en-vivo.sonidos') }}"></script>
+@include('en-vivo._miniatura-js')
 <script>
 (function () {
   const RUTAS = {
@@ -426,10 +427,8 @@
       try {
         const img = f.get('miniatura_archivo');
         let miniatura = null;
-        if (img && img.size) {
-          if (img.size > 2 * 1024 * 1024) throw new Error(@js(__('La miniatura pesa más de 2 MB. Usa una imagen JPG de 1280×720.')));
-          miniatura = await new Promise((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = mal; fr.readAsDataURL(img); });
-        }
+        // Si pesa más de 2 MB o es muy grande, se reduce aquí mismo (_miniatura-js)
+        if (img && img.size) miniatura = await window.prepararMiniatura(img);
         await pedir('POST', RUTAS.programar, { ...datos, programada_en: f.get('programada_en'), miniatura, anuncio_facebook: f.get('anuncio_facebook') === '1' });
         if ('Notification' in window && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch (e) {} }
         location.reload();

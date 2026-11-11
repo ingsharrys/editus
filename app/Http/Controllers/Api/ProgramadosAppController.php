@@ -60,7 +60,7 @@ class ProgramadosAppController extends Controller
             'page_ids' => ['nullable', 'array', 'max:10'], 'page_ids.*' => ['string'],
             'youtube_canal_ids' => ['nullable', 'array', 'max:5'], 'youtube_canal_ids.*' => ['integer'],
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
-            'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'string', 'max:40'], 'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'plantilla' => ['nullable', 'array'], 'programada_en' => ['required', 'string', 'max:40'], 'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
             'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         try {
@@ -130,7 +130,7 @@ class ProgramadosAppController extends Controller
             'titulo' => ['required', 'string', 'max:200'], 'descripcion' => ['nullable', 'string', 'max:5000'],
             'programada_en' => ['required', 'string', 'max:40'], 'archivo_nombre' => ['required', 'string', 'max:255'], 'archivo_bytes' => ['required', 'integer', 'min:1000'],
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'], 'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'],
-            'calidad' => ['nullable', 'in:auto,720'], 'miniatura' => ['nullable', 'string', 'max:3000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'calidad' => ['nullable', 'in:auto,720'], 'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
         ]);
         $max = (int) config('services.emisor.max_gb', 6) * 1024 ** 3;
         if ($d['archivo_bytes'] > $max) return $this->error('El video supera el máximo de ' . config('services.emisor.max_gb', 6) . ' GB.');
