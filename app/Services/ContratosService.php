@@ -528,8 +528,27 @@ class ContratosService
 
     public function pdf(Contrato $k): string
     {
-        if ($k->pdf_path && Storage::disk(self::DISCO)->exists($k->pdf_path)) return Storage::disk(self::DISCO)->get($k->pdf_path);
+        $disco = Storage::disk(self::DISCO);
+        if ($k->pdf_path && $disco->exists($k->pdf_path)) {
+            if (!$this->faltaFirmaContratante($k)) return $disco->get($k->pdf_path);
+            // El medio firmó antes de que se cargara la firma del contratante: se rehace el PDF con ella (el texto
+            // firmado no cambia: sale de lo que quedó guardado en el contrato)
+            $anterior = $k->pdf_path;
+            $this->guardarPdf($k);
+            if ($k->pdf_path !== $anterior && $disco->exists($k->pdf_path)) {
+                $disco->delete($anterior);
+                return $disco->get($k->pdf_path);
+            }
+        }
         return $this->pdfBinario($k);
+    }
+
+    /** ¿El PDF guardado es anterior a la firma del contratante que está cargada ahora? */
+    private function faltaFirmaContratante(Contrato $k): bool
+    {
+        $firma = $this->config($k->loadMissing('campaign')->campaign)['contratante_firma'];
+        $disco = Storage::disk(self::DISCO);
+        return $firma && $disco->exists($firma) && $disco->lastModified($firma) > $disco->lastModified($k->pdf_path);
     }
 
     public function nombreArchivo(Contrato $k): string

@@ -143,6 +143,22 @@ class ContratosMediosTest extends TestCase
         $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertOk()->assertSee('Contrato No. SALUD-2026-007 firmado');
         $this->actingAs($u)->get(route('contratos.pdf', $k))->assertOk()->assertHeader('Content-Type', 'application/pdf');
 
+        // La firma del contratante se cargó después de que el medio firmó: al descargarlo, el PDF se rehace con ella
+        $antes = $k->fresh()->pdf_path;
+        $im = imagecreatetruecolor(240, 120); imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+        ob_start(); imagepng($im); $png = ob_get_clean();
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.config', $this->c), array_merge(app(\App\Services\ContratosService::class)->config($this->c->fresh()), ['copia_a' => 'contratos@dimemedia.co',
+            'firma' => \Illuminate\Http\UploadedFile::fake()->createWithContent('firma.png', $png)]))->assertSessionHasNoErrors();
+        $firma = app(\App\Services\ContratosService::class)->config($this->c->fresh())['contratante_firma'];
+        $this->assertNotNull($firma);
+        touch(Storage::disk('local')->path($antes), time() - 60); // el PDF es de antes de la firma
+        $this->actingAs($u)->get(route('contratos.pdf', $k))->assertOk();
+        $this->assertNotSame($antes, $k->fresh()->pdf_path, 'PDF rehecho con la firma del contratante');
+        Storage::disk('local')->assertMissing($antes);
+        $ahora = $k->fresh()->pdf_path;
+        $this->actingAs($u)->get(route('contratos.pdf', $k))->assertOk();
+        $this->assertSame($ahora, $k->fresh()->pdf_path, 'solo se rehace una vez');
+
         // Otro medio: no puede tomar el que ya eligieron; el suyo lleva el número siguiente
         $u2 = $this->inscribir('Pedro Pitalito');
         $this->actingAs($u2)->post(route('contratos.elegir', $this->c), ['medio_id' => $canal6->id])->assertSessionHasErrors('medio_id');
