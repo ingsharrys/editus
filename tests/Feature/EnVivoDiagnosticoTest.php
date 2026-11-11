@@ -51,6 +51,9 @@ class EnVivoDiagnosticoTest extends TestCase
             ->expectsOutputToContain('Deja subir videos desde')
             ->expectsOutputToContain('Acepta el permiso de subida')
             ->expectsOutputToContain('no resuelve');   // live.prueba.test no existe en el DNS
+        // LiveKit rechaza «[]»: sin campos tiene que ir «{}»
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/ListRooms') && $r->body() === '{}');
+        Http::assertSent(fn ($r) => str_ends_with($r->url(), '/ListEgress') && $r->body() === '{"active":true}');
     }
 
     public function test_emisor_con_otro_secreto_y_sin_cors_para_editus(): void

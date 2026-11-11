@@ -231,7 +231,9 @@ class LiveKitClient
         $r = Http::timeout(30)->connectTimeout(10)
             ->withToken($this->tokenApi($room))
             ->acceptJson()
-            ->post("{$this->apiUrl}/twirp/{$servicio}/{$metodo}", $cuerpo);
+            // Sin campos va «{}»: LiveKit no acepta «[]» (así sale un array vacío en JSON)
+            ->withBody(json_encode($cuerpo === [] ? new \stdClass() : $cuerpo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 'application/json')
+            ->post("{$this->apiUrl}/twirp/{$servicio}/{$metodo}");
         if (!$r->ok()) {
             $msg = data_get($r->json(), 'msg') ?: data_get($r->json(), 'error') ?: Str::limit($r->body(), 200, '');
             throw new \RuntimeException("LiveKit {$metodo} falló (HTTP {$r->status()}): {$msg}");
