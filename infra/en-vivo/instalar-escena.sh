@@ -21,7 +21,7 @@ if ! grep -q "location /escena/" "$CONF"; then
 fi
 chmod o+rx /opt /opt/editus-src /opt/editus-src/infra /opt/editus-src/infra/en-vivo "$ORIGEN" 2>/dev/null || true
 chmod o+r "$ORIGEN/index.html"
-nginx -t && systemctl reload nginx
+nginx -t && { systemctl is-active --quiet nginx && systemctl reload nginx || systemctl restart nginx; }
 DOMINIO=$(grep -m1 -oP 'server_name\s+\K[^;]+' "$CONF" | awk '{print $1}')
 sleep 2
 if curl -fsS "https://${DOMINIO}/escena/" | grep -q START_RECORDING; then

@@ -41,7 +41,7 @@ echo "==> 2/4 Nginx: /emisor/ → 127.0.0.1:7890 (subidas por partes de hasta 80
 if ! grep -q "location /emisor/" "$CONF"; then
   sed -i "s#^\(\s*\)location / {#\1location /emisor/ {\n\1    proxy_pass http://127.0.0.1:7890;\n\1    proxy_http_version 1.1;\n\1    proxy_set_header Host \$host;\n\1    proxy_request_buffering off;\n\1    client_max_body_size 90m;\n\1    proxy_read_timeout 600;\n\1    proxy_send_timeout 600;\n\1}\n\1location / {#" "$CONF"
 fi
-nginx -t && systemctl reload nginx
+nginx -t && { systemctl is-active --quiet nginx && systemctl reload nginx || systemctl restart nginx; }
 
 echo "==> 3/4 Construyendo y arrancando el emisor"
 cd /opt/emisor

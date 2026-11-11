@@ -192,7 +192,7 @@ class EnVivoDiagnostico extends Command
             $r = Http::timeout(15)->acceptJson()->get($base . '/salud');
         } catch (\Throwable $e) {
             $this->mal('No conecta con ' . $base . '/salud: ' . mb_substr(preg_replace('/\?\S*/', '?…', $e->getMessage()), 0, 160));
-            $this->acciones[] = 'Revisa EMISOR_URL (debe ser https://live.esnoticia.org/emisor, sin espacios ni / al final) y que el DNS y el puerto 443 del VPS respondan';
+            $this->acciones[] = 'Revisa que Nginx esté prendido en el VPS: systemctl status nginx (si dice failed: nginx -t && systemctl restart nginx); y que EMISOR_URL sea https://live.esnoticia.org/emisor, sin / al final';
             return;
         }
         if (!$r->successful() || ($r->json('ok') !== true)) {

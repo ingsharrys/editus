@@ -139,7 +139,11 @@ server {
 EOF
 ln -sf /etc/nginx/sites-available/livekit /etc/nginx/sites-enabled/livekit
 rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
+# Si Nginx se cae (p. ej. tras una actualización), systemd lo vuelve a levantar solo
+mkdir -p /etc/systemd/system/nginx.service.d
+printf '[Unit]\nStartLimitIntervalSec=0\n[Service]\nRestart=always\nRestartSec=5s\n' > /etc/systemd/system/nginx.service.d/reinicio.conf
+systemctl daemon-reload
+nginx -t && { systemctl is-active --quiet nginx && systemctl reload nginx || systemctl restart nginx; }
 certbot --nginx -d "${DOMINIO}" -m "${CORREO}" --agree-tos --non-interactive --redirect || {
   echo "!! certbot falló: revisa que ${DOMINIO} apunte a ${IP_PUBLICA} y vuelve a correr el script"; exit 1; }
 

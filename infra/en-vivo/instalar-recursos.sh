@@ -26,7 +26,7 @@ EOC
 if ! grep -q "location /recursos/" "$CONF"; then
   sed -i "s#^\(\s*\)location / {#\1location /recursos/ {\n\1    proxy_pass ${EDITUS}/storage/en-vivo/recursos/;\n\1    proxy_ssl_server_name on;\n\1    proxy_set_header Host ${HOST_EDITUS};\n\1    proxy_set_header Referer \"\";\n\1    proxy_set_header User-Agent \"editus-recursos\";\n\1    proxy_cache recursos;\n\1    proxy_cache_valid 200 30d;\n\1    proxy_cache_use_stale error timeout updating;\n\1    proxy_ignore_headers Cache-Control Expires Set-Cookie;\n\1    add_header X-Cache \$upstream_cache_status;\n\1    add_header Access-Control-Allow-Origin *;\n\1    proxy_read_timeout 120;\n\1}\n\1location / {#" "$CONF"
 fi
-nginx -t && systemctl reload nginx
+nginx -t && { systemctl is-active --quiet nginx && systemctl reload nginx || systemctl restart nginx; }
 DOMINIO=$(grep -m1 -oP 'server_name\s+\K[^;]+' "$CONF" | awk '{print $1}')
 echo "Listo. Los recursos se sirven en https://${DOMINIO}/recursos/<archivo>"
 echo "Agrega al .env de editus:  LIVEKIT_RECURSOS_URL=https://${DOMINIO}/recursos   (y php artisan config:clear)"
