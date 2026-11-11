@@ -60,5 +60,8 @@
     "Falta ejecutar las migraciones (php artisan migrate).": "Migrations haven't been run yet (php artisan migrate).",
     "Esta campaña no es un plan de medios. Actívalo en Editar campaña.": "This campaign is not a media plan. Turn it on in Edit campaign.",
     ":pagina (:usados de :cupo)": ":pagina (:usados of :cupo)",
-    "Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.": "These pages already reached their «:tipo» quota: :lista. Remove them from the post or raise the quota."
+    "Estas páginas ya completaron su cupo de «:tipo»: :lista. Quítalas de la publicación o aumenta el cupo.": "These pages already reached their «:tipo» quota: :lista. Remove them from the post or raise the quota.",
+    "Al final del informe sale la firma del representante legal del contratante: es la misma de los contratos.": "The contracting party's legal representative signature appears at the end of the report: it's the same one used in the contracts.",
+    "Cambiarla en Contratos": "Change it in Contracts",
+    "Firma del contratante (imagen, sale en cada contrato y al final del informe)": "Contracting party's signature (image, appears in each contract and at the end of the report)"
 }

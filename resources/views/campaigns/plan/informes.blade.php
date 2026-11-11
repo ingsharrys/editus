@@ -91,6 +91,8 @@
                 <div><label class="{{ $lbl }}">{{ __('O texto del pie') }}</label>
                     <textarea name="pie_texto" rows="2" maxlength="500" placeholder="Calle 14 No. 1F-02 Neiva (H) E-mail: comercial@dimedia.com.co Cel. 313 8071986" class="w-full rounded-lg border-gray-200 text-sm shadow-sm">{{ $membrete['pie_texto'] }}</textarea></div>
                 <div><label class="{{ $lbl }}">{{ __('Título por defecto') }}</label><input name="titulo" maxlength="255" value="{{ $membrete['titulo'] }}" class="{{ $inp }}"></div>
+                <p class="text-[11px] text-gray-500">{{ __('Al final del informe sale la firma del representante legal del contratante: es la misma de los contratos.') }}
+                    @if (Route::has('campaigns.contratos'))<a href="{{ route('campaigns.contratos', $c) }}" class="underline text-indigo-700">{{ __('Cambiarla en Contratos') }}</a>@endif</p>
                 <div class="flex justify-end"><button class="h-9 rounded-lg bg-[#00024f] text-white px-4 text-xs font-semibold">{{ __('Guardar membrete') }}</button></div>
             </form>
         </div>

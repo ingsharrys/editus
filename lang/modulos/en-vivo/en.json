@@ -498,5 +498,6 @@
     "JPG o PNG, ideal 1280×720 (si pesa más de 2 MB, editus la reduce). Va en la publicación de anuncio de Facebook y en YouTube antes de empezar (en YouTube, si el canal está verificado).": "JPG or PNG, ideally 1280×720 (if it's over 2 MB, editus shrinks it). Used in the Facebook announcement post and on YouTube before the stream starts (on YouTube, if the channel is verified).",
     "No se pudo reducir la miniatura. Usa una imagen JPG de 1280×720.": "The thumbnail couldn't be shrunk. Use a 1280×720 JPG image.",
     "La miniatura debe ser una imagen JPG o PNG.": "The thumbnail must be a JPG or PNG image.",
-    "La miniatura es muy pequeña: usa al menos 1280×720 (mínimo 640×360).": "The thumbnail is too small: use at least 1280×720 (minimum 640×360)."
+    "La miniatura es muy pequeña: usa al menos 1280×720 (mínimo 640×360).": "The thumbnail is too small: use at least 1280×720 (minimum 640×360).",
+    "Sin respuesta del servidor de transmisión: reintentando (:n de :max)…": "No response from the streaming server: retrying (:n of :max)…"
 }

@@ -20,6 +20,9 @@
     .inf .evid img { max-height: 280px; }
     .inf .web { margin: 4px 0 4px 34px; }
     .inf .salto { page-break-before: always; }
+    .inf .firma { margin-top: 40px; page-break-inside: avoid; }
+    .inf .firma img { max-height: 70px; max-width: 220px; display: block; margin-bottom: -4px; }
+    .inf .firma .linea { width: 280px; border-top: 1px solid #000; padding-top: 4px; }
 </style>
 <div class="inf">
     @php $titulo = $titulo ?: $membrete['titulo']; @endphp
@@ -71,4 +74,15 @@
     @empty
         <p style="text-align:center; font-style: italic">No hay piezas con publicaciones para los filtros elegidos.</p>
     @endforelse
+    {{-- Firma del representante legal del contratante (la de Plan de medios → Contratos) --}}
+    @if (!empty($firma))
+        <div class="firma">
+            @if ($firma['imagen'])<img src="{{ $firma['imagen'] }}" alt="">@else<div style="height:60px"></div>@endif
+            <div class="linea">
+                @if ($firma['nombre'] !== '')<b>{{ $firma['nombre'] }}</b><br>@endif
+                {{ $firma['cargo'] }}
+                @if ($firma['empresa'] !== '')<br>{{ $firma['empresa'] }}@if ($firma['nit'] !== '') · NIT {{ $firma['nit'] }}@endif @endif
+            </div>
+        </div>
+    @endif
 </div>

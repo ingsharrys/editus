@@ -201,7 +201,7 @@
                     <label class="text-xs text-gray-600">{{ __('Documento del representante') }}<input name="contratante_documento" value="{{ $cfg['contratante_documento'] }}" maxlength="60" class="{{ $inp }} mt-0.5"></label>
                 </div>
                 <label class="block text-xs text-gray-600">{{ __('Representante legal') }}<input name="contratante_representante" value="{{ $cfg['contratante_representante'] }}" maxlength="190" class="{{ $inp }} mt-0.5"></label>
-                <div class="text-xs text-gray-600">{{ __('Firma del contratante (imagen, sale en cada contrato)') }}
+                <div class="text-xs text-gray-600">{{ __('Firma del contratante (imagen, sale en cada contrato y al final del informe)') }}
                     @if ($firmaContratante)<img src="{{ $firmaContratante }}" alt="" class="h-14 my-1"><label class="flex items-center gap-1"><input type="checkbox" name="quitar_firma" value="1" class="h-3.5 w-3.5 rounded border-gray-300"> {{ __('Quitar') }}</label>@endif
                     <input type="file" name="firma" accept="image/png,image/jpeg,image/webp" class="mt-1 block w-full text-xs text-gray-600 file:mr-2 file:h-8 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-xs file:font-semibold"></div>
                 <div class="text-xs text-gray-600">{{ __('Hoja membreteada del contratante (fondo de cada página del contrato)') }}

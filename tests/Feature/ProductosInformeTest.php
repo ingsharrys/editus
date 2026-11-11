@@ -357,6 +357,36 @@ class ProductosInformeTest extends TestCase
         $this->assertSame(6, $ss->getSheetByName('Métricas')->getHighestDataRow() - 1, '2 + 3 + 1 publicaciones');
     }
 
+    public function test_el_informe_lleva_la_firma_del_representante_legal_del_contratante(): void
+    {
+        $this->armarInforme();
+        if (!\Illuminate\Support\Facades\Schema::hasColumn('campaigns', 'contratos')) {
+            \Illuminate\Support\Facades\Schema::table('campaigns', fn(\Illuminate\Database\Schema\Blueprint $t) => $t->json('contratos')->nullable());
+        }
+        // La misma firma de los contratos (Plan de medios → Contratos → Firma del contratante)
+        $im = imagecreatetruecolor(240, 120);
+        imagefill($im, 0, 0, imagecolorallocate($im, 255, 255, 255));
+        ob_start(); imagepng($im); $png = ob_get_clean();
+        Storage::disk('local')->put('contratos/' . $this->c->id . '/firma-contratante.png', $png);
+        $this->c->forceFill(['contratos' => ['contratante' => 'DIME MEDIA S.A.S.', 'contratante_nit' => '901.908.077-3',
+            'contratante_representante' => 'Juan Carlos Charry Gonzalez', 'contratante_firma' => 'contratos/' . $this->c->id . '/firma-contratante.png']])->save();
+        $q = ['corte' => '2026-01-06'];
+
+        $r = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'word'] + $q))->assertOk();
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($r->baseResponse->getFile()->getPathname()) === true);
+        $xml = $zip->getFromName('word/document.xml');
+        foreach (['JUAN CARLOS CHARRY GONZALEZ', 'Representante legal', 'DIME MEDIA S.A.S. · NIT 901.908.077-3'] as $t) $this->assertStringContainsString($t, $xml);
+        $medios = 0;
+        for ($i = 0; $i < $zip->numFiles; $i++) if (str_starts_with($zip->getNameIndex($i), 'word/media/')) $medios++;
+        $this->assertSame(6, $medios, '2 muestras + 3 capturas + la firma');
+        $zip->close();
+
+        $this->assertStringStartsWith('%PDF', $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'pdf'] + $q))->assertOk()->getContent());
+        $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'vista'] + $q))->assertOk()
+            ->assertSee('JUAN CARLOS CHARRY GONZALEZ')->assertSee('data:image/png;base64,', false);
+    }
+
     public function test_importar_el_excel_del_control_de_productos(): void
     {
         // Excel como el de la Secretaría: título, encabezados en la fila 4, una hoja por tipo y la miniatura en la fila

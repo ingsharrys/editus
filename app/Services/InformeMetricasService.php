@@ -105,6 +105,30 @@ class InformeMetricasService
             'con_resumen' => (bool) ($f['resumen'] ?? true),
             'membrete' => $this->membrete($c),
             'total' => $this->sumar(array_merge([], ...array_column($capitulos, 'resumen'))),
+            'firma' => $this->firma($c),
+        ];
+    }
+
+    /**
+     * Firma del representante legal del contratante (Dime Media) al final del informe: la misma que sale en los
+     * contratos (Plan de medios → Contratos → Firma del contratante). null si no hay firma ni representante.
+     * @return array{archivo: ?string, imagen: ?string, nombre: string, cargo: string, empresa: string, nit: string}|null
+     */
+    public function firma(Campaign $c): ?array
+    {
+        $cfg = app(ContratosService::class)->config($c);
+        $ruta = $cfg['contratante_firma'];
+        $disco = Storage::disk(ContratosService::DISCO);
+        $archivo = $ruta && $disco->exists($ruta) ? $disco->path($ruta) : null;
+        if (!$archivo && $cfg['contratante_representante'] === '') return null;
+        $mime = $archivo ? (@getimagesize($archivo)['mime'] ?? null) : null;
+        return [
+            'archivo' => $mime ? $archivo : null,
+            'imagen' => $mime ? 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($archivo)) : null,
+            'nombre' => mb_strtoupper($cfg['contratante_representante']),
+            'cargo' => 'Representante legal',
+            'empresa' => $cfg['contratante'],
+            'nit' => $cfg['contratante_nit'],
         ];
     }
 
@@ -258,6 +282,21 @@ class InformeMetricasService
             if ($d['con_resumen']) $this->wordResumen($sec, $cap);
         }
         if (!$d['capitulos']) $sec->addText('No hay piezas con publicaciones para los filtros elegidos.', ['italic' => true], ['alignment' => $Jc::CENTER]);
+
+        // Firma del representante legal del contratante
+        if ($f = $d['firma'] ?? null) {
+            $sec->addTextBreak(2);
+            if ($f['archivo'] && ($tam = @getimagesize($f['archivo']))) {
+                [$w, $h] = $this->encajar([$f['archivo'], $tam[0], $tam[1]], 190, 70);
+                $sec->addImage($f['archivo'], ['width' => $w, 'height' => $h]);
+            } else {
+                $sec->addTextBreak(2);
+            }
+            $sec->addText(str_repeat('_', 36), [], ['spaceAfter' => 0]);
+            if ($f['nombre'] !== '') $sec->addText($f['nombre'], ['bold' => true], ['spaceAfter' => 0]);
+            $sec->addText($f['cargo'], [], ['spaceAfter' => 0]);
+            if ($f['empresa'] !== '') $sec->addText($f['empresa'] . ($f['nit'] !== '' ? ' · NIT ' . $f['nit'] : ''), [], ['spaceAfter' => 0]);
+        }
 
         $tmp = tempnam(sys_get_temp_dir(), 'inf') . '.docx';
         \PhpOffice\PhpWord\IOFactory::createWriter($pw, 'Word2007')->save($tmp);

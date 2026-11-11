@@ -184,6 +184,7 @@
     'conexionPerdida' => __('Se perdió la conexión con el servidor de transmisión. Vuelve a elegir el mismo archivo para continuar.'),
     'avance' => __(':pct % · :hecho de :total'),
     'velocidad' => __(' · :vel/s · faltan :resta'),
+    'reintentando' => __('Sin respuesta del servidor de transmisión: reintentando (:n de :max)…'),
     'subiendoVideo' => __('El video se está subiendo'),
     'subiendoArchivo' => __('Subiendo «:archivo»…'),
     'preparando' => __('Subido. Preparando el video en el servidor…'),
@@ -251,7 +252,7 @@
     x.onerror = () => resolve({ status: 0, d: {} });
     x.send(archivo.slice(ini, fin + 1));
   });
-  async function subir(url, archivo, alAvance) {
+  async function subir(url, archivo, alAvance, alReintento = () => {}) {
     let pos = 0, r = null, d = {};
     try { r = await fetch(url); d = await r.json(); } catch { /* sin respuesta: se empieza por la primera parte */ }
     if (r && r.status === 403) throw new Error(d.error || TX.permisoVencio);
@@ -265,30 +266,46 @@
         if (status === 409 && typeof d.recibido === 'number') { pos = d.recibido; break; }
         if ([403, 413, 507].includes(status)) throw new Error(d.error || TX.rechazo);
         if (++intento > 8) throw new Error(d.error || TX.conexionPerdida);
+        alReintento(intento, 8);
         await new Promise(r => setTimeout(r, Math.min(20000, 1500 * intento)));
       }
       alAvance(pos);
     }
   }
-  function panelSubida(titulo, hecho, total, inicio) {
+  // Avance de la subida en curso: se ve en el panel del formulario y en la tarjeta del video
+  let avance = null;
+  function panelSubida(titulo, hecho, total, inicio, nota = '') {
     g('pg-subida').classList.remove('hidden');
     g('pg-subida-titulo').textContent = titulo;
     const pct = total ? Math.min(100, Math.round(100 * hecho / total)) : 0;
     g('pg-subida-barra').style.width = pct + '%';
     const seg = (Date.now() - inicio) / 1000, vel = seg > 2 ? hecho / seg : 0;
-    g('pg-subida-dato').textContent = tx('avance', { pct, hecho: tam(hecho), total: tam(total) }) + (vel ? tx('velocidad', { vel: tam(vel), resta: dur((total - hecho) / vel) }) : '');
+    const dato = nota || tx('avance', { pct, hecho: tam(hecho), total: tam(total) }) + (vel ? tx('velocidad', { vel: tam(vel), resta: dur((total - hecho) / vel) }) : '');
+    g('pg-subida-dato').textContent = dato;
+    g('pg-subida-dato').classList.toggle('text-rose-600', !!nota);
+    avance = { pct, texto: dato, nota: !!nota };
+    const tarjeta = subiendo && document.querySelector(`#pg-lista [data-id="${subiendo}"]`);
+    if (tarjeta) {
+      const b = tarjeta.querySelector('[data-barra]'), t = tarjeta.querySelector('[data-texto]');
+      if (b) b.style.width = pct + '%';
+      if (t) { t.textContent = dato; t.classList.toggle('text-rose-600', !!nota); }
+    }
   }
   async function subirYPreparar(emision, url, archivo) {
-    subiendo = emision.id;
+    subiendo = emision.id; avance = { pct: 0, texto: TX.subiendo, nota: false };
     window.onbeforeunload = () => TX.subiendoVideo;
     const inicio = Date.now();
+    let hecho = 0;
+    pintar();
+    g('pg-subida').scrollIntoView({ behavior: 'smooth', block: 'center' });
     try {
-      await subir(url, archivo, (h) => panelSubida(tx('subiendoArchivo', { archivo: archivo.name }), h, archivo.size, inicio));
+      await subir(url, archivo, (h) => { hecho = h; panelSubida(tx('subiendoArchivo', { archivo: archivo.name }), h, archivo.size, inicio); },
+        (n, max) => panelSubida(tx('subiendoArchivo', { archivo: archivo.name }), hecho, archivo.size, inicio, tx('reintentando', { n, max })));
       panelSubida(TX.preparando, archivo.size, archivo.size, inicio);
       await post(`${RUTAS.base}/${emision.id}/subido`);
       g('pg-subida-titulo').textContent = TX.listo;
       g('pg-form').reset(); mostrarArchivo();
-    } finally { subiendo = null; window.onbeforeunload = null; refrescar(); }
+    } finally { subiendo = null; avance = null; window.onbeforeunload = null; refrescar(); }
   }
 
   g('pg-form').addEventListener('submit', async (ev) => {
@@ -322,7 +339,8 @@
   const faltaPara = (iso) => { const s = (new Date(iso) - Date.now()) / 1000; if (s <= 0) return TX.ahora; const d = Math.floor(s / 86400); return d ? tx(d > 1 ? 'enDias' : 'enDia', { d, h: Math.floor(s % 86400 / 3600) }) : tx('enTiempo', { tiempo: dur(s) }); };
   function tarjeta(e) {
     const barra = ['subiendo', 'procesando', 'al_aire'].includes(e.estado);
-    const texto = e.estado === 'subiendo' ? (subiendo === e.id ? TX.subiendo : tx('pausada', { archivo: esc(e.archivo) }))
+    const local = e.estado === 'subiendo' && subiendo === e.id && avance;
+    const texto = e.estado === 'subiendo' ? (local ? esc(avance.texto) : tx('pausada', { archivo: esc(e.archivo) }))
       : e.estado === 'procesando' ? tx('preparandoPct', { pct: e.progreso })
       : e.estado === 'listo' ? tx('sale', { cuando: faltaPara(e.programada_en) }) + (e.anunciada ? TX.anunciado : '')
       : e.estado === 'al_aire' ? tx('alAirePct', { pct: e.progreso }) : e.estado === 'terminado' ? (e.inicio_real ? tx('emitidoEl', { fecha: e.inicio_real }) : TX.emitido) : '';
@@ -331,8 +349,8 @@
         <div class="min-w-0"><div class="font-semibold text-gray-900 leading-snug">${esc(e.titulo)}</div><div class="text-xs text-gray-500 mt-0.5">${esc(e.programada_texto)}${e.duracion ? ' · ' + dur(e.duracion) : ''}</div></div>
         <span class="shrink-0 rounded-md px-2 py-0.5 text-[11px] font-semibold ${COLORES[e.estado] || ''}">${e.estado === 'al_aire' ? '● ' : ''}${esc(ESTADOS_TXT[e.estado] || e.estado_texto)}</span>
       </div>
-      ${texto ? `<div class="text-xs text-gray-600 mt-2">${texto}</div>` : ''}
-      ${barra ? `<div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div class="h-1.5 rounded-full ${e.estado === 'al_aire' ? 'bg-rose-500' : 'bg-[#00024f]'}" style="width:${e.progreso}%"></div></div>` : ''}
+      ${texto ? `<div data-texto class="text-xs mt-2 ${local && avance.nota ? 'text-rose-600' : 'text-gray-600'}">${texto}</div>` : ''}
+      ${barra ? `<div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div data-barra class="h-1.5 rounded-full transition-all ${e.estado === 'al_aire' ? 'bg-rose-500' : 'bg-[#00024f]'}" style="width:${local ? avance.pct : e.progreso}%"></div></div>` : ''}
       ${e.error ? `<div class="mt-2 rounded-lg bg-rose-50 text-rose-700 text-xs px-2.5 py-1.5">${esc(e.error)}</div>` : ''}
       <div class="mt-3 space-y-1">${e.destinos.map(d => `<div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">${d.red === 'youtube' ? '▶' : 'f'} ${esc(d.nombre)}</span><span class="shrink-0 ${DEST[d.estado] || ''}">${d.permalink ? `<a href="${esc(d.permalink)}" target="_blank" rel="noopener" class="underline">${esc(DEST_TXT[d.estado] || d.estado)}</a>` : d.anuncio && d.estado === 'pendiente' ? `<span class="text-indigo-700">${d.anuncio_permalink ? `<a href="${esc(d.anuncio_permalink)}" target="_blank" rel="noopener" class="underline">${esc(TX.anuncioPublicado)}</a>` : esc(TX.anuncioPublicado)}</span>` : esc(DEST_TXT[d.estado] || d.estado)}</span></div>${d.error ? `<div class="text-[11px] text-rose-600">${esc(d.error)}</div>` : ''}`).join('')}</div>
       <div class="mt-auto pt-3 flex flex-wrap gap-2">
