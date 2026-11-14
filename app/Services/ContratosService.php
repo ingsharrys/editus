@@ -446,6 +446,13 @@ class ContratosService
         $guardados = [];
         $guardar = function (?UploadedFile $f, string $nombre) use ($dir, &$guardados) {
             if (!$f) return null;
+            if (in_array($nombre, ['logo', 'membrete'], true)) {
+                // Logo y membrete livianos: máx. 400 px de ancho y 100 KB, en WebP
+                [$bytes, $ext] = ImagenLigera::reducir((string) file_get_contents($f->getRealPath()));
+                $ruta = $dir . '/' . $nombre . '-' . Str::random(12) . '.' . $ext;
+                Storage::disk(self::DISCO)->put($ruta, $bytes);
+                return $guardados[] = $ruta;
+            }
             $ruta = $f->storeAs($dir, $nombre . '-' . Str::random(12) . '.' . (strtolower($f->extension() ?: $f->getClientOriginalExtension()) ?: 'bin'), self::DISCO);
             return $guardados[] = $ruta;
         };

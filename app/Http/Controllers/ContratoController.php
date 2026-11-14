@@ -7,8 +7,12 @@ use App\Models\CampaignParticipante;
 use App\Models\Contrato;
 use App\Models\MedioCampana;
 use App\Services\ContratosService;
+use App\Services\ImagenLigera;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
@@ -42,7 +46,7 @@ class ContratoController extends Controller
         return view('contratos.formulario', [
             'c' => $campaign, 'p' => $p, 'medio' => $medio, 'contrato' => $contrato, 'deshabilitado' => $deshabilitado,
             'libres' => $this->contratos->mediosLibres($campaign, $p),
-            'datos' => $datos, 'valores' => $valores,
+            'datos' => $datos, 'valores' => $valores, 'subidos' => $this->paraLaVista($this->subidos($request, $campaign, $p)),
             'texto' => $medio && $medio->tipo ? $this->contratos->render($medio->tipo->cuerpo, $valores, true) : '',
             'documentos' => CampaignParticipante::DOCUMENTOS,
             'siguiente' => $this->contratos->codigo($campaign, $this->contratos->siguienteNumero($campaign)),
@@ -65,14 +69,16 @@ class ContratoController extends Controller
         if (!$medio || !$medio->tipo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Primero elige tu medio del listado.')]);
         if (!$medio->activo) return redirect()->route('contratos.formulario', $campaign)->withErrors(['medio_id' => __('Ese medio está deshabilitado en la campaña. Elige otro o escribe al administrador.')]);
         if ($aviso = $medio->avisoValor()) return redirect()->route('contratos.formulario', $campaign)->withErrors(['valor' => $aviso]);
-        $archivo = ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'];
+        $archivo = self::REGLAS['rut'];
+        // Lo que ya subió queda guardado aunque falte otro dato: si la validación falla, no tiene que volver a subirlo
+        [$subidos, $erroresArchivos] = $this->guardarSubidos($request, $campaign, $p);
         // Cada canal del medio (los marca el administrador) pide su dato: dirección, usuario, frecuencia…
         $porCanal = $mensajesCanal = [];
         foreach (array_keys($medio->canales()) as $k) {
             $porCanal["canal.$k"] = ['required', 'string', 'max:190'];
             $mensajesCanal["canal.$k.required"] = __('Completa «:dato».', ['dato' => MedioCampana::CANALES[$k]['pide']]);
         }
-        $d = $request->validate($porCanal + [
+        $validador = Validator::make($request->all(), $porCanal + [
             'medio_nombre' => ['required', 'string', 'max:190'],
             'razon_social' => ['required', 'string', 'max:190'],
             'nit' => ['nullable', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
@@ -89,10 +95,10 @@ class ContratoController extends Controller
             'numero_cuenta' => ['required', 'string', 'max:40', 'regex:/^[0-9\- ]+$/'],
             'titular_cuenta' => ['required', 'string', 'max:190'],
             'documento_titular' => ['required', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
-            'logo' => ['required', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],
-            'membrete' => ['nullable', 'image', 'mimes:png,jpg,jpeg,webp', 'max:4096'],
-            'rut' => array_merge(['required'], $archivo),
-            'certificado_bancario' => array_merge(['required'], $archivo),
+            'logo' => array_merge([isset($subidos['logo']) ? 'nullable' : 'required'], self::REGLAS['logo']),
+            'membrete' => array_merge(['nullable'], self::REGLAS['membrete']),
+            'rut' => array_merge([isset($subidos['rut']) ? 'nullable' : 'required'], $archivo),
+            'certificado_bancario' => array_merge([isset($subidos['certificado_bancario']) ? 'nullable' : 'required'], self::REGLAS['certificado_bancario']),
             'acepto' => ['accepted'],
             'firma' => ['required', 'string', 'max:2000000'],
         ], [
@@ -103,14 +109,25 @@ class ContratoController extends Controller
             'firma.required' => __('Dibuja tu firma en el recuadro.'),
             'razon_social.required' => __('Escribe la razón social del medio (o tu nombre completo, si eres persona natural).'),
             'numero_cuenta.regex' => __('El número de cuenta solo lleva números.'),
-        ] + $mensajesCanal);
+            'logo.uploaded' => __('El logo no alcanzó a subir (puede ser muy pesado para el servidor). Vuelve a elegirlo.'),
+            'membrete.uploaded' => __('El membrete no alcanzó a subir (puede ser muy pesado para el servidor). Vuelve a elegirlo.'),
+            'rut.uploaded' => __('El RUT no alcanzó a subir: pesa demasiado para el servidor. Adjúntalo más liviano (PDF).'),
+            'certificado_bancario.uploaded' => __('El certificado bancario no alcanzó a subir: pesa demasiado para el servidor. Adjúntalo más liviano (PDF).'),
+        ] + $mensajesCanal, ['logo' => __('el logo'), 'membrete' => __('el membrete'), 'rut' => __('el RUT'), 'certificado_bancario' => __('el certificado bancario')]);
+        $validador->after(function ($v) use ($erroresArchivos) {
+            foreach ($erroresArchivos as $campo => $msg) $v->errors()->add($campo, $msg);
+        });
+        $d = $validador->validate();
         $png = $this->firmaPng($d['firma']);
         if (!$png) return back()->withInput()->withErrors(['firma' => __('No se pudo leer la firma. Vuelve a dibujarla.')]);
 
-        $k = $this->contratos->firmar($p, $d, [
-            'logo' => $request->file('logo'), 'membrete' => $request->file('membrete'),
-            'rut' => $request->file('rut'), 'certificado_bancario' => $request->file('certificado_bancario'),
-        ], $png, (string) $request->ip(), (string) $request->userAgent());
+        $archivos = [];
+        foreach (array_keys(self::REGLAS) as $campo) {
+            $x = $subidos[$campo] ?? null;
+            $archivos[$campo] = $x ? new UploadedFile(Storage::disk(ContratosService::DISCO)->path($x['ruta']), $x['nombre'], null, null, true) : null;
+        }
+        $k = $this->contratos->firmar($p, $d, $archivos, $png, (string) $request->ip(), (string) $request->userAgent());
+        $this->olvidarSubidos($request, $campaign, $p);
 
         $aviso = $k->enviado_at
             ? __('Contrato No. :n firmado. Te enviamos la copia en PDF a :correo. Ahora vincula tu medio.', ['n' => $k->codigo, 'correo' => $k->dato('correo')])
@@ -145,6 +162,94 @@ class ContratoController extends Controller
         };
         abort_unless($ruta && Storage::disk(ContratosService::DISCO)->exists($ruta), 404);
         return Storage::disk(ContratosService::DISCO)->download($ruta, ContratosService::nombreSeguro($cual . '-' . $contrato->codigo) . '.' . pathinfo($ruta, PATHINFO_EXTENSION));
+    }
+
+    // ─────────── Archivos subidos antes de que pase la validación ───────────
+
+    /** Reglas de cada archivo. Las imágenes pueden llegar pesadas: se reducen a 400 px y 100 KB (ImagenLigera). */
+    private const REGLAS = [
+        'logo' => ['file', 'mimes:png,jpg,jpeg,webp', 'max:20480'],
+        'membrete' => ['file', 'mimes:png,jpg,jpeg,webp', 'max:20480'],
+        'rut' => ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'],
+        'certificado_bancario' => ['file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:8192'],
+    ];
+    private const IMAGENES = ['logo', 'membrete'];
+    private const TEMPORALES = 'contratos-temporales';
+
+    private function claveSesion(Campaign $c): string
+    {
+        return 'contrato_subidos.' . $c->id;
+    }
+
+    private function carpetaTemporal(Campaign $c, CampaignParticipante $p): string
+    {
+        return self::TEMPORALES . '/' . $c->id . '/' . $p->id;
+    }
+
+    /** [campo => ['ruta', 'nombre']] de lo que este medio ya subió (y sigue en el disco). */
+    private function subidos(Request $request, Campaign $c, CampaignParticipante $p): array
+    {
+        $carpeta = $this->carpetaTemporal($c, $p) . '/';
+        $disco = Storage::disk(ContratosService::DISCO);
+        return array_filter((array) $request->session()->get($this->claveSesion($c), []), fn($x, $campo) => isset(self::REGLAS[$campo])
+            && is_array($x) && is_string($x['ruta'] ?? null) && str_starts_with($x['ruta'], $carpeta) && !str_contains($x['ruta'], '..') && $disco->exists($x['ruta']),
+            ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Guarda cada archivo que llegó bien (las imágenes ya reducidas) y lo recuerda en la sesión.
+     * @return array{0: array, 1: array} [subidos, errores por campo de las imágenes que no se pudieron leer]
+     */
+    private function guardarSubidos(Request $request, Campaign $c, CampaignParticipante $p): array
+    {
+        $disco = Storage::disk(ContratosService::DISCO);
+        $subidos = $this->subidos($request, $c, $p);
+        $errores = [];
+        foreach (self::IMAGENES as $campo) {
+            if ($request->boolean('quitar_' . $campo) && !$request->hasFile($campo) && isset($subidos[$campo])) unset($subidos[$campo]);
+        }
+        foreach (self::REGLAS as $campo => $reglas) {
+            $f = $request->file($campo);
+            if (!$f instanceof UploadedFile || Validator::make([$campo => $f], [$campo => $reglas])->fails()) continue;
+            try {
+                [$bytes, $ext] = in_array($campo, self::IMAGENES, true)
+                    ? ImagenLigera::reducir((string) file_get_contents($f->getRealPath()))
+                    : [(string) file_get_contents($f->getRealPath()), strtolower($f->extension() ?: $f->getClientOriginalExtension()) ?: 'bin'];
+            } catch (\InvalidArgumentException $e) {
+                $errores[$campo] = $e->getMessage();
+                continue;
+            }
+            $ruta = $this->carpetaTemporal($c, $p) . '/' . $campo . '-' . Str::random(16) . '.' . $ext;
+            $disco->put($ruta, $bytes);
+            $nombre = pathinfo((string) $f->getClientOriginalName(), PATHINFO_FILENAME);
+            $subidos[$campo] = ['ruta' => $ruta, 'nombre' => mb_substr(($nombre !== '' ? $nombre : $campo), 0, 100) . '.' . $ext];
+        }
+        // Lo que ya no se usa (reemplazado o quitado) se borra
+        $vigentes = array_column($subidos, 'ruta');
+        foreach ($disco->files($this->carpetaTemporal($c, $p)) as $r) if (!in_array($r, $vigentes, true)) $disco->delete($r);
+        $request->session()->put($this->claveSesion($c), $subidos);
+        return [$subidos, $errores];
+    }
+
+    private function olvidarSubidos(Request $request, Campaign $c, CampaignParticipante $p): void
+    {
+        $request->session()->forget($this->claveSesion($c));
+        Storage::disk(ContratosService::DISCO)->deleteDirectory($this->carpetaTemporal($c, $p));
+    }
+
+    /** Para el formulario: nombre y, en las imágenes (pesan menos de 100 KB), la vista previa. */
+    private function paraLaVista(array $subidos): array
+    {
+        $disco = Storage::disk(ContratosService::DISCO);
+        foreach ($subidos as $campo => &$x) {
+            $x['vista'] = null;
+            if (in_array($campo, self::IMAGENES, true) && $disco->size($x['ruta']) <= 2 * ImagenLigera::MAX_BYTES) {
+                $bin = (string) $disco->get($x['ruta']);
+                $mime = @getimagesizefromstring($bin)['mime'] ?? null;
+                if ($mime) $x['vista'] = 'data:' . $mime . ';base64,' . base64_encode($bin);
+            }
+        }
+        return $subidos;
     }
 
     /** Firma dibujada (data URL PNG) → binario PNG, o null si no es válida. */

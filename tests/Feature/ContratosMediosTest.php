@@ -454,4 +454,117 @@ class ContratosMediosTest extends TestCase
         $m = MedioCampana::firstOrFail();
         $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $m->id])->assertSessionHasErrors('medio_id');
     }
+
+    /** PNG con ruido (no se comprime): pesa varios MB, como una foto o un logo exportado sin optimizar. */
+    private function imagenPesada(int $w = 1800, int $h = 900, bool $transparente = false): string
+    {
+        $im = imagecreatetruecolor($w, $h);
+        if ($transparente) { imagealphablending($im, false); imagesavealpha($im, true); }
+        mt_srand(7);
+        for ($y = 0; $y < $h; $y += 2) for ($x = 0; $x < $w; $x += 2) {
+            $c = $transparente && $x < $w / 4 ? imagecolorallocatealpha($im, 0, 0, 0, 127) : imagecolorallocate($im, mt_rand(0, 255), mt_rand(0, 255), mt_rand(0, 255));
+            imagefilledrectangle($im, $x, $y, $x + 1, $y + 1, $c);
+        }
+        ob_start();
+        imagepng($im);
+        return (string) ob_get_clean();
+    }
+
+    public function test_imagen_ligera_reduce_a_400px_y_100kb_en_webp(): void
+    {
+        $pesada = $this->imagenPesada();
+        $this->assertGreaterThan(1024 * 1024, strlen($pesada));
+        [$bytes, $ext] = \App\Services\ImagenLigera::reducir($pesada);
+        $info = getimagesizefromstring($bytes);
+        $this->assertSame(['webp', 'image/webp'], [$ext, $info['mime']]);
+        $this->assertLessThanOrEqual(400, $info[0]);
+        $this->assertSame(200, $info[1]); // conserva la proporción
+        $this->assertLessThanOrEqual(100 * 1024, strlen($bytes));
+
+        // El logo transparente sigue transparente
+        [$t] = \App\Services\ImagenLigera::reducir($this->imagenPesada(800, 400, true));
+        $im = imagecreatefromstring($t);
+        $this->assertSame(127, (imagecolorat($im, 5, 5) >> 24) & 0x7F);
+
+        // Si ya cumple, no se toca (no pierde calidad)
+        $this->assertSame([$bytes, 'webp'], \App\Services\ImagenLigera::reducir($bytes));
+        // Una pequeña en PNG pasa a WebP
+        $chica = UploadedFile::fake()->image('l.png', 120, 60);
+        $this->assertSame('webp', \App\Services\ImagenLigera::reducir((string) file_get_contents($chica->getRealPath()))[1]);
+
+        $this->expectException(\InvalidArgumentException::class);
+        \App\Services\ImagenLigera::reducir('no es una imagen');
+    }
+
+    public function test_logo_pesado_se_reduce_y_lo_subido_no_se_pierde_si_falta_un_dato(): void
+    {
+        $this->prepararContratos();
+        $u = $this->inscribir('Alba Luz Erazo');
+        $canal6 = MedioCampana::where('nombre', 'Canal 6 Alfasurt')->firstOrFail();
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => $canal6->id]);
+        $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertOk()
+            ->assertSee('data-imagen-ligera="logo"', false)->assertDontSee('name="logo" accept', false)->assertSee('400 px de ancho y menos de 100 KB');
+
+        // Primer intento: logo y membrete muy pesados (5 MB), pero falta la razón social
+        $datos = $this->datosFirma([
+            'razon_social' => '',
+            'logo' => UploadedFile::fake()->createWithContent('Logo Neiva 24.png', $this->imagenPesada()),
+            'membrete' => UploadedFile::fake()->createWithContent('membrete.png', $this->imagenPesada(2400, 600)),
+        ]);
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $datos)->assertSessionHasErrors('razon_social')->assertSessionDoesntHaveErrors(['logo', 'membrete', 'rut']);
+        $this->assertSame(0, Contrato::count());
+        $guardados = Storage::disk('local')->allFiles('contratos-temporales');
+        $this->assertCount(4, $guardados);
+        // El formulario recuerda lo subido: ya no lo pide y muestra la vista previa del logo
+        $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertOk()
+            ->assertSee('Ya subiste «Logo Neiva 24.webp»', false)->assertSee('data:image/webp;base64,', false)->assertSee('Ya adjuntaste «rut.pdf»', false);
+
+        // Segundo intento: sin volver a subir nada
+        $sinArchivos = array_diff_key($this->datosFirma(), array_flip(['logo', 'membrete', 'rut', 'certificado_bancario']));
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $sinArchivos)->assertSessionHasNoErrors()->assertRedirect(route('certificados.formulario', $this->c));
+        $k = Contrato::firstOrFail();
+        foreach (['logo_path', 'membrete_path'] as $campo) {
+            $bin = Storage::disk('local')->get($k->$campo);
+            $info = getimagesizefromstring($bin);
+            $this->assertStringEndsWith('.webp', $k->$campo);
+            $this->assertSame('image/webp', $info['mime']);
+            $this->assertLessThanOrEqual(400, $info[0]);
+            $this->assertLessThanOrEqual(100 * 1024, strlen($bin));
+        }
+        $this->assertStringEndsWith('.pdf', $k->rut_path);
+        $this->assertStringStartsWith('%PDF', Storage::disk('local')->get($k->pdf_path)); // el PDF sale con el logo en WebP
+        $this->assertSame([], Storage::disk('local')->allFiles('contratos-temporales'));
+        // El logo del certificado es la copia liviana del contrato
+        $this->assertStringEndsWith('.webp', CampaignParticipante::where('user_id', $u->id)->value('logo_path'));
+    }
+
+    public function test_quitar_el_membrete_ya_subido_y_rechazar_lo_que_no_es_imagen(): void
+    {
+        $this->prepararContratos();
+        $u = $this->inscribir('Alba Luz Erazo');
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => MedioCampana::where('nombre', 'Canal 6 Alfasurt')->value('id')]);
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), $this->datosFirma(['documento' => '']))->assertSessionHasErrors('documento');
+        $this->actingAs($u)->get(route('contratos.formulario', $this->c))->assertSee('name="quitar_membrete"', false);
+        // Un «PNG» que no es imagen: error claro y no se guarda
+        $falso = UploadedFile::fake()->createWithContent('logo.png', str_repeat('x', 500));
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), ['logo' => $falso, 'quitar_membrete' => '1'] + array_diff_key($this->datosFirma(), array_flip(['logo', 'membrete', 'rut', 'certificado_bancario'])))
+            ->assertSessionHasErrors('logo');
+        $this->assertSame(0, Contrato::count());
+        $this->actingAs($u)->post(route('contratos.firmar', $this->c), array_diff_key($this->datosFirma(), array_flip(['logo', 'membrete', 'rut', 'certificado_bancario'])))
+            ->assertSessionHasNoErrors();
+        $k = Contrato::firstOrFail();
+        $this->assertNotNull($k->logo_path);
+        $this->assertNull($k->membrete_path);
+    }
+
+    public function test_si_los_archivos_pasan_del_limite_del_servidor_vuelve_al_formulario_con_aviso(): void
+    {
+        $this->prepararContratos();
+        $u = $this->inscribir('Alba Luz Erazo');
+        $this->actingAs($u)->post(route('contratos.elegir', $this->c), ['medio_id' => MedioCampana::where('nombre', 'Canal 6 Alfasurt')->value('id')]);
+        $form = route('contratos.formulario', $this->c);
+        $this->actingAs($u)->call('POST', route('contratos.firmar', $this->c), [], [], [], ['CONTENT_LENGTH' => 50 * 1024 * 1024 * 1024, 'HTTP_REFERER' => $form])
+            ->assertRedirect($form . '?muy_pesado=1');
+        $this->actingAs($u)->get($form . '?muy_pesado=1')->assertOk()->assertSee('pesan más de lo que recibe el servidor');
+    }
 }

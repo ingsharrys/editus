@@ -16,6 +16,7 @@
     @if (session('aviso'))<div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ session('aviso') }}</div>@endif
     @if (session('success'))<div class="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 px-4 py-3 mb-5 text-sm">{{ session('success') }}</div>@endif
     @if (session('error'))<div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ session('error') }}</div>@endif
+    @if (request()->boolean('muy_pesado'))<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm">{{ __('Los archivos que adjuntaste pesan más de lo que recibe el servidor (máximo :mb MB en total). Adjunta el RUT y el certificado bancario más livianos, por ejemplo en PDF, y vuelve a enviar.', ['mb' => (int) ini_get('post_max_size')]) }}</div>@endif
     @if ($errors->any())<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm">@foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
 
     @if ($contrato)
@@ -74,16 +75,20 @@
                 <div class="flex items-center gap-2">{!! $paso(1) !!}<h2 class="text-base font-bold text-gray-900">{{ __('Encabezado del contrato') }}</h2></div>
                 <div class="grid sm:grid-cols-2 gap-4">
                     @foreach ([['logo', __('Logo del medio') . ' *', true], ['membrete', __('Membrete (hoja membreteada, opcional)'), false]] as [$campo, $titulo, $req])
+                        @php $ya = $subidos[$campo] ?? null; @endphp
                         <div>
                             <label class="{{ $lbl }}">{{ $titulo }}</label>
-                            <label class="flex flex-col items-center justify-center gap-1 h-28 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 cursor-pointer hover:border-indigo-300 overflow-hidden">
-                                <img id="{{ $campo }}Prev" alt="" class="hidden max-h-20 max-w-[90%] object-contain">
-                                <span id="{{ $campo }}Txt" class="text-xs text-gray-500 text-center px-2">{{ __('Toca para subir (PNG o JPG)') }}</span>
-                                <input type="file" name="{{ $campo }}" accept="image/png,image/jpeg,image/webp" class="hidden" @required($req)
-                                       onchange="const f=this.files[0]; if(!f) return; const i=document.getElementById('{{ $campo }}Prev'); i.src=URL.createObjectURL(f); i.classList.remove('hidden'); document.getElementById('{{ $campo }}Txt').classList.add('hidden');">
+                            <label class="relative flex flex-col items-center justify-center gap-1 h-28 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 cursor-pointer hover:border-indigo-300 overflow-hidden">
+                                <img id="{{ $campo }}Prev" alt="" @if ($ya && $ya['vista']) src="{{ $ya['vista'] }}" @endif class="{{ $ya && $ya['vista'] ? '' : 'hidden' }} max-h-20 max-w-[90%] object-contain">
+                                <span id="{{ $campo }}Txt" class="{{ $ya && $ya['vista'] ? 'hidden' : '' }} text-xs text-gray-500 text-center px-2">{{ __('Toca para subir (PNG, JPG o WebP)') }}</span>
+                                {{-- No va «hidden»: un campo obligatorio oculto bloquea el envío sin decir nada --}}
+                                <input type="file" name="{{ $campo }}" data-imagen-ligera="{{ $campo }}" accept="image/png,image/jpeg,image/webp,image/*" class="sr-only" @required($req && !$ya)>
                             </label>
+                            <p id="{{ $campo }}Info" class="{{ $ya ? '' : 'hidden' }} mt-1 text-[11px] text-gray-500">@if ($ya){{ __('Ya subiste «:archivo». Toca el recuadro para cambiarlo.', ['archivo' => $ya['nombre']]) }}@endif</p>
+                            @if ($ya && !$req)<label class="mt-1 flex items-center gap-1 text-[11px] text-rose-600"><input type="checkbox" name="quitar_{{ $campo }}" value="1" class="h-3.5 w-3.5 rounded"> {{ __('Quitar') }}</label>@endif
                         </div>
                     @endforeach
+                    <p class="sm:col-span-2 text-[11px] text-gray-400">{{ __('Si la imagen es grande, se reduce sola a 400 px de ancho y menos de 100 KB (WebP).') }}</p>
                 </div>
                 <div class="grid sm:grid-cols-2 gap-3">
                     <div><label class="{{ $lbl }}">{{ __('Nombre del medio') }} *</label><input name="medio_nombre" data-var-input="medio" required maxlength="190" value="{{ $datos['medio_nombre'] ?? '' }}" class="{{ $inp }}"></div>
@@ -122,11 +127,13 @@
                 <div class="flex items-center gap-2">{!! $paso(2) !!}<h2 class="text-base font-bold text-gray-900">{{ __('Documentos y cuenta para los pagos') }}</h2></div>
                 <div class="grid sm:grid-cols-2 gap-3">
                     <label class="block rounded-xl border border-gray-200 p-3"><span class="{{ $lbl }}">{{ __('RUT') }} *</span>
-                        <input type="file" name="rut" required accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
-                        <span class="block text-[11px] text-gray-400 mt-1">{{ __('PDF o imagen, máx. 8 MB') }}</span></label>
+                        <input type="file" name="rut" @required(empty($subidos['rut'])) accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
+                        <span class="block text-[11px] text-gray-400 mt-1">{{ __('PDF o imagen, máx. 8 MB') }}</span>
+                        @if (!empty($subidos['rut']))<span class="block text-[11px] text-emerald-700 mt-1">✓ {{ __('Ya adjuntaste «:archivo». Elige otro solo si quieres cambiarlo.', ['archivo' => $subidos['rut']['nombre']]) }}</span>@endif</label>
                     <label class="block rounded-xl border border-gray-200 p-3"><span class="{{ $lbl }}">{{ __('Certificado bancario') }} *</span>
-                        <input type="file" name="certificado_bancario" required accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
-                        <span class="block text-[11px] text-gray-400 mt-1">{{ __('PDF o imagen, máx. 8 MB') }}</span></label>
+                        <input type="file" name="certificado_bancario" @required(empty($subidos['certificado_bancario'])) accept="application/pdf,image/png,image/jpeg,image/webp" class="block w-full text-sm text-gray-600 file:mr-3 file:h-9 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:text-sm file:font-semibold">
+                        <span class="block text-[11px] text-gray-400 mt-1">{{ __('PDF o imagen, máx. 8 MB') }}</span>
+                        @if (!empty($subidos['certificado_bancario']))<span class="block text-[11px] text-emerald-700 mt-1">✓ {{ __('Ya adjuntaste «:archivo». Elige otro solo si quieres cambiarlo.', ['archivo' => $subidos['certificado_bancario']['nombre']]) }}</span>@endif</label>
                 </div>
                 <div class="grid sm:grid-cols-2 gap-3 pt-1">
                     <div><label class="{{ $lbl }}">{{ __('Banco') }} *</label><input name="banco" data-var-input="banco" required maxlength="120" value="{{ $datos['banco'] ?? '' }}" class="{{ $inp }}"></div>
@@ -176,6 +183,7 @@
     .contrato-texto td, .contrato-texto th { border: 1px solid #d1d5db; padding: .3em .5em; }
     .contrato-texto .var { background: #eef2ff; border-radius: .25rem; padding: 0 .2em; font-weight: 600; }
 </style>
+@include('contratos._imagen-ligera', ['form' => 'contratoForm'])
 <script>
 // El contrato se va llenando mientras el medio escribe sus datos
 document.querySelectorAll('[data-var-input]').forEach(el => {

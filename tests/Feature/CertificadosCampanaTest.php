@@ -112,7 +112,7 @@ class CertificadosCampanaTest extends TestCase
         $this->actingAs($u)->post(route('certificados.guardar', $this->c), ['medio_nombre' => 'X'])->assertSessionHasErrors(['logo', 'representante', 'acepto_terminos', 'firma']);
 
         $r = $this->actingAs($u)->post(route('certificados.guardar', $this->c), [
-            'medio_nombre' => 'Canal 6 de Alfasurt Pitalito', 'logo' => UploadedFile::fake()->image('logo.png', 300, 120),
+            'medio_nombre' => 'Canal 6 de Alfasurt Pitalito', 'logo' => UploadedFile::fake()->image('logo.png', 1600, 640),
             'representante' => 'Alba Luz Erazo Chavarro', 'documento_tipo' => 'C.C.', 'documento' => '36276152', 'cargo' => 'Gerente',
             'ciudad' => 'Pitalito (Huila)', 'paginas' => [$this->canal6->id], 'acepto_terminos' => '1', 'firma' => $this->firmaPng(),
         ]);
@@ -122,6 +122,11 @@ class CertificadosCampanaTest extends TestCase
         $this->assertNotNull($p->acepto_terminos_at);
         $this->assertSame(64, strlen($p->terminos_hash));
         Storage::disk('local')->assertExists([$p->logo_path, $p->firma_path]);
+        // El logo queda liviano: WebP de máximo 400 px de ancho y 100 KB
+        $logo = getimagesizefromstring(Storage::disk('local')->get($p->logo_path));
+        $this->assertSame(['image/webp', 400, 160], [$logo['mime'], $logo[0], $logo[1]]);
+        $this->assertStringEndsWith('.webp', $p->logo_path);
+        $this->actingAs($u)->get(route('certificados.formulario', $this->c))->assertSee('data-imagen-ligera="logo"', false);
 
         // Ya firmado: puede usar editus y su página queda en la campaña (marcada al publicar)
         $this->actingAs($u)->get(route('profile.edit'))->assertOk();

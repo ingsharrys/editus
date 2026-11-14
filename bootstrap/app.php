@@ -27,5 +27,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->appendToGroup('web', \App\Http\Middleware\InscripcionCampana::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // Archivos que suman más que post_max_size de PHP: en vez de la página de error, vuelve al formulario con el aviso
+        // (aquí aún no hay sesión: el aviso va en la URL y lo muestran los formularios de contrato y certificado)
+        $exceptions->render(function (\Illuminate\Http\Exceptions\PostTooLargeException $e, \Illuminate\Http\Request $request) {
+            $antes = (string) $request->headers->get('referer');
+            if ($request->expectsJson() || $antes === '' || parse_url($antes, PHP_URL_HOST) !== $request->getHost()) return null;
+            $antes = preg_replace('/([?&])muy_pesado=1(&|$)/', '$1', $antes);
+            return redirect()->to(rtrim($antes, '?&') . (str_contains(rtrim($antes, '?&'), '?') ? '&' : '?') . 'muy_pesado=1');
+        });
     })->create();

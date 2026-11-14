@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Campaign;
 use App\Models\CampaignParticipante;
 use App\Services\CertificadosService;
+use App\Services\ImagenLigera;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -61,7 +62,7 @@ class CertificadoController extends Controller
         $suyas = $request->user()->metaPages()->pluck('meta_pages.id')->map(fn($v) => (int) $v)->all();
         $d = $request->validate([
             'medio_nombre' => ['required', 'string', 'max:190'],
-            'logo' => [$p->logo_path ? 'nullable' : 'required', 'image', 'mimes:png,jpg,jpeg,webp', 'max:3072'],
+            'logo' => [$p->logo_path ? 'nullable' : 'required', 'file', 'mimes:png,jpg,jpeg,webp', 'max:20480'],
             'representante' => ['required', 'string', 'max:190'],
             'documento_tipo' => ['required', Rule::in(CampaignParticipante::DOCUMENTOS)],
             'documento' => ['required', 'string', 'max:40', 'regex:/^[0-9A-Za-z.\- ]+$/'],
@@ -73,6 +74,7 @@ class CertificadoController extends Controller
             'firma' => [$p->firma_path ? 'nullable' : 'required', 'string', 'max:2000000'],
         ], [
             'logo.required' => __('Sube el logo del medio.'),
+            'logo.uploaded' => __('El logo no alcanzó a subir (puede ser muy pesado para el servidor). Vuelve a elegirlo.'),
             'acepto_terminos.accepted' => __('Debes aceptar los términos y condiciones.'),
             'firma.required' => __('Dibuja tu firma en el recuadro.'),
         ]);
@@ -86,9 +88,16 @@ class CertificadoController extends Controller
         $disco = Storage::disk(CertificadosService::DISCO);
         $anteriores = [];
         if ($request->hasFile('logo')) {
+            // Liviano: máx. 400 px de ancho y 100 KB, en WebP
+            try {
+                [$bytes, $ext] = ImagenLigera::reducir((string) file_get_contents($request->file('logo')->getRealPath()));
+            } catch (\InvalidArgumentException $e) {
+                if ($firmaNueva) $disco->delete($firmaNueva);
+                return back()->withInput()->withErrors(['logo' => $e->getMessage()]);
+            }
             $anteriores[] = $p->logo_path;
-            $p->logo_path = $request->file('logo')->storeAs('certificados/' . $campaign->id,
-                'logo-' . $p->id . '-' . Str::random(8) . '.' . $request->file('logo')->extension(), CertificadosService::DISCO);
+            $p->logo_path = 'certificados/' . $campaign->id . '/logo-' . $p->id . '-' . Str::random(8) . '.' . $ext;
+            $disco->put($p->logo_path, $bytes);
         }
         if ($firmaNueva) {
             $anteriores[] = $p->firma_path;

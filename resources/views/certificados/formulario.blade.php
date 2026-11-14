@@ -16,6 +16,7 @@
 
     @if (session('aviso'))<div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-5 text-sm">{{ session('aviso') }}</div>@endif
     @if (session('success'))<div class="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 px-4 py-3 mb-5 text-sm">{{ session('success') }}</div>@endif
+    @if (request()->boolean('muy_pesado'))<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm">{{ __('Los archivos que adjuntaste pesan más de lo que recibe el servidor (máximo :mb MB en total). Adjunta el RUT y el certificado bancario más livianos, por ejemplo en PDF, y vuelve a enviar.', ['mb' => (int) ini_get('post_max_size')]) }}</div>@endif
     @if ($errors->any())<div class="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-4 py-3 mb-5 text-sm">@foreach ($errors->all() as $e)<div>{{ $e }}</div>@endforeach</div>@endif
 
     <form method="POST" action="{{ route('certificados.guardar', $c) }}" enctype="multipart/form-data" id="certForm" class="space-y-5">
@@ -31,12 +32,14 @@
                 </div>
                 <div>
                     <label class="{{ $lbl }}">{{ __('Logo del medio') }} {{ $logo ? '' : '*' }}</label>
-                    <label class="flex flex-col items-center justify-center gap-1 h-32 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 cursor-pointer hover:border-indigo-300 overflow-hidden">
+                    <label class="relative flex flex-col items-center justify-center gap-1 h-32 rounded-xl border-2 border-dashed border-gray-200 bg-gray-50 cursor-pointer hover:border-indigo-300 overflow-hidden">
                         <img id="logoPrev" src="{{ $logo }}" alt="" class="{{ $logo ? '' : 'hidden' }} max-h-24 max-w-[90%] object-contain">
-                        <span id="logoTxt" class="{{ $logo ? 'hidden' : '' }} text-xs text-gray-500 text-center px-2">{{ __('Toca para subir (PNG o JPG, máx. 3 MB)') }}</span>
-                        <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" class="hidden" {{ $logo ? '' : 'required' }}
-                               onchange="const f=this.files[0]; if(!f) return; const i=document.getElementById('logoPrev'); i.src=URL.createObjectURL(f); i.classList.remove('hidden'); document.getElementById('logoTxt').classList.add('hidden');">
+                        <span id="logoTxt" class="{{ $logo ? 'hidden' : '' }} text-xs text-gray-500 text-center px-2">{{ __('Toca para subir (PNG, JPG o WebP)') }}</span>
+                        {{-- No va «hidden»: un campo obligatorio oculto bloquea el envío sin decir nada --}}
+                        <input type="file" name="logo" data-imagen-ligera="logo" accept="image/png,image/jpeg,image/webp,image/*" class="sr-only" {{ $logo ? '' : 'required' }}>
                     </label>
+                    <p id="logoInfo" class="hidden mt-1 text-[11px] text-gray-500"></p>
+                    <p class="mt-1 text-[11px] text-gray-400">{{ __('Si la imagen es grande, se reduce sola a 400 px de ancho y menos de 100 KB (WebP).') }}</p>
                 </div>
             </div>
         </div>
@@ -118,6 +121,7 @@
     </form>
 </div>
 
+@include('contratos._imagen-ligera', ['form' => 'certForm'])
 <script>
 (function () {
     const canvas = document.getElementById('firmaCanvas');
