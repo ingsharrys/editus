@@ -26,6 +26,7 @@ class RedesController extends Controller
         return view('redes.index', [
             'configurado' => $configurado,
             'autores' => $autores,
+            'errorAutores' => $configurado ? $this->redes->errorAutores() : null,
             'autorSugerido' => $fijo ?: ($configurado ? $this->redes->autorSugerido($request->user()) : null),
             'autorFijo' => $fijo,
             'nombreFijo' => $fijo ? (collect($autores)->firstWhere('id', $fijo)['nombre'] ?? null) : null,

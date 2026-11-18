@@ -82,7 +82,9 @@
         <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 text-sm">{!! __('Falta conectar editus con el backend de esnoticia: agrega <code>ESNOTICIA_URL</code> y <code>EDITUS_INGEST_TOKEN</code> al .env de editus (el token debe ser igual a <code>EDITUS_TOKEN</code> del backend).') !!}</div>
     @else
         @if (empty($autores))
-            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-4 text-sm">{{ __('No se pudo leer la lista de periodistas del backend de esnoticia. Revisa la conexión (ESNOTICIA_URL y EDITUS_INGEST_TOKEN).') }}</div>
+            <div class="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-4 py-3 mb-4 text-sm">{{ __('No se pudo leer la lista de periodistas del backend de esnoticia. Revisa la conexión (ESNOTICIA_URL y EDITUS_INGEST_TOKEN).') }}
+                @if (!empty($errorAutores))<div class="mt-1 text-xs">{{ __('Causa: :e', ['e' => $errorAutores]) }}</div>@endif
+                <div class="mt-1 text-xs">{{ __('Cuando se arregle, recarga la página: se vuelve a intentar sola.') }}</div></div>
         @endif
 
         {{-- Pestañas --}}

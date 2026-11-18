@@ -109,4 +109,30 @@ class RedesWebTest extends TestCase
         config(['services.editus.ingest_token' => '']);
         $this->actingAs($this->admin)->get(route('redes.index'))->assertOk()->assertSee('Falta conectar editus con el backend de esnoticia');
     }
+
+    public function test_si_el_backend_falla_dice_la_causa_y_no_lo_recuerda(): void
+    {
+        $intentos = 0;
+        Http::fake(function (PeticionHttp $r) use (&$intentos) {
+            if (str_contains($r->url(), 'editus/usuarios')) {
+                $intentos++;
+                return $intentos === 1 ? Http::response(['success' => false, 'message' => 'Token inválido'], 401)
+                    : Http::response(['success' => true, 'usuarios' => [['id' => 7, 'username' => 'willy', 'email' => 'w@x', 'role' => 'editor']]], 200);
+            }
+            return Http::response(['success' => true], 200);
+        });
+        $this->actingAs($this->admin)->get(route('redes.index'))->assertOk()
+            ->assertSee('No se pudo leer la lista de periodistas')->assertSee('el backend rechazó el token (HTTP 401)');
+        $this->assertSame(1, $intentos, 'en la misma página no se vuelve a esperar al backend');
+        // Ya arreglado: al recargar se vuelve a intentar (el fallo no quedó guardado 5 minutos)
+        $this->actingAs($this->admin)->get(route('redes.index'))->assertOk()->assertDontSee('No se pudo leer la lista de periodistas')->assertSee('willy');
+        $this->assertSame(2, $intentos);
+    }
+
+    public function test_si_el_backend_no_responde_dice_a_donde_intento_conectar(): void
+    {
+        Http::fake(fn () => throw new \Illuminate\Http\Client\ConnectionException('cURL error 28: Connection timed out after 15000 milliseconds (see https://curl.haxx.se/libcurl/c/libcurl-errors.html)'));
+        $this->actingAs($this->admin)->get(route('redes.index'))->assertOk()
+            ->assertSee('no conecta con https://backend.prueba.test/public/api/editus/usuarios', false)->assertSee('Connection timed out')->assertDontSee('curl.haxx.se');
+    }
 }

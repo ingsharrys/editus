@@ -30,6 +30,12 @@ class RedesWebService
         return $this->usuarios->listar();
     }
 
+    /** Por qué no llegó la lista de periodistas (null si llegó). */
+    public function errorAutores(): ?string
+    {
+        return $this->usuarios->error;
+    }
+
     /** El periodista del backend que corresponde al usuario de editus (mismo correo o mismo nombre). */
     public function autorSugerido(\App\Models\User $u): ?int
     {
