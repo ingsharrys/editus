@@ -87,6 +87,11 @@ class ContratosService
         'pic-2026-3' => ['nombre' => 'Modelo 3 · Publicaciones, Instagram, TikTok, banners y radio', 'archivo' => 'pic-2026/modelo-3.html',
             'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false], 'instagram' => ['pauta' => false], 'tiktok' => ['pauta' => false], 'radio' => ['pauta' => false]],
             'anteriores' => ['33bb2258fc3b60ae786b1b127b16e4bda2476337b0872755969c8e7bcb1948bd']],
+        // Igual que el 1 y el 2, pero por un mes desde el 20 de noviembre y con pago en una sola cuota
+        'pic-2026-4' => ['nombre' => 'Modelo 4 · Publicaciones en el medio digital (1 mes, pago único)', 'archivo' => 'pic-2026/modelo-4.html',
+            'canales' => ['facebook' => ['pauta' => false]]],
+        'pic-2026-5' => ['nombre' => 'Modelo 5 · Publicaciones y banners en la página web (1 mes, pago único)', 'archivo' => 'pic-2026/modelo-5.html',
+            'canales' => ['web' => ['pauta' => false], 'facebook' => ['pauta' => false]]],
     ];
     // «anteriores»: huellas (ContratosService::huella) de los textos que ya tuvo cada modelo. Cuando se cambia un Word,
     // se agrega aquí la huella del texto que se reemplaza: así los tipos que nadie editó se ponen al día solos.

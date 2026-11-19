@@ -281,7 +281,7 @@ class ContratosMediosTest extends TestCase
             ->assertSee('Modelo 1 · Publicaciones en el medio digital')->assertSee('Modelo 3 · Publicaciones, Instagram, TikTok, banners y radio');
         $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk(); // no se cargan dos veces
         $tipos = ContratoTipo::where('campaign_id', $this->c->id)->orderBy('orden')->get()->keyBy('clave');
-        $this->assertSame(['pic-2026-1', 'pic-2026-2', 'pic-2026-3'], $tipos->keys()->all());
+        $this->assertSame(['pic-2026-1', 'pic-2026-2', 'pic-2026-3', 'pic-2026-4', 'pic-2026-5'], $tipos->keys()->all());
         $m1 = $tipos['pic-2026-1']; $m2 = $tipos['pic-2026-2']; $m3 = $tipos['pic-2026-3'];
         $this->assertSame(['facebook'], array_keys($m1->canalesPorDefecto()));
         $this->assertSame(['web', 'facebook', 'instagram', 'tiktok', 'radio'], array_keys($m3->canalesPorDefecto()));
@@ -339,7 +339,7 @@ class ContratosMediosTest extends TestCase
         $m1->delete();
         $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertSee('Cargar los modelos del PIC 2026');
         $this->actingAs($this->admin)->post(route('campaigns.contratos.modelos', $this->c))->assertSessionHas('success', 'Se cargó 1 modelo de contrato.');
-        $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->whereNotNull('clave')->count());
+        $this->assertSame(5, ContratoTipo::where('campaign_id', $this->c->id)->whereNotNull('clave')->count());
     }
 
     public function test_la_firma_de_dime_media_sale_aunque_el_contrato_se_haya_firmado_antes(): void
@@ -374,7 +374,7 @@ class ContratosMediosTest extends TestCase
         $this->assertStringContainsString('dos (2) cuotas mensuales iguales', $sinEditar->fresh()->cuerpo);
         $this->assertTrue($sinEditar->fresh()->usaMitad());
         $this->assertStringNotContainsString('dos (2) cuotas mensuales iguales', $editado->fresh()->cuerpo);
-        $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->count()); // y el modelo 3, que faltaba, se cargó
+        $this->assertSame(5, ContratoTipo::where('campaign_id', $this->c->id)->count()); // y los modelos que faltaban (3, 4 y 5) se cargaron
         $this->assertSame(0, app(ContratosService::class)->actualizarModelos()); // ya no hay nada que actualizar
     }
 
@@ -566,5 +566,37 @@ class ContratosMediosTest extends TestCase
         $this->actingAs($u)->call('POST', route('contratos.firmar', $this->c), [], [], [], ['CONTENT_LENGTH' => 50 * 1024 * 1024 * 1024, 'HTTP_REFERER' => $form])
             ->assertRedirect($form . '?muy_pesado=1');
         $this->actingAs($u)->get($form . '?muy_pesado=1')->assertOk()->assertSee('pesan más de lo que recibe el servidor');
+    }
+
+    public function test_los_modelos_4_y_5_llegan_a_la_campana_que_ya_tenia_los_otros(): void
+    {
+        // La campaña ya tenía cargados los modelos 1 a 3 (antes de que existieran el 4 y el 5)
+        $this->actingAs($this->admin)->get(route('campaigns.contratos', $this->c))->assertOk();
+        ContratoTipo::whereIn('clave', ['pic-2026-4', 'pic-2026-5'])->delete();
+        $this->assertSame(3, ContratoTipo::where('campaign_id', $this->c->id)->count());
+
+        (require database_path('migrations/2026_11_19_000001_modelos_pic_2026_cuatro_y_cinco.php'))->up();
+        $tipos = ContratoTipo::where('campaign_id', $this->c->id)->orderBy('orden')->get()->keyBy('clave');
+        $this->assertSame(['pic-2026-1', 'pic-2026-2', 'pic-2026-3', 'pic-2026-4', 'pic-2026-5'], $tipos->keys()->all());
+        $m4 = $tipos['pic-2026-4']; $m5 = $tipos['pic-2026-5'];
+        $this->assertSame(['facebook'], array_keys($m4->canalesPorDefecto()));
+        $this->assertSame(['web', 'facebook'], array_keys($m5->canalesPorDefecto()));
+        $this->assertSame(['EL ARRENDADOR', 'EL ARRENDATARIO'], [$m5->rolMedio(), $m5->rolContratante()]);
+        foreach ([$m4, $m5] as $m) {
+            $this->assertStringContainsString('un (1) mes, contado a partir del veinte (20) de noviembre de 2026', $m->cuerpo);
+            $this->assertStringContainsString('una única cuota, equivalente al 100% de su valor, por la suma de $ {valor} ({valor_letras} pesos M/cte.)', $m->cuerpo);
+            $this->assertStringNotContainsString('___', $m->cuerpo);
+            $this->assertTrue($m->usaValor());
+        }
+        $this->assertStringContainsString('banner publicitario de 1.600 x 185 px', $m5->cuerpo);
+        // Volver a correrla no los duplica
+        (require database_path('migrations/2026_11_19_000001_modelos_pic_2026_cuatro_y_cinco.php'))->up();
+        $this->assertSame(5, ContratoTipo::where('campaign_id', $this->c->id)->count());
+
+        // Pago único: el valor no tiene que ser par, y el contrato lo dice completo en números y en letras
+        $this->actingAs($this->admin)->post(route('campaigns.contratos.medios.guardar', $this->c), ['nombre' => 'Neiva 24', 'tipo_id' => $m4->id, 'valor' => '1.500.001'])
+            ->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)->get(route('campaigns.contratos.tipos.vista', [$this->c, $m4->id]))->assertOk()
+            ->assertSee('una única cuota')->assertDontSee('cincuenta por ciento');
     }
 }
