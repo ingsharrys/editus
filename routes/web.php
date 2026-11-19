@@ -160,6 +160,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/en-vivo/pregrabados/{emision}/subido', [\App\Http\Controllers\Web\PregrabadosController::class, 'subido'])->middleware('permiso:en_vivo')->name('pregrabados.subido');
     Route::post('/en-vivo/pregrabados/{emision}/cancelar', [\App\Http\Controllers\Web\PregrabadosController::class, 'cancelar'])->middleware('permiso:en_vivo')->name('pregrabados.cancelar');
     Route::post('/en-vivo/pregrabados/{emision}/ahora', [\App\Http\Controllers\Web\PregrabadosController::class, 'ahora'])->middleware('permiso:en_vivo')->name('pregrabados.ahora');
+    Route::post('/en-vivo/pregrabados/{emision}/campana', [\App\Http\Controllers\Web\PregrabadosController::class, 'campana'])->middleware('permiso:en_vivo')->name('pregrabados.campana');
     Route::delete('/en-vivo/pregrabados/{emision}', [\App\Http\Controllers\Web\PregrabadosController::class, 'destroy'])->middleware('permiso:en_vivo')->name('pregrabados.destroy');
     // Panel del estudio: marcas, archivos propios, notas y comentarios en vivo
     Route::post('/en-vivo/marcas', [\App\Http\Controllers\Web\EstudioController::class, 'marcaCrear'])->middleware('permiso:en_vivo')->name('en-vivo.marcas.crear');

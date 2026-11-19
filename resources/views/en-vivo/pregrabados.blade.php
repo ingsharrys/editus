@@ -72,7 +72,7 @@
                 <div class="grid sm:grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
                     @forelse ($paginas as $p)
                         <label class="flex items-center gap-3 rounded-xl border border-gray-200 p-2.5 cursor-pointer hover:border-gray-300 has-[:checked]:border-indigo-300 has-[:checked]:bg-indigo-50/40">
-                            <input type="checkbox" name="meta_page_ids[]" value="{{ $p['id'] }}" class="h-4 w-4 rounded border-gray-300 text-indigo-600">
+                            <input type="checkbox" name="meta_page_ids[]" value="{{ $p['id'] }}" data-page-id="{{ $p['page_id'] }}" data-nombre-pagina="{{ $p['nombre'] }}" class="h-4 w-4 rounded border-gray-300 text-indigo-600">
                             <img src="{{ $p['foto'] }}" alt="" class="h-8 w-8 rounded-full bg-gray-100 shrink-0">
                             <span class="text-sm font-medium text-gray-800 truncate">{{ $p['nombre'] }}</span>
                         </label>
@@ -93,6 +93,25 @@
                             </label>
                         @endforeach
                     </div>
+                </div>
+            @endif
+
+            @if (!empty($campanasVivo))
+                {{-- Pregrabado de una campaña con plan de medios: al salir al aire queda como pieza y suma al informe --}}
+                <div class="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 space-y-2">
+                    <label class="block text-[11px] font-semibold uppercase tracking-wide text-emerald-900">{{ __('Campaña (plan de medios)') }}</label>
+                    <select id="pg-campana-sel" class="w-full sm:max-w-md h-10 rounded-lg border-gray-200 text-sm shadow-sm">
+                    <option value="">{{ __('Ninguna: sin campaña') }}</option>
+                    @foreach ($campanasVivo as $cv)<option value="{{ $cv['id'] }}">{{ $cv['nombre'] }}</option>@endforeach
+                </select>
+                <div id="pg-campana-detalle" class="hidden grid sm:grid-cols-2 gap-2">
+                    <div id="pg-campana-sub-caja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña') }} <span class="text-red-500">*</span></label>
+                        <select id="pg-campana-sub" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                    <div><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de en vivo') }} <span class="text-red-500">*</span></label>
+                        <select id="pg-campana-tipo" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                </div>
+                    <p id="pg-campana-cupos" class="hidden text-xs"></p>
+                    <p class="text-[11px] text-emerald-900/80">{{ __('Al salir al aire, el video de cada página de Facebook queda como pieza de esta subcampaña y suma al informe de los medios y a los cupos.') }}</p>
                 </div>
             @endif
 
@@ -168,6 +187,32 @@
     </div>
 </div>
 
+@if (!empty($campanasVivo))
+    {{-- Elegir la campaña de un pregrabado que ya está programado o ya salió --}}
+    <div id="pg-modal-campana" class="hidden fixed inset-0 z-50 bg-black/40 grid place-items-center p-4">
+        <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl p-5 space-y-3">
+            <div class="text-base font-bold text-gray-900">{{ __('Sumar a una campaña') }}</div>
+            <p id="pg-modal-titulo" class="text-sm text-gray-600"></p>
+            <select id="pg-modal-sel" class="w-full sm:max-w-md h-10 rounded-lg border-gray-200 text-sm shadow-sm">
+                    <option value="">{{ __('Ninguna: sin campaña') }}</option>
+                    @foreach ($campanasVivo as $cv)<option value="{{ $cv['id'] }}">{{ $cv['nombre'] }}</option>@endforeach
+                </select>
+                <div id="pg-modal-detalle" class="hidden grid sm:grid-cols-2 gap-2">
+                    <div id="pg-modal-sub-caja"><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Subcampaña') }} <span class="text-red-500">*</span></label>
+                        <select id="pg-modal-sub" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                    <div><label class="block text-[11px] text-gray-600 mb-0.5">{{ __('Tipo de en vivo') }} <span class="text-red-500">*</span></label>
+                        <select id="pg-modal-tipo" class="w-full h-10 rounded-lg border-gray-200 text-sm"></select></div>
+                </div>
+            <p class="text-[11px] text-gray-500">{{ __('Si ya salió al aire, el video de cada página de Facebook queda como pieza de la subcampaña y aparece en el informe de los medios.') }}</p>
+            <p id="pg-modal-error" class="hidden rounded-lg bg-rose-50 text-rose-700 text-xs px-3 py-2"></p>
+            <div class="flex justify-end gap-2">
+                <button type="button" id="pg-modal-cerrar" class="h-9 rounded-lg border border-gray-200 px-4 text-sm text-gray-700">{{ __('Cancelar') }}</button>
+                <button type="button" id="pg-modal-guardar" class="h-9 rounded-lg bg-[#00024f] text-white px-4 text-sm font-semibold">{{ __('Sumar a la campaña') }}</button>
+            </div>
+        </div>
+    </div>
+@endif
+
 @include('en-vivo._miniatura-js')
 <script>
 (function () {
@@ -176,6 +221,7 @@
     base: @json(url('/en-vivo/pregrabados')),
   };
   const MAX = @json($maxBytes);
+  const CAMPANAS = @json($campanasVivo ?? []);
   const TX = @js([
     'errorHttp' => __('Error :status'),
     'eligeArrastra' => __('Elige o arrastra el video editado'),
@@ -211,6 +257,17 @@
     'detener' => __('Detener transmisión'),
     'cancelar' => __('Cancelar'),
     'quitar' => __('Quitar'),
+    'sumarCampana' => __('Sumar a una campaña'),
+    'eligeSub' => __('Elige la subcampaña del en vivo.'),
+    'eligeTipo' => __('Elige el tipo de en vivo.'),
+    'eligeSubVacio' => __('— Elige la subcampaña —'),
+    'eligeTipoVacio' => __('— Elige el tipo —'),
+    'eligeCampana' => __('Elige la campaña.'),
+    'paginaCampana' => __('Para que sume al informe, elige al menos una página de Facebook de la campaña.'),
+    'cupoLleno' => __('Ya completaron su cupo:'),
+    'cupoUsado' => __('Cupo usado'),
+    'sumadas' => __('Listo: quedó en la campaña con :n publicación(es) en el informe.'),
+    'sumadaSinSalir' => __('Listo: cuando salga al aire sumará al informe de la campaña.'),
     'vacio' => __('Todavía no hay pregrabados programados.'),
     'actualizado' => __('Actualizado :hora'),
     'confDetener' => __('¿Detener la transmisión ahora? Se cierra en Facebook y YouTube.'),
@@ -319,6 +376,12 @@
       etiqueta: f.get('etiqueta') === '1', cuenta: f.get('cuenta') === '1', anuncio_facebook: f.get('anuncio_facebook') === '1', archivo_nombre: archivo.name, archivo_bytes: archivo.size };
     if (!datos.titulo) return error(TX.escribeTitulo);
     if (!datos.meta_page_ids.length && !datos.youtube_canal_ids.length) return error(TX.eligeDestino);
+    const elegida = leerCampana('pg-campana');
+    if (elegida) {
+      if (elegida.error) return error(elegida.error);
+      if (!datos.meta_page_ids.length) return error(TX.paginaCampana);
+      Object.assign(datos, elegida.datos);
+    }
     const img = f.get('miniatura_archivo');
     if (img && img.size) {
       // Si pesa más de 2 MB o es muy grande, se reduce aquí mismo (_miniatura-js)
@@ -352,9 +415,11 @@
       ${texto ? `<div data-texto class="text-xs mt-2 ${local && avance.nota ? 'text-rose-600' : 'text-gray-600'}">${texto}</div>` : ''}
       ${barra ? `<div class="mt-2 h-1.5 rounded-full bg-gray-100 overflow-hidden"><div data-barra class="h-1.5 rounded-full transition-all ${e.estado === 'al_aire' ? 'bg-rose-500' : 'bg-[#00024f]'}" style="width:${local ? avance.pct : e.progreso}%"></div></div>` : ''}
       ${e.error ? `<div class="mt-2 rounded-lg bg-rose-50 text-rose-700 text-xs px-2.5 py-1.5">${esc(e.error)}</div>` : ''}
+      ${e.campana ? `<div class="mt-2 rounded-lg bg-emerald-50 text-emerald-800 text-[11px] px-2.5 py-1">📊 ${esc(e.campana)}</div>` : ''}
       <div class="mt-3 space-y-1">${e.destinos.map(d => `<div class="flex items-center justify-between gap-2 text-xs"><span class="truncate">${d.red === 'youtube' ? '▶' : 'f'} ${esc(d.nombre)}</span><span class="shrink-0 ${DEST[d.estado] || ''}">${d.permalink ? `<a href="${esc(d.permalink)}" target="_blank" rel="noopener" class="underline">${esc(DEST_TXT[d.estado] || d.estado)}</a>` : d.anuncio && d.estado === 'pendiente' ? `<span class="text-indigo-700">${d.anuncio_permalink ? `<a href="${esc(d.anuncio_permalink)}" target="_blank" rel="noopener" class="underline">${esc(TX.anuncioPublicado)}</a>` : esc(TX.anuncioPublicado)}</span>` : esc(DEST_TXT[d.estado] || d.estado)}</span></div>${d.error ? `<div class="text-[11px] text-rose-600">${esc(d.error)}</div>` : ''}`).join('')}</div>
       <div class="mt-auto pt-3 flex flex-wrap gap-2">
         ${e.estado === 'subiendo' && subiendo !== e.id ? `<label class="h-8 inline-flex items-center rounded-lg bg-[#00024f] text-white px-3 text-xs font-semibold cursor-pointer">${esc(TX.continuar)}<input type="file" class="sr-only" data-reanudar="${e.id}" accept="video/*,.mkv"></label>` : ''}
+        ${e.puede_campana && CAMPANAS.length ? `<button type="button" data-campana="${e.id}" class="h-8 rounded-lg border border-emerald-200 px-3 text-xs text-emerald-800 hover:bg-emerald-50">${esc(TX.sumarCampana)}</button>` : ''}
         ${e.estado === 'listo' ? `<button type="button" data-ahora="${e.id}" class="h-8 rounded-lg border border-gray-200 px-3 text-xs text-gray-700 hover:bg-gray-50">${esc(TX.salir2)}</button>` : ''}
         ${e.puede_cancelar ? `<button type="button" data-cancelar="${e.id}" class="h-8 rounded-lg border border-rose-200 px-3 text-xs text-rose-700 hover:bg-rose-50">${esc(e.estado === 'al_aire' ? TX.detener : TX.cancelar)}</button>` : `<button type="button" data-quitar="${e.id}" class="h-8 rounded-lg border border-gray-200 px-3 text-xs text-gray-500 hover:bg-gray-50">${esc(TX.quitar)}</button>`}
       </div></div>`;
@@ -370,6 +435,7 @@
     const b = ev.target.closest('button'); if (!b) return;
     try {
       if (b.dataset.cancelar) { if (!confirm(b.textContent.includes(TX.detener) ? TX.confDetener : TX.confCancelar)) return; await post(`${RUTAS.base}/${b.dataset.cancelar}/cancelar`); }
+      if (b.dataset.campana) { abrirModalCampana(lista.find(x => String(x.id) === b.dataset.campana)); return; }
       if (b.dataset.ahora) { if (!confirm(TX.confAhora)) return; await post(`${RUTAS.base}/${b.dataset.ahora}/ahora`); }
       if (b.dataset.quitar) { if (!confirm(TX.confQuitar)) return; await fetch(`${RUTAS.base}/${b.dataset.quitar}`, { method: 'DELETE', headers: { 'X-CSRF-TOKEN': csrf, Accept: 'application/json' } }); }
       refrescar();
@@ -381,6 +447,87 @@
     try { const r = await post(`${RUTAS.base}/${i.dataset.reanudar}/reanudar`, { archivo_bytes: i.files[0].size }); await subirYPreparar(r.emision, r.subida, i.files[0]); }
     catch (e) { error(e.message); }
   });
+  // ---------------------------------------------------------- campaña con plan de medios (suma al informe)
+  function llenarSel(el, items, vacio, previo) {
+    el.innerHTML = '';
+    if (vacio) { const o = document.createElement('option'); o.value = ''; o.textContent = vacio; el.appendChild(o); }
+    items.forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if (previo != null && String(previo) === String(v)) o.selected = true; el.appendChild(o); });
+  }
+  const campanaDe = (pre) => { const s = g(pre + '-sel'); return s && s.value ? CAMPANAS.find(c => String(c.id) === s.value) || null : null; };
+  const tiposDe = (pre, c) => { const s = c.subs.find(x => String(x.id) === g(pre + '-sub').value); return c.subs.length ? (s ? s.tipos : []) : c.tipos; };
+  function llenarTipos(pre) {
+    const c = campanaDe(pre); if (!c) return;
+    const t = tiposDe(pre, c);
+    llenarSel(g(pre + '-tipo'), t.map(x => [x, x]), t.length === 1 ? null : TX.eligeTipoVacio, g(pre + '-tipo').value);
+  }
+  function aplicarCampana(pre, marcarPaginas) {
+    const c = campanaDe(pre);
+    g(pre + '-detalle').classList.toggle('hidden', !c);
+    if (!c) return;
+    // Las páginas de la campaña quedan marcadas (se pueden desmarcar)
+    if (marcarPaginas) cajasPagina().forEach(cb => { cb.checked = c.paginas.includes(cb.dataset.pageId); });
+    g(pre + '-sub-caja').classList.toggle('hidden', !c.subs.length);
+    llenarSel(g(pre + '-sub'), c.subs.map(s => [s.id, s.nombre]), TX.eligeSubVacio, null);
+    llenarTipos(pre);
+  }
+  /** null sin campaña; {error} si falta algo; {datos} para enviar. */
+  function leerCampana(pre) {
+    const c = campanaDe(pre);
+    if (!c) return null;
+    const sub = g(pre + '-sub').value, tipo = g(pre + '-tipo').value;
+    if (c.subs.length && !sub) return { error: TX.eligeSub };
+    if (!tipo) return { error: TX.eligeTipo };
+    return { datos: { campaign_id: c.id, subcampana_id: sub ? Number(sub) : null, tipo_pieza: tipo } };
+  }
+  const cajasPagina = () => Array.from(document.querySelectorAll('input[name="meta_page_ids[]"]'));
+  function pintarCupos() {
+    const c = campanaDe('pg-campana'), p = g('pg-campana-cupos');
+    if (!p) return;
+    const tipo = c ? g('pg-campana-tipo').value : '';
+    if (!c || !tipo) { p.classList.add('hidden'); return; }
+    const k = tipo.toLowerCase(), llenas = [], quedan = [];
+    cajasPagina().filter(cb => cb.checked).forEach(cb => { const x = (c.cupos[cb.dataset.pageId] || {})[k]; if (x) (x[0] >= x[1] ? llenas : quedan).push(cb.dataset.nombrePagina + ' ' + x[0] + '/' + x[1]); });
+    p.innerHTML = '';
+    if (llenas.length) { const s = document.createElement('span'); s.className = 'block text-rose-700 font-semibold'; s.textContent = TX.cupoLleno + ' ' + llenas.join(', '); p.appendChild(s); }
+    if (quedan.length) { const s = document.createElement('span'); s.className = 'block text-emerald-800'; s.textContent = TX.cupoUsado + ' (' + tipo + '): ' + quedan.join(', '); p.appendChild(s); }
+    p.classList.toggle('hidden', !llenas.length && !quedan.length);
+  }
+  if (g('pg-campana-sel')) {
+    g('pg-campana-sel').addEventListener('change', () => { aplicarCampana('pg-campana', true); pintarCupos(); });
+    g('pg-campana-sub').addEventListener('change', () => { llenarTipos('pg-campana'); pintarCupos(); });
+    g('pg-campana-tipo').addEventListener('change', pintarCupos);
+    cajasPagina().forEach(cb => cb.addEventListener('change', pintarCupos));
+  }
+  let modalId = null;
+  function abrirModalCampana(e) {
+    if (!e || !g('pg-modal-campana')) return;
+    modalId = e.id;
+    g('pg-modal-titulo').textContent = e.titulo;
+    g('pg-modal-sel').value = ''; aplicarCampana('pg-modal', false);
+    g('pg-modal-error').classList.add('hidden');
+    g('pg-modal-campana').classList.remove('hidden');
+  }
+  if (g('pg-modal-campana')) {
+    const cerrar = () => { g('pg-modal-campana').classList.add('hidden'); modalId = null; };
+    g('pg-modal-sel').addEventListener('change', () => aplicarCampana('pg-modal', false));
+    g('pg-modal-sub').addEventListener('change', () => llenarTipos('pg-modal'));
+    g('pg-modal-cerrar').addEventListener('click', cerrar);
+    g('pg-modal-guardar').addEventListener('click', async () => {
+      const el = leerCampana('pg-modal'), msg = g('pg-modal-error');
+      const falla = (t) => { msg.textContent = t; msg.classList.remove('hidden'); };
+      if (!el) return falla(TX.eligeCampana);
+      if (el.error) return falla(el.error);
+      const b = g('pg-modal-guardar'); b.disabled = true;
+      try {
+        const r = await post(`${RUTAS.base}/${modalId}/campana`, el.datos);
+        cerrar();
+        alert(r.emision.inicio_real ? tx('sumadas', { n: r.publicaciones }) : TX.sumadaSinSalir);
+        refrescar();
+      } catch (e) { falla(e.message); }
+      finally { b.disabled = false; }
+    });
+  }
+
   pintar();
   setInterval(() => { if (!document.hidden) refrescar(); }, 6000);
 })();

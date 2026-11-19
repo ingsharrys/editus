@@ -224,7 +224,7 @@ class EmisionesService
                             $page = MetaPage::find($d['meta_page_id']);
                             if (!$page) throw new \RuntimeException('La página ya no existe en editus');
                             $r = $this->facebook->crear($page, $e->titulo, (string) $e->descripcion);
-                            $d = array_merge($d, ['live_id' => $r['id'], 'stream_url' => $r['stream_url'], 'permalink' => $r['permalink'] ?? $d['permalink']]);
+                            $d = array_merge($d, ['live_id' => $r['id'], 'video_id' => $r['video_id'] ?? null, 'stream_url' => $r['stream_url'], 'permalink' => $r['permalink'] ?? $d['permalink']]);
                         }
                     } else {
                         $canal = YoutubeCanal::find($d['canal_id']);
@@ -262,6 +262,7 @@ class EmisionesService
             }
             $e->fill(['estado' => 'al_aire', 'inicio_real' => now(), 'error' => null])->save();
             $this->notificar($e, 'al_aire');
+            app(EnVivoCampanaService::class)->registrarEmision($e); // en una campaña: suma al informe
             return 'al aire en ' . count($urls) . ' destino(s)' . ($cuenta ? ' con cuenta regresiva' : '');
         });
     }
@@ -289,6 +290,7 @@ class EmisionesService
         $this->cerrarLives($e);
         $e->fill(['estado' => $huboEmision ? 'terminado' : 'error', 'fin_real' => now(), 'error' => $error ? Str::limit($error, 1000, '') : null])->save();
         $this->notificar($e, $huboEmision ? 'terminado' : 'error');
+        if ($huboEmision) app(EnVivoCampanaService::class)->registrarEmision($e); // ya con el id definitivo del video
     }
 
     /** Aviso al celular y al correo de quien programó el pregrabado. */

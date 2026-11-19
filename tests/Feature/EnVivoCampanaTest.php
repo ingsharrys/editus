@@ -132,4 +132,83 @@ class EnVivoCampanaTest extends TestCase
     {
         $this->withHeader('X-Editus-Token', 'tok-integracion')->getJson('/api/en-vivo/campanas')->assertOk()->assertJsonPath('campanas.0.subs.0.tipos.0', 'En vivo');
     }
+
+    /** Pregrabados: tabla, emisor de prueba y el Live de Facebook (7001 → video 7002). */
+    private function prepararPregrabados(): void
+    {
+        config(['services.emisor.url' => 'https://emisor.prueba.test/emisor', 'services.emisor.secreto' => str_repeat('e', 40)]);
+        (require database_path('migrations/2026_10_15_000001_create_emisiones_programadas.php'))->up();
+        (require database_path('migrations/2026_10_17_000001_notificaciones_y_miniaturas.php'))->up();
+        (require database_path('migrations/2026_11_19_000002_campana_en_pregrabados.php'))->up();
+    }
+
+    private function emisionQueSalio(array $extra = []): \App\Models\EmisionProgramada
+    {
+        return \App\Models\EmisionProgramada::create($extra + [
+            'user_id' => $this->admin->id, 'emisor_id' => 'em-prueba-123456', 'titulo' => 'Leishmaniasis: síntomas y prevención', 'descripcion' => 'Charla',
+            'programada_en' => now()->subHour(), 'estado' => 'terminado', 'progreso' => 100, 'archivo_nombre' => 'Leishmaniasis.mp4', 'archivo_bytes' => 363093964,
+            'inicio_real' => now()->subHour(), 'fin_real' => now()->subMinutes(20),
+            'destinos' => [['red' => 'facebook', 'meta_page_id' => $this->pagina->id, 'nombre' => 'Opa Noticias', 'live_id' => '7001', 'stream_url' => null,
+                'permalink' => 'https://www.facebook.com/opa/videos/7002/', 'estado' => 'terminado', 'error' => null]],
+        ]);
+    }
+
+    public function test_pregrabado_programado_en_la_campana_suma_al_informe_al_salir_al_aire(): void
+    {
+        $this->prepararPregrabados();
+        $this->actingAs($this->admin)->get(route('pregrabados.index'))->assertOk()
+            ->assertSee('Campaña (plan de medios)')->assertSee('data-page-id="111"', false);
+
+        $datos = ['titulo' => 'Rabia: vacuna a tus mascotas', 'programada_en' => now()->addHour()->format('Y-m-d\TH:i'), 'meta_page_ids' => [$this->pagina->id],
+            'archivo_nombre' => 'rabia.mp4', 'archivo_bytes' => 5_000_000, 'campaign_id' => $this->c->id];
+        $this->actingAs($this->admin)->postJson(route('pregrabados.store'), $datos)->assertStatus(422)->assertJsonPath('error', 'Elige la subcampaña del en vivo.');
+        $r = $this->actingAs($this->admin)->postJson(route('pregrabados.store'), $datos + ['subcampana_id' => $this->sub->id])->assertOk();
+        $e = \App\Models\EmisionProgramada::findOrFail($r->json('emision.id'));
+        $this->assertSame([$this->c->id, $this->sub->id, 'En vivo'], [(int) $e->campaign_id, (int) $e->subcampana_id, $e->tipo_pieza]);
+        $this->assertSame('Salud 2026 · Salud infantil · En vivo', $r->json('emision.campana'));
+        $this->assertSame(0, MetaPost::count());
+
+        // A la hora sale al aire: cada página de Facebook queda como publicación de la campaña (una pieza)
+        $e->forceFill(['estado' => 'listo'])->save();
+        app(\App\Services\EmisionesService::class)->arrancar($e);
+        $e->refresh();
+        $this->assertSame('al_aire', $e->estado);
+        $post = MetaPost::firstOrFail();
+        $this->assertSame([$this->c->id, $this->sub->id, 'En vivo', 'video', '7002'], [(int) $post->campaign_id, (int) $post->subcampana_id, $post->tipo_pieza, $post->type, (string) $post->fb_post_id]);
+        $pieza = Producto::findOrFail($post->producto_id);
+        $this->assertSame('Rabia: vacuna a tus mascotas', MetaPost::first()->message);
+        $this->assertSame((int) $this->sub->id, (int) $pieza->subcampana_id);
+        // Volver a registrarlo (al terminar) no duplica
+        app(EnVivoCampanaService::class)->registrarEmision($e);
+        $this->assertSame([1, 1], [MetaPost::count(), Producto::count()]);
+    }
+
+    public function test_pregrabado_que_ya_salio_se_suma_despues_a_la_campana(): void
+    {
+        $this->prepararPregrabados();
+        $e = $this->emisionQueSalio();
+        $vista = $e->paraVista();
+        $this->assertTrue($vista['puede_campana']);
+        $this->assertNull($vista['campana']);
+
+        $this->actingAs($this->admin)->postJson(route('pregrabados.campana', $e), ['campaign_id' => $this->c->id, 'subcampana_id' => $this->sinVivo->id])
+            ->assertStatus(422)->assertJsonFragment(['success' => false]);
+        $r = $this->actingAs($this->admin)->postJson(route('pregrabados.campana', $e), ['campaign_id' => $this->c->id, 'subcampana_id' => $this->sub->id])
+            ->assertOk()->assertJsonPath('publicaciones', 1)->assertJsonPath('emision.campana', 'Salud 2026 · Salud infantil · En vivo')->assertJsonPath('emision.puede_campana', false);
+        $post = MetaPost::firstOrFail();
+        // El id del video lo pide a Facebook (el Live 7001 quedó como video 7002) y la fecha es la de salida al aire
+        $this->assertSame(['7002', 'https://www.facebook.com/opa/videos/7002/', 'success'], [(string) $post->fb_post_id, $post->fb_permalink_url, $post->status]);
+        $this->assertSame($e->inicio_real->toDateTimeString(), $post->published_at->toDateTimeString());
+        $this->assertNotNull($post->producto_id);
+        $this->assertSame('7002', $e->fresh()->destinos[0]['video_id']);
+        // Ya está en la campaña: no se puede volver a sumar
+        $this->actingAs($this->admin)->postJson(route('pregrabados.campana', $e), ['campaign_id' => $this->c->id, 'subcampana_id' => $this->sub->id])
+            ->assertStatus(422)->assertJsonPath('error', 'Este pregrabado ya está en una campaña.');
+
+        // Uno de otro usuario no se puede tocar; uno cancelado no ofrece la opción
+        $otro = User::factory()->create(['role_id' => Role::where('slug', 'user')->value('id') ?? Role::where('slug', 'admin')->value('id')]);
+        $ajena = $this->emisionQueSalio(['emisor_id' => 'em-prueba-999999']);
+        if (!$otro->isAdmin()) $this->actingAs($otro)->postJson(route('pregrabados.campana', $ajena), ['campaign_id' => $this->c->id, 'subcampana_id' => $this->sub->id])->assertStatus(403);
+        $this->assertFalse($this->emisionQueSalio(['emisor_id' => 'em-prueba-888888', 'estado' => 'cancelado'])->paraVista()['puede_campana']);
+    }
 }

@@ -11,6 +11,7 @@ use App\Models\YoutubeCanal;
 use App\Services\CuentasAppService;
 use App\Services\EmisionesService;
 use App\Services\EmisorClient;
+use App\Services\EnVivoCampanaService;
 use App\Services\PlanService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -36,7 +37,7 @@ class PregrabadosController extends Controller
         $user = Auth::user();
         $lim = $this->planes->limites($user);
         return view('en-vivo.pregrabados', [
-            'paginas' => $this->paginasPermitidas()->map(fn(MetaPage $p) => ['id' => $p->id, 'nombre' => (string) $p->name, 'foto' => $p->picture_url ?: $p->pictureUrl('small')])->values(),
+            'paginas' => $this->paginasPermitidas()->map(fn(MetaPage $p) => ['id' => $p->id, 'page_id' => (string) $p->page_id, 'nombre' => (string) $p->name, 'foto' => $p->picture_url ?: $p->pictureUrl('small')])->values(),
             'canales' => $cuentas->canalesDe(null)->map(fn($c) => ['id' => $c->id, 'nombre' => (string) $c->titulo])->values(),
             'logos' => $this->logos(),
             'marcos' => $this->marcos(),
@@ -46,6 +47,8 @@ class PregrabadosController extends Controller
             'esCliente' => !$this->planes->sinLimites($user),
             'maxBytes' => $this->maxBytes(),
             'zona' => config('app.timezone'),
+            // Campañas con plan de medios (como en el estudio): el pregrabado suma al informe al salir al aire
+            'campanasVivo' => $this->planes->sinLimites($user) ? app(EnVivoCampanaService::class)->opciones() : [],
         ]);
     }
 
@@ -71,6 +74,7 @@ class PregrabadosController extends Controller
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'],
             'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'], 'calidad' => ['nullable', 'in:auto,720'],
             'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $cuando = Carbon::createFromFormat('Y-m-d\TH:i', $d['programada_en'], config('app.timezone'))->seconds(0);
         if ($cuando->lt(now()->addMinutes(10))) return $this->error(__('Programa el video al menos 10 minutos en el futuro: hay que subirlo y prepararlo.'));
@@ -89,6 +93,8 @@ class PregrabadosController extends Controller
         $canales = collect((array) ($d['youtube_canal_ids'] ?? []))->map(fn($id) => $canalesOk->get((int) $id));
         if ($canales->contains(null)) return $this->error(__('Alguno de los canales de YouTube no está disponible.'));
         if ($paginas->isEmpty() && $canales->isEmpty()) return $this->error(__('Elige al menos una página de Facebook o un canal de YouTube.'));
+        [$campana, $errorCampana] = $this->campanaElegida($d, $paginas);
+        if ($errorCampana) return $this->error($errorCampana);
 
         $conLogo = !empty($lim['plantillas_logo']);
         $logo = $conLogo && !empty($d['logo_id']) ? PlantillaEditor::whereNotNull('logo_path')->find($d['logo_id']) : null;
@@ -108,6 +114,7 @@ class PregrabadosController extends Controller
                 'etiqueta' => $request->boolean('etiqueta', true), 'cuenta' => $request->boolean('cuenta', true), 'calidad' => ($d['calidad'] ?? 'auto') === '720' ? '720' : 'auto',
             ],
         ], $paginas, $canales);
+        if ($campana) $e->forceFill($campana)->save();
         return response()->json(['success' => true, 'emision' => $e->paraVista(), 'subida' => $this->emisor->urlSubida($e->emisor_id, (int) $d['archivo_bytes'])]);
     }
 
@@ -203,6 +210,48 @@ class PregrabadosController extends Controller
             $q->where('is_active', 1)->whereNotNull('page_access_token');
             if (!$user->isAdmin()) $q->where('user_id', $user->id);
         })->orderBy('name')->get();
+    }
+
+    /**
+     * Elegir la campaña después (se olvidó al programarlo, o ya salió): si ya salió al aire, sus videos de Facebook
+     * quedan como publicaciones de la campaña y suman al informe.
+     */
+    public function campana(Request $request, EmisionProgramada $emision): JsonResponse
+    {
+        $this->propia($emision);
+        if (!Schema::hasColumn('emisiones_programadas', 'campaign_id')) return $this->error(__('Falta actualizar la base de datos (php artisan migrate).'));
+        if ($emision->campaign_id) return $this->error(__('Este pregrabado ya está en una campaña.'));
+        if (in_array($emision->estado, ['cancelado', 'error'], true)) return $this->error(__('Este pregrabado no salió al aire.'));
+        $d = $request->validate(['campaign_id' => ['required', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60']]);
+        $paginas = MetaPage::whereIn('id', collect((array) $emision->destinos)->where('red', 'facebook')->pluck('meta_page_id')->filter()->all())->get();
+        [$campos, $error] = $this->campanaElegida($d, $paginas, $emision->inicio_real !== null);
+        if ($error) return $this->error($error);
+        $emision->forceFill($campos)->save();
+        $n = $emision->inicio_real ? app(EnVivoCampanaService::class)->registrarEmision($emision) : 0;
+        return response()->json(['success' => true, 'emision' => $emision->refresh()->paraVista(), 'publicaciones' => $n]);
+    }
+
+    /** Campaña con plan de medios elegida (como en el estudio). [campos, null] o [null, error]; sin campaña: [[], null]. */
+    private function campanaElegida(array $d, Collection $paginas, bool $yaSalio = false): array
+    {
+        if (empty($d['campaign_id'])) return [[], null];
+        if (!$this->planes->sinLimites(Auth::user())) return [null, __('Tu plan no permite publicar en campañas con plan de medios.')];
+        if ($paginas->isEmpty()) return [null, __('Para que sume al informe, elige al menos una página de Facebook de la campaña.')];
+        $servicio = app(EnVivoCampanaService::class);
+        // Si ya salió al aire no se miran los cupos: ya se publicó
+        if ($yaSalio) {
+            $plan = app(\App\Services\PlanMediosService::class);
+            $c = \App\Models\Campaign::find((int) $d['campaign_id']);
+            if (!$c || !$c->plan_medios) return [null, __('La campaña elegida no está activa o no tiene plan de medios.')];
+            $subs = $plan->subcampanasParaPublicar($c);
+            $sub = !empty($d['subcampana_id']) ? $subs->firstWhere('id', (int) $d['subcampana_id']) : null;
+            if ($subs->isNotEmpty() && !$sub) return [null, __('Elige la subcampaña del en vivo.')];
+            $tipos = $servicio->tiposDe($c, $sub);
+            $tipo = collect($tipos)->first(fn($t) => \App\Services\PlanMediosService::clave($t) === \App\Services\PlanMediosService::clave($d['tipo_pieza'] ?? '')) ?? (count($tipos) === 1 ? $tipos[0] : null);
+            if (!$tipo) return [null, __('Elige el tipo de en vivo.')];
+            return [['campaign_id' => $c->id, 'subcampana_id' => $sub?->id, 'tipo_pieza' => $tipo], null];
+        }
+        return $servicio->validar($d, $paginas);
     }
 
     private function propia(EmisionProgramada $e): void

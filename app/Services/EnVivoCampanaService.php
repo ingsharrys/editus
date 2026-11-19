@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Campaign;
+use App\Models\EmisionProgramada;
 use App\Models\MetaPage;
 use App\Models\MetaPost;
 use App\Models\Subcampana;
@@ -112,9 +113,14 @@ class EnVivoCampanaService
     /** «Campaña · Subcampaña · Tipo» para mostrar en el estudio. */
     public static function etiqueta(TransmisionEnVivo $t): string
     {
-        $c = Campaign::find($t->campaign_id);
-        $s = $t->subcampana_id ? Subcampana::find($t->subcampana_id) : null;
-        return implode(' · ', array_filter([$c?->name, $s?->nombreCompleto(), $t->tipo_pieza]));
+        return self::etiquetaDe($t->campaign_id, $t->subcampana_id, $t->tipo_pieza);
+    }
+
+    public static function etiquetaDe(?int $campaignId, ?int $subId, ?string $tipo): string
+    {
+        $c = $campaignId ? Campaign::find($campaignId) : null;
+        $s = $subId ? Subcampana::find($subId) : null;
+        return implode(' · ', array_filter([$c?->name, $s?->nombreCompleto(), $tipo]));
     }
 
     /**
@@ -154,6 +160,63 @@ class EnVivoCampanaService
             Log::warning('[EN VIVO] no se pudo registrar en la campaña', ['transmision' => $t->id, 'err' => $e->getMessage()]);
             return 0;
         }
+    }
+
+    /**
+     * Lo mismo para un pregrabado programado: una publicación por página de Facebook donde salió (el video del Live),
+     * todas en un lote = una pieza del informe. Se llama al salir al aire, al terminar y al elegir la campaña después.
+     */
+    public function registrarEmision(EmisionProgramada $e): int
+    {
+        if (!self::disponible() || !$e->campaign_id || !$e->inicio_real || !Schema::hasColumn('emisiones_programadas', 'campaign_id')) return 0;
+        try {
+            $c = Campaign::find($e->campaign_id);
+            if (!$c) return 0;
+            $sub = $e->subcampana_id ? Subcampana::find($e->subcampana_id) : null;
+            $campos = $this->plan->camposDe($sub, $e->tipo_pieza);
+            $userId = $e->user_id ?: ($c->created_by ?: User::whereHas('role', fn($q) => $q->where('slug', 'admin'))->orderBy('id')->value('id'));
+            if (!$userId) return 0;
+            $mensaje = trim($e->titulo . ($e->descripcion ? "\n\n" . $e->descripcion : ''));
+            $destinos = (array) $e->destinos;
+            $cambio = false;
+            $n = 0;
+            foreach ($destinos as &$d) {
+                if (($d['red'] ?? 'facebook') !== 'facebook' || empty($d['live_id']) || !in_array($d['estado'] ?? '', ['emitiendo', 'terminado'], true)) continue;
+                $page = MetaPage::find((int) ($d['meta_page_id'] ?? 0));
+                if (!$page) continue;
+                // El id del video (el que queda publicado en la página) es el que da las métricas
+                if (empty($d['video_id'])) {
+                    try {
+                        $info = app(FacebookLiveService::class)->estado($page, (string) $d['live_id']);
+                        if (!empty($info['video_id'])) { $d['video_id'] = (string) $info['video_id']; $cambio = true; }
+                    } catch (\Throwable) {
+                        // se intenta de nuevo al terminar
+                    }
+                }
+                $post = MetaPost::firstOrNew(['batch_uuid' => self::loteEmision($e), 'meta_page_id' => $page->id]);
+                $post->fill(['user_id' => $post->user_id ?: $userId, 'campaign_id' => $c->id] + $campos + [
+                    'type' => 'video', 'network' => 'facebook', 'message' => $mensaje,
+                    'fb_post_id' => ($d['video_id'] ?? null) ?: $d['live_id'],
+                    'fb_permalink_url' => ($d['permalink'] ?? null) ?: $post->fb_permalink_url,
+                    'status' => 'success', 'published_at' => $post->published_at ?: $e->inicio_real,
+                ]);
+                $post->save();
+                $n++;
+            }
+            unset($d);
+            if ($cambio) { $e->destinos = $destinos; $e->save(); }
+            if ($n && ProductosService::disponible()) app(ProductosService::class)->asegurarPiezas($c);
+            return $n;
+        } catch (\Throwable $ex) {
+            Log::warning('[PREGRABADO] no se pudo registrar en la campaña', ['emision' => $e->id, 'err' => $ex->getMessage()]);
+            return 0;
+        }
+    }
+
+    public static function loteEmision(EmisionProgramada $e): string
+    {
+        $h = md5('pregrabado-' . $e->id . '-' . $e->emisor_id);
+        return substr($h, 0, 8) . '-' . substr($h, 8, 4) . '-' . substr($h, 12, 4) . '-' . substr($h, 16, 4) . '-' . substr($h, 20, 12);
     }
 
     /** Lote (batch_uuid) de las publicaciones de un en vivo: es una columna uuid, así que se deriva del id. */

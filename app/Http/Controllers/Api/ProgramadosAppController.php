@@ -131,12 +131,16 @@ class ProgramadosAppController extends Controller
             'programada_en' => ['required', 'string', 'max:40'], 'archivo_nombre' => ['required', 'string', 'max:255'], 'archivo_bytes' => ['required', 'integer', 'min:1000'],
             'logo_id' => ['nullable', 'integer'], 'marco_id' => ['nullable', 'integer'], 'etiqueta' => ['nullable', 'boolean'], 'cuenta' => ['nullable', 'boolean'],
             'calidad' => ['nullable', 'in:auto,720'], 'miniatura' => ['nullable', 'string', 'max:8000000'], 'anuncio_facebook' => ['nullable', 'boolean'],
+            'campaign_id' => ['nullable', 'integer'], 'subcampana_id' => ['nullable', 'integer'], 'tipo_pieza' => ['nullable', 'string', 'max:60'],
         ]);
         $max = (int) config('services.emisor.max_gb', 6) * 1024 ** 3;
         if ($d['archivo_bytes'] > $max) return $this->error('El video supera el máximo de ' . config('services.emisor.max_gb', 6) . ' GB.');
         try {
             $cuando = $this->hora($d['programada_en'], 10);
             [$paginas, $canales] = $this->destinos($d);
+            // En una campaña con plan de medios: al salir al aire suma al informe (como los en vivos)
+            [$campana, $errorCampana] = app(\App\Services\EnVivoCampanaService::class)->validar($d, collect($paginas));
+            if ($errorCampana) return $this->error($errorCampana);
             $logo = !empty($d['logo_id']) ? PlantillaEditor::whereNotNull('logo_path')->find($d['logo_id']) : null;
             $marco = !empty($d['marco_id']) && Schema::hasTable('recursos_en_vivo') ? RecursoEnVivo::where('activo', true)->where('uso', 'plantilla')->find($d['marco_id']) : null;
             $miniatura = !empty($d['miniatura']) ? app(MiniaturaService::class)->guardarBase64($d['miniatura']) : null;
@@ -147,6 +151,7 @@ class ProgramadosAppController extends Controller
                 'plantilla' => ['logo_id' => $logo?->id, 'logo_url' => $logo?->logoUrl(), 'marco_id' => $marco?->id, 'marco_url' => $marco?->url(),
                     'etiqueta' => $request->boolean('etiqueta', true), 'cuenta' => $request->boolean('cuenta', true), 'calidad' => ($d['calidad'] ?? 'auto') === '720' ? '720' : 'auto'],
             ], $paginas, $canales);
+            if ($campana) $e->forceFill($campana)->save();
         } catch (\Throwable $ex) {
             return $this->error($ex->getMessage());
         }
