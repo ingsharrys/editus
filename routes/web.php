@@ -266,6 +266,7 @@ Route::middleware(['auth'])->group(function () {
         Route::get('/campanas/{campaign}/informes', [$I, 'index'])->name('campaigns.informes');
         Route::post('/campanas/{campaign}/informes/membrete', [$I, 'membrete'])->name('campaigns.informes.membrete');
         Route::get('/campanas/{campaign}/informes/control.xlsx', [$I, 'excel'])->name('campaigns.informes.excel');
+        Route::post('/campanas/{campaign}/informes/metricas', [$I, 'metricas'])->middleware('throttle:6,1')->name('campaigns.informes.metricas');
         Route::get('/campanas/{campaign}/informes/{formato}', [$I, 'generar'])->whereIn('formato', ['word', 'pdf', 'vista', 'excel'])->name('campaigns.informes.generar');
         // Medios de la campaña y sus contratos (tipos de contrato, listado de medios, numeración)
         $KA = \App\Http\Controllers\ContratosAdminController::class;

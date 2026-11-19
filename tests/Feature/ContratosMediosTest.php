@@ -231,10 +231,9 @@ class ContratosMediosTest extends TestCase
         // En «Informes» el medio inscrito sale con lo que reportó, y su informe solo lleva lo suyo
         $medios = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
         $this->assertSame([2, 'inscrito', $p->id], [$medios['Canal 6 Alfasurt']['publicaciones'], $medios['Canal 6 Alfasurt']['estado'], $medios['Canal 6 Alfasurt']['participante_id']]);
-        $this->assertSame([0, 'sin_inscribir'], [$medios['La Voz de Pitalito']['publicaciones'], $medios['La Voz de Pitalito']['estado']]);
+        $this->assertFalse($medios->has('La Voz de Pitalito'), 'no es un medio de la campaña y no tiene publicaciones');
         $d = app(\App\Services\InformeMetricasService::class)->datos($this->c, ['medio' => $medios['Canal 6 Alfasurt']['clave']]);
         $this->assertSame(['Canal 6 Alfasurt Pitalito · TikTok', 'Canal 6 Alfasurt Pitalito'], collect($d['capitulos'])->flatMap(fn($c) => $c['secciones'])->flatMap(fn($s) => $s['piezas'])->flatMap(fn($pz) => $pz['pubs']->pluck('medio'))->all());
-        $this->assertSame([], app(\App\Services\InformeMetricasService::class)->datos($this->c, ['medio' => $medios['La Voz de Pitalito']['clave']])['capitulos']);
 
         // La Voz de Pitalito solo tiene emisora y Facebook: en su portal no le aparecen TikTok ni banners, y no puede reportarlos
         $voz = $this->inscribir('Pedro Pitalito');
@@ -607,33 +606,31 @@ class ContratosMediosTest extends TestCase
             ->assertSee('una única cuota')->assertDontSee('cincuenta por ciento');
     }
 
-    public function test_en_informes_cada_pagina_es_del_medio_con_su_mismo_nombre(): void
+    public function test_informes_lista_los_medios_elegidos_en_la_campana(): void
     {
-        // Lucho tiene conectadas varias páginas (también las de otros medios); NEIVA AL DIA y OPANOTICIAS no conectaron ninguna
+        config(['services.editus.medios' => ['opanoticias' => 'Opanoticias', 'neivaaldia' => 'Neiva al Día', 'balsa' => 'La Balsa']]);
+        $this->c->forceFill(['medios' => ['opanoticias', 'neivaaldia', 'balsa']])->save();
+        // Lucho tiene conectadas varias páginas (también las de otros medios) pero no está en la campaña
         $lucho = $this->inscribir('Lucho');
         $neiva = $this->inscribir('Karen');
-        $opa = $this->inscribir('Opa');
         CampaignParticipante::where('user_id', $lucho->id)->update(['medio_nombre' => 'Lucho Noticias']);
         CampaignParticipante::where('user_id', $neiva->id)->update(['medio_nombre' => 'NEIVA AL DIA']);
-        CampaignParticipante::where('user_id', $opa->id)->update(['medio_nombre' => 'OPANOTICIAS']);
         $pg = [];
-        foreach (['Lucho Noticias', 'Neiva al día', 'Opanoticias', 'Rincón Deportivo', 'Boletín del Huila'] as $i => $n) {
-            $pg[$n] = MetaPage::create(['page_id' => (string) (700 + $i), 'name' => $n]);
+        foreach (['Lucho Noticias' => null, 'Neiva al día' => 'neivaaldia', 'Opanoticias' => 'opanoticias', 'Opa You' => 'opanoticias', 'Boletín del Huila' => null] as $n => $slug) {
+            $pg[$n] = MetaPage::create(['page_id' => (string) (700 + count($pg)), 'name' => $n, 'medio_slug' => $slug]);
             if ($n !== 'Boletín del Huila') $pg[$n]->users()->attach($lucho->id, ['page_access_token' => 'tok', 'is_active' => true]);
         }
-        // Un en vivo programado de la campaña salió en Neiva al día, Opanoticias y el Boletín (página del administrador)
-        foreach (['Neiva al día', 'Opanoticias', 'Boletín del Huila'] as $n) {
+        // Un en vivo programado de la campaña salió en Neiva al día, Opanoticias, Opa You y el Boletín (fuera de los medios de la campaña)
+        foreach (['Neiva al día', 'Opanoticias', 'Opa You', 'Boletín del Huila'] as $n) {
             \App\Models\MetaPost::create(['meta_page_id' => $pg[$n]->id, 'user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'type' => 'video', 'network' => 'facebook', 'status' => 'success', 'published_at' => now()]);
         }
         $m = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
-        $this->assertSame([['Neiva al día'], 1], [$m['NEIVA AL DIA']['nombres_pagina'], $m['NEIVA AL DIA']['publicaciones']]);
-        $this->assertSame([['Opanoticias'], 1], [$m['OPANOTICIAS']['nombres_pagina'], $m['OPANOTICIAS']['publicaciones']]);
-        $this->assertSame([['Lucho Noticias', 'Rincón Deportivo'], 0], [$m['Lucho Noticias']['nombres_pagina'], $m['Lucho Noticias']['publicaciones']]);
-        $this->assertSame([1, 'pagina'], [$m['Boletín del Huila']['publicaciones'], $m['Boletín del Huila']['estado']]);
-        // Si el medio eligió sus páginas en el certificado, se respeta (y la de su mismo nombre sigue siendo suya)
-        CampaignParticipante::where('user_id', $lucho->id)->update(['meta_page_ids' => [$pg['Neiva al día']->id]]);
-        $m = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
-        $this->assertSame(['Lucho Noticias', 'Neiva al día'], $m['Lucho Noticias']['nombres_pagina']);
-        $this->assertSame([], $m['NEIVA AL DIA']['nombres_pagina']);
+        $this->assertEqualsCanonicalizing(['Opanoticias', 'Neiva al Día', 'La Balsa', 'Boletín del Huila'], $m->keys()->all(), 'Lucho Noticias no está en la campaña ni tiene publicaciones');
+        $this->assertSame([['Opa You', 'Opanoticias'], 2, 'medio'], [$m['Opanoticias']['nombres_pagina'], $m['Opanoticias']['publicaciones'], $m['Opanoticias']['estado']]);
+        // NEIVA AL DIA (inscrito) queda junto con el medio Neiva al Día
+        $this->assertSame([['Neiva al día'], 1, 'inscribiendose'], [$m['Neiva al Día']['nombres_pagina'], $m['Neiva al Día']['publicaciones'], $m['Neiva al Día']['estado']]);
+        $this->assertSame(CampaignParticipante::where('user_id', $neiva->id)->value('id'), $m['Neiva al Día']['participante_id']);
+        $this->assertSame([[], 0], [$m['La Balsa']['nombres_pagina'], $m['La Balsa']['publicaciones']]);
+        $this->assertSame([1, 'fuera'], [$m['Boletín del Huila']['publicaciones'], $m['Boletín del Huila']['estado']]);
     }
 }

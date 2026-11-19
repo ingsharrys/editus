@@ -173,6 +173,7 @@ class MetaMetricasService
                     $v = $this->valoresInsights($vi['json']);
                     $m['reproducciones'] = $v['blue_reels_play_count'] ?? $v['total_video_views'] ?? $v['post_video_views'] ?? null;
                     if ($m['alcance'] === null && isset($v['post_impressions_unique'])) $m['alcance'] = $v['post_impressions_unique'];
+                    if ($m['alcance'] === null && isset($v['total_video_impressions_unique'])) $m['alcance'] = $v['total_video_impressions_unique'];
                     if ($m['impresiones'] === null && isset($v['total_video_impressions'])) $m['impresiones'] = $v['total_video_impressions'];
                 } else {
                     $errores[] = $vi['error'];

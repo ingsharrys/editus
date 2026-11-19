@@ -48,6 +48,9 @@ Schedule::command('meta:collect-metrics-simple --limit=150 --only-missing')
     ->timezone(config('app.timezone', 'America/Bogota'))
     ->withoutOverlapping();
 
+// Métricas de lo publicado en las campañas con plan de medios (informes): videos y en vivos incluidos.
+Schedule::command('campanas:metricas')->everyThreeHours()->withoutOverlapping()->runInBackground();
+
 // Higiene: limpiar trabajos fallidos de más de 7 días.
 Schedule::command('queue:prune-failed --hours=168')->weekly();
 

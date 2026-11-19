@@ -361,39 +361,38 @@ class ProductosInformeTest extends TestCase
     {
         $this->armarInforme();
         $inf = app(InformeMetricasService::class);
-        // Listado: las páginas de la campaña y los medios registrados a mano, cada uno con sus publicaciones
+        // Listado: el medio elegido en la campaña (Opanoticias, con sus páginas Canal 4 y Clic) y los registrados a mano
         $medios = $inf->medios($this->c)->keyBy('nombre');
-        $this->assertEqualsCanonicalizing(['Canal 4', 'Clic Informativo', 'La Surco', 'Neiva 24', 'Neiva al Día', 'Opanoticias'], $medios->keys()->all());
-        $this->assertSame([1, 'pagina'], [$medios['Canal 4']['publicaciones'], $medios['Canal 4']['estado']]);
+        $this->assertEqualsCanonicalizing(['Opanoticias', 'La Surco', 'Neiva 24', 'Neiva al Día'], $medios->keys()->all());
+        $this->assertSame([['Canal 4', 'Clic Informativo'], 3, 'medio'], [$medios['Opanoticias']['nombres_pagina'], $medios['Opanoticias']['publicaciones'], $medios['Opanoticias']['estado']]);
         $this->assertSame([1, 'registrado'], [$medios['Neiva 24']['publicaciones'], $medios['Neiva 24']['estado']]);
         $this->actingAs($this->admin)->get(route('campaigns.informes', $this->c))->assertOk()
-            ->assertSee('Informes por medio')->assertSee('Clic Informativo')->assertSee('value="' . $medios['Canal 4']['clave'] . '"', false)->assertSee('Informe general de la campaña');
+            ->assertSee('Informes por medio')->assertSee('Páginas: Canal 4, Clic Informativo')->assertSee('value="' . $medios['Opanoticias']['clave'] . '"', false)
+            ->assertSee('Actualizar métricas ahora')->assertSee('Informe general de la campaña');
 
-        // Canal 4: solo su publicación del video largo (sin los banners ni el en vivo de otros medios)
-        $d = $inf->datos($this->c, ['medio' => $medios['Canal 4']['clave'], 'corte' => '2026-01-06']);
-        $this->assertSame('INFORME DE PUBLICACIONES – CANAL 4', $d['titulo']);
-        $this->assertSame(['VIDEOS LARGOS'], array_column($d['capitulos'][0]['secciones'], 'titulo'));
-        $pz = $d['capitulos'][0]['secciones'][0]['piezas'][0];
-        $this->assertSame(['Canal 4'], $pz['pubs']->pluck('medio')->all());
-        $this->assertSame('Publicación de un (1) video largo en un (1) medio digital.', $pz['descripcion']);
-        $this->assertSame([1, 684], [$d['total']['publicaciones'], $d['total']['alcance']]);
+        // Opanoticias: el video largo en sus dos páginas y el en vivo registrado a su nombre (sin los banners de otros medios)
+        $d = $inf->datos($this->c, ['medio' => $medios['Opanoticias']['clave'], 'corte' => '2026-01-06']);
+        $this->assertSame('INFORME DE PUBLICACIONES – OPANOTICIAS', $d['titulo']);
+        $this->assertSame(['VIDEOS LARGOS', 'EN VIVOS'], array_column($d['capitulos'][0]['secciones'], 'titulo'));
+        $this->assertSame(['Canal 4', 'Clic Informativo'], $d['capitulos'][0]['secciones'][0]['piezas'][0]['pubs']->pluck('medio')->all());
+        $this->assertSame([3, 1230 + 599], [$d['total']['publicaciones'], $d['total']['alcance']]);
         // Neiva 24: solo su banner
         $n24 = $inf->datos($this->c, ['medio' => $medios['Neiva 24']['clave']]);
         $this->assertSame(['BANNER 1.600 X 185 PX'], array_column($n24['capitulos'][0]['secciones'], 'titulo'));
         $this->assertSame(['Neiva 24'], $n24['capitulos'][0]['secciones'][0]['piezas'][0]['pubs']->pluck('medio')->all());
 
-        $q = ['medio' => $medios['Canal 4']['clave'], 'corte' => '2026-01-06'];
+        $q = ['medio' => $medios['Opanoticias']['clave'], 'corte' => '2026-01-06'];
         $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'vista'] + $q))->assertOk()
-            ->assertSee('INFORME DE PUBLICACIONES – CANAL 4')->assertSee('Video Largo No. 1:')->assertDontSee('Neiva al Día');
+            ->assertSee('INFORME DE PUBLICACIONES – OPANOTICIAS')->assertSee('Video Largo No. 1:')->assertDontSee('Neiva al Día');
         $pdf = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'pdf'] + $q))->assertOk();
         $this->assertStringStartsWith('%PDF', $pdf->getContent());
-        $this->assertStringContainsString('informe-publicaciones-canal-4-salud-2026-20260106.pdf', $pdf->headers->get('content-disposition'));
+        $this->assertStringContainsString('informe-publicaciones-opanoticias-salud-2026-20260106.pdf', $pdf->headers->get('content-disposition'));
         $w = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'word'] + $q))->assertOk();
         $zip = new \ZipArchive();
         $this->assertTrue($zip->open($w->baseResponse->getFile()->getPathname()) === true);
         $xml = (string) $zip->getFromName('word/document.xml');
         $zip->close();
-        $this->assertStringContainsString('INFORME DE PUBLICACIONES – CANAL 4', $xml);
+        $this->assertStringContainsString('INFORME DE PUBLICACIONES – OPANOTICIAS', $xml);
         $this->assertStringNotContainsString('Neiva al Día', $xml);
 
         // Excel: una fila por publicación del medio y el resumen
@@ -402,13 +401,37 @@ class ProductosInformeTest extends TestCase
         $this->assertSame(['Publicaciones', 'Resumen'], $ss->getSheetNames());
         $hoja = $ss->getSheetByName('Publicaciones');
         $this->assertSame(['Canal 4', 684], [$hoja->getCell('E5')->getValue(), (int) $hoja->getCell('G5')->getValue()]);
-        $this->assertSame('TOTAL', $hoja->getCell('B6')->getValue());
-        $this->assertSame(['VIDEOS LARGOS', 1, 1], [$ss->getSheetByName('Resumen')->getCell('B5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('C5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('D5')->getValue()]);
+        $this->assertSame('TOTAL', $hoja->getCell('B8')->getValue());
+        $this->assertSame(['VIDEOS LARGOS', 1, 2], [$ss->getSheetByName('Resumen')->getCell('B5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('C5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('D5')->getValue()]);
         // El Excel de toda la campaña lleva las 6 publicaciones
         $todo = \PhpOffice\PhpSpreadsheet\IOFactory::load($this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'excel']))->baseResponse->getFile()->getPathname());
         $this->assertSame('6 publicaciones', $todo->getSheetByName('Publicaciones')->getCell('J11')->getValue());
 
         $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'pdf', 'medio' => 'p999999']))->assertNotFound();
+    }
+
+    public function test_actualizar_metricas_de_la_campana_incluye_videos(): void
+    {
+        $vl = $this->pieza();
+        $video = $this->publicacion($vl, $this->canal4, ['fb_post_id' => '9001', 'alcance' => null, 'visualizaciones' => null, 'interacciones' => null]);
+        $foto = $this->publicacion($vl, $this->clic, ['type' => 'photo', 'fb_post_id' => '401_77', 'alcance' => 5, 'visualizaciones' => 5, 'interacciones' => 1]);
+        \Illuminate\Support\Facades\Http::fake([
+            'graph.facebook.com/v23.0/9001/insights*' => \Illuminate\Support\Facades\Http::response(['error' => ['message' => 'no es un post']], 400),
+            'graph.facebook.com/v23.0/9001/video_insights*' => \Illuminate\Support\Facades\Http::response(['data' => [
+                ['name' => 'total_video_views', 'values' => [['value' => 2500]]], ['name' => 'total_video_impressions_unique', 'values' => [['value' => 1800]]]]], 200),
+            'graph.facebook.com/v23.0/9001?*' => \Illuminate\Support\Facades\Http::response(['reactions' => ['summary' => ['total_count' => 40]], 'comments' => ['summary' => ['total_count' => 7]], 'shares' => ['count' => 3]], 200),
+            'graph.facebook.com/v23.0/401_77/insights*' => \Illuminate\Support\Facades\Http::response(['data' => [
+                ['name' => 'post_media_view', 'values' => [['value' => 900]]], ['name' => 'post_total_media_view_unique', 'values' => [['value' => 700]]]]], 200),
+            'graph.facebook.com/v23.0/401_77?*' => \Illuminate\Support\Facades\Http::response(['reactions' => ['summary' => ['total_count' => 12]], 'comments' => ['summary' => ['total_count' => 2]], 'shares' => ['count' => 1]], 200),
+            '*' => \Illuminate\Support\Facades\Http::response([], 200),
+        ]);
+        $this->actingAs($this->admin)->post(route('campaigns.informes.metricas', $this->c))->assertRedirect(route('campaigns.informes', $this->c))
+            ->assertSessionHas('success', 'Métricas actualizadas: 2 de 2 publicaciones.');
+        $this->assertSame([1800, 2500, 50], [$video->fresh()->alcance, $video->fresh()->visualizaciones, $video->fresh()->interacciones]);
+        $this->assertSame([700, 900, 15], [$foto->fresh()->alcance, $foto->fresh()->visualizaciones, $foto->fresh()->interacciones]);
+        $this->assertNotNull($video->fresh()->last_insights_at);
+        // La tarea programada no las vuelve a pedir antes de 6 horas
+        $this->artisan('campanas:metricas')->expectsOutputToContain('Revisadas: 0')->assertSuccessful();
     }
 
     public function test_el_informe_lleva_la_firma_del_representante_legal_del_contratante(): void

@@ -15,9 +15,16 @@
     @php
         $estados = ['inscrito' => ['Inscrito', 'bg-emerald-50 text-emerald-800'], 'inscribiendose' => ['Inscribiéndose', 'bg-amber-50 text-amber-800'],
             'sin_inscribir' => ['Sin inscribir', 'bg-gray-100 text-gray-600'], 'pagina' => ['Página de la campaña', 'bg-indigo-50 text-indigo-800'],
-            'registrado' => ['Registrado a mano', 'bg-sky-50 text-sky-800']];
+            'registrado' => ['Registrado a mano', 'bg-sky-50 text-sky-800'], 'medio' => ['Medio de la campaña', 'bg-indigo-50 text-indigo-800'],
+            'fuera' => ['Fuera de los medios de la campaña', 'bg-rose-50 text-rose-700']];
         $btn = 'h-8 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50';
     @endphp
+    {{-- Métricas al día antes de descargar (se actualizan solas cada 3 horas) --}}
+    <form method="POST" action="{{ route('campaigns.informes.metricas', $c) }}" class="flex flex-wrap items-center justify-end gap-2 mb-2" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = @js(__('Actualizando métricas… (puede tardar un minuto)'));">
+        @csrf
+        <span class="text-[11px] text-gray-500">{{ __('Alcance, visualizaciones e interacciones se actualizan solos cada 3 horas.') }}</span>
+        <button class="h-9 rounded-lg border border-indigo-200 bg-white px-3 text-xs font-semibold text-indigo-800 hover:bg-indigo-50">{{ __('Actualizar métricas ahora') }}</button>
+    </form>
     <form method="GET" action="{{ route('campaigns.informes.generar', [$c, 'vista']) }}" id="informe-medios" class="rounded-2xl border border-gray-200 bg-white shadow-sm p-5 mb-6 space-y-4">
         <input type="hidden" name="agrupar" value="programa"><input type="hidden" name="resumen" value="1">
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -33,7 +40,7 @@
             <div><label class="{{ $lbl }}">{{ __('Corte de métricas') }}</label><input type="date" name="corte" value="{{ now()->toDateString() }}" class="{{ $inp }}"></div>
         </div>
         @if ($medios->isEmpty())
-            <p class="rounded-xl bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">{{ __('Todavía no hay medios en la campaña: aparecen cuando se inscriben, cuando se agregan en «Medios y contratos» o cuando se publica en sus páginas.') }}</p>
+            <p class="rounded-xl bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">{{ __('Todavía no hay medios en la campaña: elígelos en «Editar campaña» → «¿En qué medios se publica?».') }}</p>
         @else
             <div class="overflow-x-auto rounded-xl border border-gray-100">
                 <table class="w-full text-sm">
@@ -69,7 +76,7 @@
             </div>
             <p id="sin-resultados" class="hidden text-center text-sm text-gray-500">{{ __('Ningún medio coincide con la búsqueda.') }}</p>
         @endif
-        <p class="text-[11px] text-gray-400">{{ __('Cada informe lleva solo las publicaciones de ese medio: las de sus páginas en editus y lo que reportó desde su portal (TikTok, banners). Las fechas filtran por fecha de publicación.') }}</p>
+        <p class="text-[11px] text-gray-400">{{ __('Salen los medios elegidos en «Editar campaña» y las páginas adicionales. Cada informe lleva solo las publicaciones de ese medio: las de sus páginas en editus y lo que reportó desde su portal (TikTok, banners). Las fechas filtran por fecha de publicación.') }}</p>
     </form>
     <script>
     (function () {

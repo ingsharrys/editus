@@ -85,6 +85,18 @@ class InformePlanController extends Controller
         return response()->download($tmp, $this->inf->nombreArchivo($d, 'docx'))->deleteFileAfterSend(true);
     }
 
+    /** «Actualizar métricas»: pide ya a Meta el alcance, las visualizaciones y las interacciones de lo publicado en la campaña. */
+    public function metricas(Campaign $campaign, \App\Services\MetricasCampanaService $svc)
+    {
+        $this->exigir($campaign);
+        @set_time_limit(300);
+        $r = $svc->actualizar($campaign, 400, true);
+        $msg = __('Métricas actualizadas: :n de :t publicaciones.', ['n' => $r['actualizadas'], 't' => $r['revisadas']]);
+        if ($r['revisadas'] === 0) $msg = __('No hay publicaciones de Facebook o Instagram de la campaña para actualizar.');
+        $volver = redirect()->route('campaigns.informes', $campaign);
+        return $r['errores'] ? $volver->with('success', $msg)->with('error', __(':n no se pudieron leer. Primer error: :e', ['n' => $r['errores'], 'e' => $r['error'] ?: '—'])) : $volver->with('success', $msg);
+    }
+
     public function excel(Campaign $campaign)
     {
         $this->exigir($campaign);
