@@ -228,6 +228,13 @@ class ContratosMediosTest extends TestCase
         // Cuenta en el avance de la subcampaña
         $this->assertSame(1, app(\App\Services\ProductosService::class)->matrizSubcampanas($this->c)[$sub->id][$tk->id]['piezas']);
         $this->actingAs($u)->get(route('certificados.ver', $p))->assertSee('alcance 15.300')->assertSee('Banner · Canal 6 Alfasurt Pitalito');
+        // En «Informes» el medio inscrito sale con lo que reportó, y su informe solo lleva lo suyo
+        $medios = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
+        $this->assertSame([2, 'inscrito', $p->id], [$medios['Canal 6 Alfasurt']['publicaciones'], $medios['Canal 6 Alfasurt']['estado'], $medios['Canal 6 Alfasurt']['participante_id']]);
+        $this->assertSame([0, 'sin_inscribir'], [$medios['La Voz de Pitalito']['publicaciones'], $medios['La Voz de Pitalito']['estado']]);
+        $d = app(\App\Services\InformeMetricasService::class)->datos($this->c, ['medio' => $medios['Canal 6 Alfasurt']['clave']]);
+        $this->assertSame(['Canal 6 Alfasurt Pitalito · TikTok', 'Canal 6 Alfasurt Pitalito'], collect($d['capitulos'])->flatMap(fn($c) => $c['secciones'])->flatMap(fn($s) => $s['piezas'])->flatMap(fn($pz) => $pz['pubs']->pluck('medio'))->all());
+        $this->assertSame([], app(\App\Services\InformeMetricasService::class)->datos($this->c, ['medio' => $medios['La Voz de Pitalito']['clave']])['capitulos']);
 
         // La Voz de Pitalito solo tiene emisora y Facebook: en su portal no le aparecen TikTok ni banners, y no puede reportarlos
         $voz = $this->inscribir('Pedro Pitalito');

@@ -3,13 +3,20 @@
 namespace App\Services;
 
 use App\Models\Campaign;
+use App\Models\CampaignParticipante;
+use App\Models\MedioCampana;
+use App\Models\MetaPage;
+use App\Models\MetaPost;
+use App\Models\ProductoPublicacion;
 use App\Models\Producto;
 use App\Models\Programa;
 use App\Models\Subcampana;
 use App\Models\TipoPublicacion;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Laravel\Facades\Image;
@@ -43,6 +50,9 @@ class InformeMetricasService
         $tipoIds = array_map('intval', array_filter((array) ($f['tipo_ids'] ?? [])));
         $subIds = array_map('intval', array_filter((array) ($f['subcampana_ids'] ?? [])));
         $porSub = ($f['agrupar'] ?? 'programa') === 'subcampana';
+        // Informe de un medio: solo sus publicaciones (sus páginas y lo que reportó desde su portal)
+        $medio = !empty($f['medio']) ? $this->medios($c)->firstWhere('clave', (string) $f['medio']) : null;
+        if (!empty($f['medio']) && !$medio) abort(404, __('Ese medio no está en la campaña.'));
 
         $tipos = TipoPublicacion::where('campaign_id', $c->id)->orderBy('orden')->orderBy('id')->get()
             ->when($tipoIds, fn($x) => $x->whereIn('id', $tipoIds))->values();
@@ -74,8 +84,9 @@ class InformeMetricasService
                 $piezas = [];
                 foreach ($productos->where('tipo_id', $t->id)->where($campo, $g['clave']) as $p) {
                     $pubs = $this->productos->publicaciones($p);
+                    if ($medio) $pubs = $this->delMedio($pubs, $p, $medio);
                     if ($pubs->isEmpty()) continue;
-                    $fecha = $this->productos->fechaPublicacion($p, $pubs);
+                    $fecha = $medio && !$p->fecha_publicacion ? $pubs->pluck('fecha')->filter()->map(fn($x) => Carbon::parse($x))->min() : $this->productos->fechaPublicacion($p, $pubs);
                     if ($desde && (!$fecha || $fecha->lt($desde))) continue;
                     if ($hasta && (!$fecha || $fecha->gt($hasta))) continue;
                     $piezas[] = ['producto' => $p, 'pubs' => $pubs, 'fecha' => $fecha];
@@ -99,7 +110,8 @@ class InformeMetricasService
         }
         return [
             'campana' => $c,
-            'titulo' => trim((string) ($f['titulo'] ?? '')),
+            'medio' => $medio,
+            'titulo' => trim((string) ($f['titulo'] ?? '')) ?: ($medio ? 'INFORME DE PUBLICACIONES – ' . mb_strtoupper($medio['nombre']) : ''),
             'corte' => $corte,
             'capitulos' => $capitulos,
             'con_resumen' => (bool) ($f['resumen'] ?? true),
@@ -107,6 +119,94 @@ class InformeMetricasService
             'total' => $this->sumar(array_merge([], ...array_column($capitulos, 'resumen'))),
             'firma' => $this->firma($c),
         ];
+    }
+
+    /**
+     * Medios de la campaña para el informe por medio, con cuántas publicaciones tiene cada uno:
+     * los inscritos (sus páginas y lo que reportan desde su portal), los del listado de contratos que aún no se
+     * inscriben y cualquier otra página o medio con publicaciones en la campaña.
+     * @return Collection<int, array{clave: string, nombre: string, paginas: int[], nombres_pagina: string[], participante_id: ?int, alias: string[], publicaciones: int, estado: string}>
+     */
+    public function medios(Campaign $c): Collection
+    {
+        $norm = fn($t) => mb_strtolower(trim(Str::ascii((string) $t)));
+        $porPagina = MetaPost::where('campaign_id', $c->id)->where('status', 'success')->whereNotNull('meta_page_id')
+            ->selectRaw('meta_page_id, count(*) as n')->groupBy('meta_page_id')->pluck('n', 'meta_page_id')->map(fn($n) => (int) $n);
+        $manuales = ProductoPublicacion::query()->join('campaign_productos as pr', 'pr.id', '=', 'campaign_producto_publicaciones.producto_id')
+            ->where('pr.campaign_id', $c->id)->whereNull('campaign_producto_publicaciones.meta_post_id')
+            ->get(['campaign_producto_publicaciones.meta_page_id', 'campaign_producto_publicaciones.medio',
+                Schema::hasColumn('campaign_productos', 'participante_id') ? 'pr.participante_id' : DB::raw('null as participante_id')]);
+        $contratos = ContratosService::disponible() ? MedioCampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('nombre')->get() : collect();
+        $porParticipante = $contratos->whereNotNull('participante_id')->keyBy('participante_id');
+        $certs = app(CertificadosService::class);
+        $usadas = [];
+        $alias = [];
+        $out = collect();
+
+        $participantes = Schema::hasTable((new CampaignParticipante())->getTable()) ? CampaignParticipante::with('user:id,name')->where('campaign_id', $c->id)->get() : collect();
+        foreach ($participantes as $p) {
+            $m = $porParticipante->get($p->id);
+            $nombre = trim((string) ($m?->nombre ?: $p->medio_nombre ?: $p->user?->name)) ?: __('Medio');
+            $paginas = $certs->paginas($p);
+            $ids = $paginas->pluck('id')->map(fn($v) => (int) $v)->all();
+            $nombres = array_values(array_unique(array_filter([$norm($nombre), $norm($p->medio_nombre)])));
+            $n = array_sum(array_map(fn($id) => $porPagina[$id] ?? 0, $ids))
+                + $manuales->filter(fn($x) => (int) $x->participante_id === (int) $p->id || in_array((int) $x->meta_page_id, $ids, true)
+                    || $this->esDeNombre($norm($x->medio), $nombres))->count();
+            $out->push(['clave' => 'p' . $p->id, 'nombre' => $nombre, 'paginas' => $ids, 'nombres_pagina' => $paginas->pluck('name')->all(),
+                'participante_id' => $p->id, 'alias' => $nombres, 'publicaciones' => $n,
+                // Inscrito: firmó el contrato (campañas con contratos) o el certificado
+                'estado' => $p->firmado_at || ($contratos->isNotEmpty() && app(ContratosService::class)->contratoDe($p)) ? 'inscrito' : 'inscribiendose']);
+            $usadas = array_merge($usadas, $ids);
+            $alias = array_merge($alias, $nombres);
+        }
+        // Del listado de contratos, aún sin inscribirse: sus publicaciones registradas a mano (por nombre)
+        foreach ($contratos->whereNull('participante_id') as $m) {
+            $nombres = [$norm($m->nombre)];
+            $n = $manuales->filter(fn($x) => !$x->participante_id && $this->esDeNombre($norm($x->medio), $nombres))->count();
+            $out->push(['clave' => 'm' . $m->id, 'nombre' => (string) $m->nombre, 'paginas' => [], 'nombres_pagina' => [], 'participante_id' => null,
+                'alias' => $nombres, 'publicaciones' => $n, 'estado' => 'sin_inscribir']);
+            $alias = array_merge($alias, $nombres);
+        }
+        // Otras páginas con publicaciones de la campaña (p. ej. las del administrador)
+        $otras = array_diff($porPagina->keys()->map(fn($v) => (int) $v)->all(), $usadas);
+        foreach (MetaPage::whereIn('id', $otras)->orderBy('name')->get() as $pg) {
+            $nombres = [$norm($pg->name)];
+            $n = ($porPagina[$pg->id] ?? 0) + $manuales->filter(fn($x) => !$x->participante_id && ((int) $x->meta_page_id === (int) $pg->id || $this->esDeNombre($norm($x->medio), $nombres)))->count();
+            $out->push(['clave' => 'pg' . $pg->id, 'nombre' => (string) $pg->name, 'paginas' => [(int) $pg->id], 'nombres_pagina' => [(string) $pg->name],
+                'participante_id' => null, 'alias' => $nombres, 'publicaciones' => $n, 'estado' => 'pagina']);
+            $alias = array_merge($alias, $nombres);
+        }
+        // Publicaciones registradas a mano con un medio que no está en ninguna de las listas
+        $sueltos = $manuales->filter(fn($x) => !$x->participante_id && !in_array((int) $x->meta_page_id, array_merge($usadas, $otras), true)
+            && trim((string) $x->medio) !== '' && !$this->esDeNombre($norm($x->medio), $alias))
+            ->groupBy(fn($x) => $norm(preg_replace('/\s+·\s+.*$/u', '', (string) $x->medio)));
+        foreach ($sueltos as $clave => $g) {
+            $out->push(['clave' => 'n' . substr(md5($clave), 0, 10), 'nombre' => trim(preg_replace('/\s+·\s+.*$/u', '', (string) $g->first()->medio)), 'paginas' => [], 'nombres_pagina' => [],
+                'participante_id' => null, 'alias' => [$clave], 'publicaciones' => $g->count(), 'estado' => 'registrado']);
+        }
+        return $out->sortBy(fn($m) => [$m['publicaciones'] > 0 ? 0 : 1, $norm($m['nombre'])])->values();
+    }
+
+    /** «Canal 6» es del medio «canal 6» y también «Canal 6 · TikTok». */
+    private function esDeNombre(string $medio, array $nombres): bool
+    {
+        if ($medio === '') return false;
+        foreach ($nombres as $n) if ($n !== '' && ($medio === $n || str_starts_with($medio, $n . ' · '))) return true;
+        return false;
+    }
+
+    /** Solo las publicaciones de la pieza que son del medio. */
+    private function delMedio(Collection $pubs, Producto $p, array $m): Collection
+    {
+        $norm = fn($t) => mb_strtolower(trim(Str::ascii((string) $t)));
+        return $pubs->filter(function ($x) use ($p, $m, $norm) {
+            if ($x['post']) return in_array((int) $x['post']->meta_page_id, $m['paginas'], true);
+            $e = $x['extra'];
+            if ($m['participante_id'] && (int) ($p->participante_id ?? 0) === (int) $m['participante_id']) return true;
+            if ($e?->meta_page_id && in_array((int) $e->meta_page_id, $m['paginas'], true)) return true;
+            return !($p->participante_id ?? null) && $this->esDeNombre($norm($x['medio']), $m['alias']);
+        })->values();
     }
 
     /**
@@ -385,7 +485,81 @@ class InformeMetricasService
         $cap = count($d['capitulos']) === 1 ? $d['capitulos'][0] : null;
         $prog = $cap && $cap['subcampana'] ? '-' . Str::slug($cap['subcampana']->nombre)
             : ($cap && $cap['programa'] ? '-programa-' . Str::slug($cap['programa']->codigo ?: $cap['programa']->nombre) : '');
+        if (!empty($d['medio'])) return 'informe-publicaciones-' . Str::slug($d['medio']['nombre']) . '-' . Str::slug($d['campana']->name) . '-' . $d['corte']->format('Ymd') . '.' . $ext;
         return 'informe-metricas-' . Str::slug($d['campana']->name) . $prog . '-' . $d['corte']->format('Ymd') . '.' . $ext;
+    }
+
+    // ───────────────────────── Excel: publicaciones del informe (por medio o de toda la campaña) ─────────────────────────
+
+    /** Excel con las mismas publicaciones del informe ($d = datos()): una hoja con cada publicación y otra con el resumen. */
+    public function excelPublicaciones(array $d): string
+    {
+        $c = $d['campana'];
+        $ss = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+        $titulo = $d['titulo'] ?: 'INFORME DE PUBLICACIONES – ' . mb_strtoupper($c->name);
+        $ss->getProperties()->setTitle($titulo)->setCreator('editus');
+        $ws = $ss->getActiveSheet();
+        $ws->setTitle('Publicaciones');
+        $ws->setCellValue('A1', $titulo);
+        $ws->setCellValue('A2', $c->name . ($d['medio'] ? ' · ' . $d['medio']['nombre'] : '') . ' · métricas con corte al ' . $d['corte']->format('d/m/Y') . ' · generado por editus el ' . now()->format('d/m/Y H:i'));
+        $ws->getStyle('A1')->getFont()->setBold(true)->setSize(14)->getColor()->setRGB('1F3864');
+        $ws->getStyle('A2')->getFont()->setItalic(true)->setSize(9);
+        $cab = ['#', 'Capítulo', 'Tipo de publicación', 'Pieza', 'Página / medio', 'Fecha', 'Alcance', 'Visualizaciones', 'Interacciones', 'URL', 'Origen'];
+        $ws->fromArray($cab, null, 'A4', true);
+        $this->estiloEncabezado($ws, 'A4:K4');
+        $fila = 5;
+        $n = 0;
+        foreach ($d['capitulos'] as $cap) {
+            foreach ($cap['secciones'] as $sec) {
+                foreach ($sec['piezas'] as $pz) {
+                    foreach ($pz['pubs'] as $pub) {
+                        $ws->fromArray([
+                            ++$n, $cap['titulo'], $sec['titulo'], $pz['producto']->codigo() . ' · ' . $pz['producto']->nombre, $pub['medio'],
+                            $this->excelFecha($pub['fecha'] ? Carbon::parse($pub['fecha']) : null), $pub['alcance'], $pub['visualizaciones'], $pub['interacciones'],
+                            $pub['url'], $pub['origen'] === 'editus' ? 'editus' : 'registrada',
+                        ], null, 'A' . $fila, true);
+                        if ($pub['url']) $ws->getCell('J' . $fila)->getHyperlink()->setUrl($pub['url']);
+                        $fila++;
+                    }
+                }
+            }
+        }
+        $ultima = max(5, $fila - 1);
+        $ws->fromArray(['', 'TOTAL', '', '', '', '', $d['total']['alcance'], $d['total']['visualizaciones'], $d['total']['interacciones'], $n . ' publicaciones'], null, 'A' . $fila, true);
+        $ws->getStyle("A{$fila}:K{$fila}")->getFont()->setBold(true);
+        $ws->getStyle("A{$fila}:K{$fila}")->getFill()->setFillType('solid')->getStartColor()->setRGB('DDEBF7');
+        $ws->getStyle("F5:F{$ultima}")->getNumberFormat()->setFormatCode('dd/mm/yyyy');
+        $ws->getStyle("G5:I{$fila}")->getNumberFormat()->setFormatCode('#,##0');
+        $ws->getStyle("A4:K{$fila}")->getBorders()->getAllBorders()->setBorderStyle('thin')->getColor()->setRGB('BFBFBF');
+        $ws->getStyle("A5:K{$fila}")->getAlignment()->setVertical('center')->setWrapText(true);
+        foreach (['A' => 5, 'B' => 30, 'C' => 22, 'D' => 42, 'E' => 26, 'F' => 12, 'G' => 11, 'H' => 14, 'I' => 13, 'J' => 50, 'K' => 10] as $col => $w) $ws->getColumnDimension($col)->setWidth($w);
+        $ws->freezePane('A5');
+        if ($fila > 5) $ws->setAutoFilter('A4:K' . ($fila - 1));
+
+        // Resumen por capítulo y tipo de publicación
+        $rs = $ss->createSheet();
+        $rs->setTitle('Resumen');
+        $rs->setCellValue('A1', 'RESUMEN DE MÉTRICAS');
+        $rs->setCellValue('A2', $titulo);
+        $rs->getStyle('A1')->getFont()->setBold(true)->setSize(14)->getColor()->setRGB('1F3864');
+        $rs->fromArray(['Capítulo', 'Tipo de publicación', 'Piezas', 'Publicaciones', 'Alcance', 'Visualizaciones', 'Interacciones'], null, 'A4', true);
+        $this->estiloEncabezado($rs, 'A4:G4');
+        $f = 5;
+        foreach ($d['capitulos'] as $cap) foreach ($cap['resumen'] as $r) {
+            $rs->fromArray([$cap['titulo'], $r['titulo'], $r['piezas'], $r['publicaciones'], $r['alcance'], $r['visualizaciones'], $r['interacciones']], null, 'A' . $f++, true);
+        }
+        $rs->fromArray(['TOTAL', '', $d['total']['piezas'], $d['total']['publicaciones'], $d['total']['alcance'], $d['total']['visualizaciones'], $d['total']['interacciones']], null, 'A' . $f, true);
+        $rs->getStyle("A{$f}:G{$f}")->getFont()->setBold(true);
+        $rs->getStyle("A{$f}:G{$f}")->getFill()->setFillType('solid')->getStartColor()->setRGB('DDEBF7');
+        $rs->getStyle("C5:G{$f}")->getNumberFormat()->setFormatCode('#,##0');
+        $rs->getStyle("A4:G{$f}")->getBorders()->getAllBorders()->setBorderStyle('thin')->getColor()->setRGB('BFBFBF');
+        foreach (['A' => 40, 'B' => 30, 'C' => 9, 'D' => 14, 'E' => 12, 'F' => 15, 'G' => 13] as $col => $w) $rs->getColumnDimension($col)->setWidth($w);
+
+        $ss->setActiveSheetIndex(0);
+        $tmp = tempnam(sys_get_temp_dir(), 'pub') . '.xlsx';
+        (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($ss))->save($tmp);
+        $ss->disconnectWorksheets();
+        return $tmp;
     }
 
     // ───────────────────────── Excel: control de productos ─────────────────────────

@@ -357,6 +357,60 @@ class ProductosInformeTest extends TestCase
         $this->assertSame(6, $ss->getSheetByName('Métricas')->getHighestDataRow() - 1, '2 + 3 + 1 publicaciones');
     }
 
+    public function test_informe_de_publicaciones_por_medio_en_pdf_word_y_excel(): void
+    {
+        $this->armarInforme();
+        $inf = app(InformeMetricasService::class);
+        // Listado: las páginas de la campaña y los medios registrados a mano, cada uno con sus publicaciones
+        $medios = $inf->medios($this->c)->keyBy('nombre');
+        $this->assertEqualsCanonicalizing(['Canal 4', 'Clic Informativo', 'La Surco', 'Neiva 24', 'Neiva al Día', 'Opanoticias'], $medios->keys()->all());
+        $this->assertSame([1, 'pagina'], [$medios['Canal 4']['publicaciones'], $medios['Canal 4']['estado']]);
+        $this->assertSame([1, 'registrado'], [$medios['Neiva 24']['publicaciones'], $medios['Neiva 24']['estado']]);
+        $this->actingAs($this->admin)->get(route('campaigns.informes', $this->c))->assertOk()
+            ->assertSee('Informes por medio')->assertSee('Clic Informativo')->assertSee('value="' . $medios['Canal 4']['clave'] . '"', false)->assertSee('Informe general de la campaña');
+
+        // Canal 4: solo su publicación del video largo (sin los banners ni el en vivo de otros medios)
+        $d = $inf->datos($this->c, ['medio' => $medios['Canal 4']['clave'], 'corte' => '2026-01-06']);
+        $this->assertSame('INFORME DE PUBLICACIONES – CANAL 4', $d['titulo']);
+        $this->assertSame(['VIDEOS LARGOS'], array_column($d['capitulos'][0]['secciones'], 'titulo'));
+        $pz = $d['capitulos'][0]['secciones'][0]['piezas'][0];
+        $this->assertSame(['Canal 4'], $pz['pubs']->pluck('medio')->all());
+        $this->assertSame('Publicación de un (1) video largo en un (1) medio digital.', $pz['descripcion']);
+        $this->assertSame([1, 684], [$d['total']['publicaciones'], $d['total']['alcance']]);
+        // Neiva 24: solo su banner
+        $n24 = $inf->datos($this->c, ['medio' => $medios['Neiva 24']['clave']]);
+        $this->assertSame(['BANNER 1.600 X 185 PX'], array_column($n24['capitulos'][0]['secciones'], 'titulo'));
+        $this->assertSame(['Neiva 24'], $n24['capitulos'][0]['secciones'][0]['piezas'][0]['pubs']->pluck('medio')->all());
+
+        $q = ['medio' => $medios['Canal 4']['clave'], 'corte' => '2026-01-06'];
+        $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'vista'] + $q))->assertOk()
+            ->assertSee('INFORME DE PUBLICACIONES – CANAL 4')->assertSee('Video Largo No. 1:')->assertDontSee('Neiva al Día');
+        $pdf = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'pdf'] + $q))->assertOk();
+        $this->assertStringStartsWith('%PDF', $pdf->getContent());
+        $this->assertStringContainsString('informe-publicaciones-canal-4-salud-2026-20260106.pdf', $pdf->headers->get('content-disposition'));
+        $w = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'word'] + $q))->assertOk();
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($w->baseResponse->getFile()->getPathname()) === true);
+        $xml = (string) $zip->getFromName('word/document.xml');
+        $zip->close();
+        $this->assertStringContainsString('INFORME DE PUBLICACIONES – CANAL 4', $xml);
+        $this->assertStringNotContainsString('Neiva al Día', $xml);
+
+        // Excel: una fila por publicación del medio y el resumen
+        $x = $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'excel'] + $q))->assertOk();
+        $ss = \PhpOffice\PhpSpreadsheet\IOFactory::load($x->baseResponse->getFile()->getPathname());
+        $this->assertSame(['Publicaciones', 'Resumen'], $ss->getSheetNames());
+        $hoja = $ss->getSheetByName('Publicaciones');
+        $this->assertSame(['Canal 4', 684], [$hoja->getCell('E5')->getValue(), (int) $hoja->getCell('G5')->getValue()]);
+        $this->assertSame('TOTAL', $hoja->getCell('B6')->getValue());
+        $this->assertSame(['VIDEOS LARGOS', 1, 1], [$ss->getSheetByName('Resumen')->getCell('B5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('C5')->getValue(), (int) $ss->getSheetByName('Resumen')->getCell('D5')->getValue()]);
+        // El Excel de toda la campaña lleva las 6 publicaciones
+        $todo = \PhpOffice\PhpSpreadsheet\IOFactory::load($this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'excel']))->baseResponse->getFile()->getPathname());
+        $this->assertSame('6 publicaciones', $todo->getSheetByName('Publicaciones')->getCell('J11')->getValue());
+
+        $this->actingAs($this->admin)->get(route('campaigns.informes.generar', [$this->c, 'pdf', 'medio' => 'p999999']))->assertNotFound();
+    }
+
     public function test_el_informe_lleva_la_firma_del_representante_legal_del_contratante(): void
     {
         $this->armarInforme();

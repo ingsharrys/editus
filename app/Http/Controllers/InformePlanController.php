@@ -28,6 +28,7 @@ class InformePlanController extends Controller
             'c' => $campaign, 'programas' => $campaign->programas()->get(), 'subs' => $campaign->subcampanas()->get(),
             'tipos' => $campaign->tiposPublicacion()->get(), 'subElegida' => $request->integer('subcampana') ?: null,
             'membrete' => $this->inf->membrete($campaign),
+            'medios' => $this->inf->medios($campaign),
         ]);
     }
 
@@ -61,12 +62,13 @@ class InformePlanController extends Controller
     public function generar(Request $request, Campaign $campaign, string $formato)
     {
         $this->exigir($campaign);
-        abort_unless(in_array($formato, ['word', 'pdf', 'vista'], true), 404);
+        abort_unless(in_array($formato, ['word', 'pdf', 'vista', 'excel'], true), 404);
         $f = $request->validate([
             'programa_id' => ['nullable', 'integer'], 'subcampana_ids' => ['nullable', 'array'], 'subcampana_ids.*' => ['integer'],
             'tipo_ids' => ['nullable', 'array'], 'tipo_ids.*' => ['integer'], 'agrupar' => ['nullable', 'in:programa,subcampana'],
             'desde' => ['nullable', 'date'], 'hasta' => ['nullable', 'date'], 'corte' => ['nullable', 'date'],
             'titulo' => ['nullable', 'string', 'max:255'], 'resumen' => ['nullable', 'boolean'],
+            'medio' => ['nullable', 'string', 'max:40'], // informe de un solo medio (clave de InformeMetricasService::medios)
         ]);
         $f['resumen'] = $request->has('resumen') ? $request->boolean('resumen') : true;
         @set_time_limit(300);
@@ -74,6 +76,10 @@ class InformePlanController extends Controller
         $d = $this->inf->datos($campaign, $f);
         if ($formato === 'vista') return view('campaigns.plan.informe-vista', $d + ['c' => $campaign, 'inf' => $this->inf, 'filtros' => $f]);
         if ($formato === 'pdf') return $this->inf->pdf($d)->download($this->inf->nombreArchivo($d, 'pdf'));
+        if ($formato === 'excel') {
+            if (!class_exists(\PhpOffice\PhpSpreadsheet\Spreadsheet::class)) abort(503, __('Falta instalar las librerías (composer install).'));
+            return response()->download($this->inf->excelPublicaciones($d), $this->inf->nombreArchivo($d, 'xlsx'))->deleteFileAfterSend(true);
+        }
         if (!class_exists(\PhpOffice\PhpWord\PhpWord::class)) abort(503, __('Falta instalar las librerías (composer install).'));
         $tmp = $this->inf->word($d);
         return response()->download($tmp, $this->inf->nombreArchivo($d, 'docx'))->deleteFileAfterSend(true);
