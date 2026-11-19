@@ -138,38 +138,59 @@ class InformeMetricasService
                 Schema::hasColumn('campaign_productos', 'participante_id') ? 'pr.participante_id' : DB::raw('null as participante_id')]);
         $contratos = ContratosService::disponible() ? MedioCampana::where('campaign_id', $c->id)->orderBy('orden')->orderBy('nombre')->get() : collect();
         $porParticipante = $contratos->whereNotNull('participante_id')->keyBy('participante_id');
-        $certs = app(CertificadosService::class);
-        $usadas = [];
-        $alias = [];
-        $out = collect();
-
         $participantes = Schema::hasTable((new CampaignParticipante())->getTable()) ? CampaignParticipante::with('user:id,name')->where('campaign_id', $c->id)->get() : collect();
+
+        // 1. Los medios: inscritos y, del listado de contratos, los que aún no se inscriben
+        $medios = [];
         foreach ($participantes as $p) {
             $m = $porParticipante->get($p->id);
             $nombre = trim((string) ($m?->nombre ?: $p->medio_nombre ?: $p->user?->name)) ?: __('Medio');
-            $paginas = $certs->paginas($p);
-            $ids = $paginas->pluck('id')->map(fn($v) => (int) $v)->all();
-            $nombres = array_values(array_unique(array_filter([$norm($nombre), $norm($p->medio_nombre)])));
-            $n = array_sum(array_map(fn($id) => $porPagina[$id] ?? 0, $ids))
-                + $manuales->filter(fn($x) => (int) $x->participante_id === (int) $p->id || in_array((int) $x->meta_page_id, $ids, true)
-                    || $this->esDeNombre($norm($x->medio), $nombres))->count();
-            $out->push(['clave' => 'p' . $p->id, 'nombre' => $nombre, 'paginas' => $ids, 'nombres_pagina' => $paginas->pluck('name')->all(),
-                'participante_id' => $p->id, 'alias' => $nombres, 'publicaciones' => $n,
-                // Inscrito: firmó el contrato (campañas con contratos) o el certificado
-                'estado' => $p->firmado_at || ($contratos->isNotEmpty() && app(ContratosService::class)->contratoDe($p)) ? 'inscrito' : 'inscribiendose']);
-            $usadas = array_merge($usadas, $ids);
-            $alias = array_merge($alias, $nombres);
+            $conectadas = DB::table('meta_page_user')->where('user_id', $p->user_id)->pluck('meta_page_id')->map(fn($v) => (int) $v)->all();
+            $medios[] = ['clave' => 'p' . $p->id, 'nombre' => $nombre, 'participante_id' => $p->id,
+                'alias' => array_values(array_unique(array_filter([$norm($nombre), $norm($p->medio_nombre)]))),
+                'elegidas' => array_values(array_intersect(array_map('intval', (array) $p->meta_page_ids), $conectadas)), 'conectadas' => $conectadas,
+                'estado' => $p->firmado_at || ($contratos->isNotEmpty() && app(ContratosService::class)->contratoDe($p)) ? 'inscrito' : 'inscribiendose'];
         }
-        // Del listado de contratos, aún sin inscribirse: sus publicaciones registradas a mano (por nombre)
         foreach ($contratos->whereNull('participante_id') as $m) {
-            $nombres = [$norm($m->nombre)];
-            $n = $manuales->filter(fn($x) => !$x->participante_id && $this->esDeNombre($norm($x->medio), $nombres))->count();
-            $out->push(['clave' => 'm' . $m->id, 'nombre' => (string) $m->nombre, 'paginas' => [], 'nombres_pagina' => [], 'participante_id' => null,
-                'alias' => $nombres, 'publicaciones' => $n, 'estado' => 'sin_inscribir']);
-            $alias = array_merge($alias, $nombres);
+            $medios[] = ['clave' => 'm' . $m->id, 'nombre' => (string) $m->nombre, 'participante_id' => null, 'alias' => [$norm($m->nombre)],
+                'elegidas' => [], 'conectadas' => [], 'estado' => 'sin_inscribir'];
         }
-        // Otras páginas con publicaciones de la campaña (p. ej. las del administrador)
-        $otras = array_diff($porPagina->keys()->map(fn($v) => (int) $v)->all(), $usadas);
+
+        // 2. Cada página es de un solo medio: la que el medio eligió en su certificado; si no, la del medio con su mismo
+        //    nombre («Neiva 24» es de NEIVA 24 aunque la haya conectado otra cuenta); si no, la del medio que la conectó.
+        $candidatas = array_values(array_unique(array_merge($porPagina->keys()->map(fn($v) => (int) $v)->all(), ...array_map(fn($m) => $m['conectadas'], $medios ?: [['conectadas' => []]]))));
+        $paginas = MetaPage::whereIn('id', $candidatas)->orderBy('name')->get(['id', 'name'])->keyBy('id');
+        $dueno = [];
+        foreach ($paginas as $id => $pg) {
+            $elegida = collect($medios)->search(fn($m) => in_array($id, $m['elegidas'], true));
+            if ($elegida !== false) { $dueno[$id] = $elegida; continue; }
+            $mejor = null; $puntos = 0;
+            foreach ($medios as $k => $m) {
+                $x = max(array_map(fn($a) => $this->parecido($a, $norm($pg->name)), $m['alias'] ?: ['']));
+                if ($x > $puntos) { $mejor = $k; $puntos = $x; }
+            }
+            if ($mejor !== null) { $dueno[$id] = $mejor; continue; }
+            // Por quién la conectó, solo si ese medio no eligió páginas en su certificado
+            $conecto = collect($medios)->search(fn($m) => !$m['elegidas'] && in_array($id, $m['conectadas'], true));
+            if ($conecto !== false) $dueno[$id] = $conecto;
+        }
+
+        // 3. Cuántas publicaciones tiene cada medio
+        $out = collect();
+        $alias = [];
+        $usadas = array_keys($dueno);
+        foreach ($medios as $k => $m) {
+            $ids = array_keys(array_filter($dueno, fn($d) => $d === $k));
+            $n = array_sum(array_map(fn($id) => $porPagina[$id] ?? 0, $ids))
+                + $manuales->filter(fn($x) => ($m['participante_id'] && (int) $x->participante_id === (int) $m['participante_id']) || in_array((int) $x->meta_page_id, $ids, true)
+                    || (!$x->participante_id && $this->esDeNombre($norm($x->medio), $m['alias'])))->count();
+            $out->push(['clave' => $m['clave'], 'nombre' => $m['nombre'], 'paginas' => $ids,
+                'nombres_pagina' => array_values(array_map(fn($id) => (string) $paginas[$id]->name, $ids)),
+                'participante_id' => $m['participante_id'], 'alias' => $m['alias'], 'publicaciones' => $n, 'estado' => $m['estado']]);
+            $alias = array_merge($alias, $m['alias']);
+        }
+        // Otras páginas con publicaciones de la campaña (p. ej. las del administrador que no son de ningún medio)
+        $otras = array_values(array_diff($porPagina->keys()->map(fn($v) => (int) $v)->all(), $usadas));
         foreach (MetaPage::whereIn('id', $otras)->orderBy('name')->get() as $pg) {
             $nombres = [$norm($pg->name)];
             $n = ($porPagina[$pg->id] ?? 0) + $manuales->filter(fn($x) => !$x->participante_id && ((int) $x->meta_page_id === (int) $pg->id || $this->esDeNombre($norm($x->medio), $nombres)))->count();
@@ -186,6 +207,20 @@ class InformeMetricasService
                 'participante_id' => null, 'alias' => [$clave], 'publicaciones' => $g->count(), 'estado' => 'registrado']);
         }
         return $out->sortBy(fn($m) => [$m['publicaciones'] > 0 ? 0 : 1, $norm($m['nombre'])])->values();
+    }
+
+    /**
+     * Qué tanto se parece el nombre de un medio al de una página: 2 si es el mismo («NEIVA AL DIA» y «Neiva al día»),
+     * 1 si uno empieza con el otro palabra por palabra («LABOYANOS.COM» y «Laboyanos.com Noticias»), 0 si no.
+     */
+    private function parecido(string $a, string $b): int
+    {
+        $pal = fn($t) => array_values(array_filter(preg_split('/[^a-z0-9]+/', $t)));
+        [$x, $y] = [$pal($a), $pal($b)];
+        if (!$x || !$y) return 0;
+        if ($x === $y) return 2;
+        [$corto, $largo] = count($x) <= count($y) ? [$x, $y] : [$y, $x];
+        return strlen(implode('', $corto)) >= 5 && array_slice($largo, 0, count($corto)) === $corto ? 1 : 0;
     }
 
     /** «Canal 6» es del medio «canal 6» y también «Canal 6 · TikTok». */

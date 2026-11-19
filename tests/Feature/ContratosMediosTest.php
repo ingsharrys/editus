@@ -606,4 +606,34 @@ class ContratosMediosTest extends TestCase
         $this->actingAs($this->admin)->get(route('campaigns.contratos.tipos.vista', [$this->c, $m4->id]))->assertOk()
             ->assertSee('una única cuota')->assertDontSee('cincuenta por ciento');
     }
+
+    public function test_en_informes_cada_pagina_es_del_medio_con_su_mismo_nombre(): void
+    {
+        // Lucho tiene conectadas varias páginas (también las de otros medios); NEIVA AL DIA y OPANOTICIAS no conectaron ninguna
+        $lucho = $this->inscribir('Lucho');
+        $neiva = $this->inscribir('Karen');
+        $opa = $this->inscribir('Opa');
+        CampaignParticipante::where('user_id', $lucho->id)->update(['medio_nombre' => 'Lucho Noticias']);
+        CampaignParticipante::where('user_id', $neiva->id)->update(['medio_nombre' => 'NEIVA AL DIA']);
+        CampaignParticipante::where('user_id', $opa->id)->update(['medio_nombre' => 'OPANOTICIAS']);
+        $pg = [];
+        foreach (['Lucho Noticias', 'Neiva al día', 'Opanoticias', 'Rincón Deportivo', 'Boletín del Huila'] as $i => $n) {
+            $pg[$n] = MetaPage::create(['page_id' => (string) (700 + $i), 'name' => $n]);
+            if ($n !== 'Boletín del Huila') $pg[$n]->users()->attach($lucho->id, ['page_access_token' => 'tok', 'is_active' => true]);
+        }
+        // Un en vivo programado de la campaña salió en Neiva al día, Opanoticias y el Boletín (página del administrador)
+        foreach (['Neiva al día', 'Opanoticias', 'Boletín del Huila'] as $n) {
+            \App\Models\MetaPost::create(['meta_page_id' => $pg[$n]->id, 'user_id' => $this->admin->id, 'campaign_id' => $this->c->id, 'type' => 'video', 'network' => 'facebook', 'status' => 'success', 'published_at' => now()]);
+        }
+        $m = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
+        $this->assertSame([['Neiva al día'], 1], [$m['NEIVA AL DIA']['nombres_pagina'], $m['NEIVA AL DIA']['publicaciones']]);
+        $this->assertSame([['Opanoticias'], 1], [$m['OPANOTICIAS']['nombres_pagina'], $m['OPANOTICIAS']['publicaciones']]);
+        $this->assertSame([['Lucho Noticias', 'Rincón Deportivo'], 0], [$m['Lucho Noticias']['nombres_pagina'], $m['Lucho Noticias']['publicaciones']]);
+        $this->assertSame([1, 'pagina'], [$m['Boletín del Huila']['publicaciones'], $m['Boletín del Huila']['estado']]);
+        // Si el medio eligió sus páginas en el certificado, se respeta (y la de su mismo nombre sigue siendo suya)
+        CampaignParticipante::where('user_id', $lucho->id)->update(['meta_page_ids' => [$pg['Neiva al día']->id]]);
+        $m = app(\App\Services\InformeMetricasService::class)->medios($this->c)->keyBy('nombre');
+        $this->assertSame(['Lucho Noticias', 'Neiva al día'], $m['Lucho Noticias']['nombres_pagina']);
+        $this->assertSame([], $m['NEIVA AL DIA']['nombres_pagina']);
+    }
 }
