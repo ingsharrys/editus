@@ -413,13 +413,15 @@ class ProductosInformeTest extends TestCase
     public function test_actualizar_metricas_de_la_campana_incluye_videos(): void
     {
         $vl = $this->pieza();
-        $video = $this->publicacion($vl, $this->canal4, ['fb_post_id' => '9001', 'alcance' => null, 'visualizaciones' => null, 'interacciones' => null]);
+        // Un pregrabado guardado con el id del Live (5555): el del video (900100200) está en su enlace
+        $video = $this->publicacion($vl, $this->canal4, ['fb_post_id' => '5555', 'fb_permalink_url' => 'https://www.facebook.com/400/videos/900100200/', 'alcance' => 0, 'visualizaciones' => 0, 'interacciones' => 0]);
         $foto = $this->publicacion($vl, $this->clic, ['type' => 'photo', 'fb_post_id' => '401_77', 'alcance' => 5, 'visualizaciones' => 5, 'interacciones' => 1]);
         \Illuminate\Support\Facades\Http::fake([
-            'graph.facebook.com/v23.0/9001/insights*' => \Illuminate\Support\Facades\Http::response(['error' => ['message' => 'no es un post']], 400),
-            'graph.facebook.com/v23.0/9001/video_insights*' => \Illuminate\Support\Facades\Http::response(['data' => [
+            'graph.facebook.com/v23.0/900100200/insights*' => \Illuminate\Support\Facades\Http::response(['error' => ['message' => 'no es un post']], 400),
+            'graph.facebook.com/v23.0/5555*' => \Illuminate\Support\Facades\Http::response(['error' => ['message' => 'es un Live']], 400),
+            'graph.facebook.com/v23.0/900100200/video_insights*' => \Illuminate\Support\Facades\Http::response(['data' => [
                 ['name' => 'total_video_views', 'values' => [['value' => 2500]]], ['name' => 'total_video_impressions_unique', 'values' => [['value' => 1800]]]]], 200),
-            'graph.facebook.com/v23.0/9001?*' => \Illuminate\Support\Facades\Http::response(['reactions' => ['summary' => ['total_count' => 40]], 'comments' => ['summary' => ['total_count' => 7]], 'shares' => ['count' => 3]], 200),
+            'graph.facebook.com/v23.0/900100200?*' => \Illuminate\Support\Facades\Http::response(['reactions' => ['summary' => ['total_count' => 40]], 'comments' => ['summary' => ['total_count' => 7]], 'shares' => ['count' => 3]], 200),
             'graph.facebook.com/v23.0/401_77/insights*' => \Illuminate\Support\Facades\Http::response(['data' => [
                 ['name' => 'post_media_view', 'values' => [['value' => 900]]], ['name' => 'post_total_media_view_unique', 'values' => [['value' => 700]]]]], 200),
             'graph.facebook.com/v23.0/401_77?*' => \Illuminate\Support\Facades\Http::response(['reactions' => ['summary' => ['total_count' => 12]], 'comments' => ['summary' => ['total_count' => 2]], 'shares' => ['count' => 1]], 200),
@@ -430,6 +432,9 @@ class ProductosInformeTest extends TestCase
         $this->assertSame([1800, 2500, 50], [$video->fresh()->alcance, $video->fresh()->visualizaciones, $video->fresh()->interacciones]);
         $this->assertSame([700, 900, 15], [$foto->fresh()->alcance, $foto->fresh()->visualizaciones, $foto->fresh()->interacciones]);
         $this->assertNotNull($video->fresh()->last_insights_at);
+        // Al video no se le piden «shares» ni insights de post (Meta rechazaría la consulta)
+        \Illuminate\Support\Facades\Http::assertNotSent(fn($r) => str_contains($r->url(), '/900100200/insights') || (str_contains($r->url(), '/900100200?') && str_contains(urldecode($r->url()), 'shares')));
+        \Illuminate\Support\Facades\Http::assertNotSent(fn($r) => str_contains($r->url(), '/5555'));
         // La tarea programada no las vuelve a pedir antes de 6 horas
         $this->artisan('campanas:metricas')->expectsOutputToContain('Revisadas: 0')->assertSuccessful();
     }

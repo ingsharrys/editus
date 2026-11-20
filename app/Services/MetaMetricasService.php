@@ -87,9 +87,12 @@ class MetaMetricasService
         foreach ($fb as $i => $e) {
             // Alcance (personas únicas) e impresiones del post. Meta retiró post_impressions (nov. 2025) y
             // post_impressions_unique (jun. 2026): ahora son post_media_view y post_total_media_view_unique.
-            $p["fb{$i}:ins"] = ["{$e['post']}/insights", ['metric' => 'post_media_view,post_total_media_view_unique', 'period' => 'lifetime', 'access_token' => $e['token']]];
+            // Un video (en vivo, pregrabado) se mide por su id de video: no es un post, así que no tiene /insights de post
+            // ni el campo «shares» (pedirlo hace que Meta rechace toda la consulta); sus datos salen de /video_insights
+            $esVideo = self::esVideoSuelto($e);
+            if (!$esVideo) $p["fb{$i}:ins"] = ["{$e['post']}/insights", ['metric' => 'post_media_view,post_total_media_view_unique', 'period' => 'lifetime', 'access_token' => $e['token']]];
             // Reacciones, comentarios y compartidos
-            $p["fb{$i}:eng"] = [$e['post'], ['fields' => 'reactions.limit(0).summary(true),comments.limit(0).summary(true),shares', 'access_token' => $e['token']]];
+            $p["fb{$i}:eng"] = [$e['post'], ['fields' => 'reactions.limit(0).summary(true),comments.limit(0).summary(true)' . ($esVideo ? '' : ',shares'), 'access_token' => $e['token']]];
             // Id del video de un post («pagina_post») para pedir sus reproducciones
             if ($e['tipo'] === 'video' && $e['media'] === '' && str_contains($e['post'], '_')) {
                 $p["fb{$i}:obj"] = [$e['post'], ['fields' => 'object_id', 'access_token' => $e['token']]];
@@ -106,7 +109,7 @@ class MetaMetricasService
     {
         $p = [];
         foreach ($fb as $i => $e) {
-            if (!$res["fb{$i}:ins"]['ok']) {
+            if (isset($res["fb{$i}:ins"]) && !$res["fb{$i}:ins"]['ok']) {
                 $p["fb{$i}:ins"] = ["{$e['post']}/insights", ['metric' => 'post_impressions,post_impressions_unique', 'period' => 'lifetime', 'access_token' => $e['token']]];
             }
             // Reproducciones del video / reel. Sin "metric" Meta devuelve el conjunto vigente (blue_reels_play_count
@@ -135,6 +138,18 @@ class MetaMetricasService
         return $p;
     }
 
+    /** El id es el de un video (solo números), no el de un post «pagina_post». */
+    private static function esVideoSuelto(array $e): bool
+    {
+        return $e['tipo'] === 'video' && !str_contains($e['post'], '_');
+    }
+
+    /** Id del video que sale en el enlace de Facebook (…/videos/123…/), o ''. */
+    public static function videoDelEnlace(?string $url): string
+    {
+        return preg_match('#/videos/(?:[^/?]+/)?(\d{6,})#', (string) $url, $m) ? $m[1] : '';
+    }
+
     private function videoId(int $i, array $e, array $res): string
     {
         if ($e['media'] !== '') return $e['media'];
@@ -148,7 +163,7 @@ class MetaMetricasService
         $m = ['alcance' => null, 'impresiones' => null, 'reproducciones' => null, 'reacciones' => 0, 'comentarios' => 0, 'compartidos' => 0, 'guardados' => null];
         $errores = [];
 
-        $r = $res["fb{$i}:ins"];
+        $r = $res["fb{$i}:ins"] ?? ['ok' => false, 'json' => null, 'error' => null]; // los videos no tienen insights de post
         if ($r['ok']) {
             $v = $this->valoresInsights($r['json']);
             $m['impresiones'] = $v['post_media_view'] ?? $v['post_impressions'] ?? null;
@@ -175,6 +190,12 @@ class MetaMetricasService
                     if ($m['alcance'] === null && isset($v['post_impressions_unique'])) $m['alcance'] = $v['post_impressions_unique'];
                     if ($m['alcance'] === null && isset($v['total_video_impressions_unique'])) $m['alcance'] = $v['total_video_impressions_unique'];
                     if ($m['impresiones'] === null && isset($v['total_video_impressions'])) $m['impresiones'] = $v['total_video_impressions'];
+                    // Interacciones del video (si no se pudieron leer las reacciones y comentarios)
+                    if (!$eng['ok']) {
+                        $acciones = $v['total_video_stories_by_action_type'] ?? null;
+                        if ($acciones !== null) $m['reacciones'] = (int) $acciones;
+                        elseif (isset($v['total_video_reactions_by_type_total'])) $m['reacciones'] = (int) $v['total_video_reactions_by_type_total'];
+                    }
                 } else {
                     $errores[] = $vi['error'];
                 }
@@ -184,7 +205,7 @@ class MetaMetricasService
         }
 
         $m['interacciones'] = (int) $m['reacciones'] + (int) $m['comentarios'] + (int) $m['compartidos'];
-        if ($m['alcance'] === null && $m['impresiones'] === null && !$r['ok'] && !$eng['ok']) {
+        if ($m['alcance'] === null && $m['impresiones'] === null && $m['reproducciones'] === null && !$r['ok'] && !$eng['ok']) {
             throw new \RuntimeException(implode(' / ', array_filter($errores)) ?: 'Meta no devolvió datos');
         }
         if ($errores) $m['error'] = Str::limit(implode(' / ', array_filter($errores)), 200, '');

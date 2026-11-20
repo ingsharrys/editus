@@ -146,7 +146,7 @@ class EnVivoCampanaService
                 $post = MetaPost::firstOrNew(['batch_uuid' => self::lote($t), 'meta_page_id' => (int) $d['meta_page_id']]);
                 $post->fill(['user_id' => $post->user_id ?: $userId, 'campaign_id' => $c->id] + $campos + [
                     'type' => 'video', 'network' => 'facebook', 'message' => $mensaje,
-                    'fb_post_id' => ($d['fb_video_id'] ?? null) ?: ($d['fb_live_id'] ?? null),
+                    'fb_post_id' => ($d['fb_video_id'] ?? null) ?: (MetaMetricasService::videoDelEnlace($d['permalink'] ?? null) ?: ($d['fb_live_id'] ?? null)),
                     'fb_permalink_url' => ($d['permalink'] ?? null) ?: $post->fb_permalink_url,
                     'status' => 'success', 'published_at' => $post->published_at ?: $t->iniciada_en,
                 ]);
@@ -196,7 +196,7 @@ class EnVivoCampanaService
                 $post = MetaPost::firstOrNew(['batch_uuid' => self::loteEmision($e), 'meta_page_id' => $page->id]);
                 $post->fill(['user_id' => $post->user_id ?: $userId, 'campaign_id' => $c->id] + $campos + [
                     'type' => 'video', 'network' => 'facebook', 'message' => $mensaje,
-                    'fb_post_id' => ($d['video_id'] ?? null) ?: $d['live_id'],
+                    'fb_post_id' => ($d['video_id'] ?? null) ?: (MetaMetricasService::videoDelEnlace($d['permalink'] ?? null) ?: $d['live_id']),
                     'fb_permalink_url' => ($d['permalink'] ?? null) ?: $post->fb_permalink_url,
                     'status' => 'success', 'published_at' => $post->published_at ?: $e->inicio_real,
                 ]);

@@ -31,7 +31,7 @@ class MetricasCampanaService
      */
     public function actualizar(?Campaign $c = null, int $limite = 300, bool $forzar = false): array
     {
-        $out = ['revisadas' => 0, 'actualizadas' => 0, 'errores' => 0, 'error' => null];
+        $out = ['revisadas' => 0, 'actualizadas' => 0, 'errores' => 0, 'error' => null, 'detalle' => []];
         if (!Schema::hasColumn('meta_posts', 'campaign_id')) return $out;
         $conFecha = Schema::hasColumn('meta_posts', 'last_insights_at');
         $posts = MetaPost::query()
@@ -46,10 +46,14 @@ class MetricasCampanaService
         $paginas = MetaPage::whereIn('id', $posts->pluck('meta_page_id')->unique())->pluck('page_id', 'id');
         foreach ($posts->chunk(60) as $lote) {
             $lote = $lote->values();
-            $items = $lote->map(fn(MetaPost $p) => [
-                'red' => $p->network === 'instagram' ? 'instagram' : 'facebook', 'post_id' => (string) $p->fb_post_id,
-                'page_id' => (string) ($paginas[$p->meta_page_id] ?? ''), 'tipo' => $p->type === 'video' ? 'video' : 'foto',
-            ])->all();
+            $items = $lote->map(function (MetaPost $p) use ($paginas) {
+                $red = $p->network === 'instagram' ? 'instagram' : 'facebook';
+                $id = (string) $p->fb_post_id;
+                // En vivos y pregrabados: el id del video está en su enlace (el guardado puede ser el del Live, que no tiene estadísticas)
+                $video = $red === 'facebook' && $p->type === 'video' ? MetaMetricasService::videoDelEnlace($p->fb_permalink_url) : '';
+                if ($video !== '' && !str_contains($id, '_')) $id = $video;
+                return ['red' => $red, 'post_id' => $id, 'media_id' => $video, 'page_id' => (string) ($paginas[$p->meta_page_id] ?? ''), 'tipo' => $p->type === 'video' ? 'video' : 'foto'];
+            })->all();
             try {
                 $res = $this->metricas->metricas($items);
             } catch (\Throwable $e) {
@@ -61,6 +65,8 @@ class MetricasCampanaService
             foreach ($lote as $i => $p) {
                 $r = $res[$i] ?? null;
                 $out['revisadas']++;
+                $out['detalle'][] = ['post' => $p->id, 'pagina' => $p->meta_page_id, 'id' => $items[$i]['post_id'], 'tipo' => $items[$i]['tipo'], 'ok' => (bool) ($r['ok'] ?? false),
+                    'alcance' => $r['alcance'] ?? null, 'visualizaciones' => $r['reproducciones'] ?? $r['impresiones'] ?? null, 'interacciones' => $r['interacciones'] ?? null, 'error' => $r['error'] ?? null];
                 if ($conFecha) $p->last_insights_at = now(); // aunque falle: se reintenta en CADA_HORAS horas, sin bloquear a las demás
                 if (!$r || empty($r['ok'])) {
                     $out['errores']++;
